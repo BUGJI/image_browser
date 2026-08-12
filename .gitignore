@@ -1,0 +1,14 @@
+node_modules/
+dist/
+out/
+.DS_Store
+*.log
+.vite/
+
+# 构建 / 调试产物
+all-out/
+iso-out/
+iso-out2/
+probe-out/
+.qwenpaw-screens/
+*.zip

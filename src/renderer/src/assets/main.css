@@ -1,0 +1,91 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#app,
+#settings-app {
+  height: 100%;
+  background: #fff;
+}
+
+body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ---------- 暗色模式（html.dark 由主题 store 控制） ---------- */
+html.dark,
+html.dark body,
+html.dark #app,
+html.dark #settings-app {
+  background: #141414;
+}
+
+html.dark {
+  color-scheme: dark;
+}
+
+/* 页面级颜色变量（组件用 Element Plus dark 变量，页面自绘区域用这些） */
+:root {
+  --app-bg: #ffffff;
+  --app-text: #1f2329;
+  --app-text-secondary: #8f959e;
+  --panel-bg: #fafbfc;
+  --panel-border: #e6e8eb;
+  --panel-hover: #eef0f3;
+}
+
+/* ---------- 主题切换过渡 ----------
+ * 亮/暗切换瞬间由 theme store 给 html 临时加上 theme-transition，
+ * 强制颜色/背景/边框渐变（约 0.35s），过渡结束后移除该类恢复常态。 */
+html.theme-transition,
+html.theme-transition *,
+html.theme-transition *::before,
+html.theme-transition *::after {
+  transition:
+    background-color 0.35s ease,
+    border-color 0.35s ease,
+    color 0.35s ease,
+    fill 0.35s ease,
+    stroke 0.35s ease !important;
+}
+
+/* ---------- 组件动画禁用 ----------
+ * 「动画 - 组件动画」关闭时由动画 store 给 html 加 no-element-anim，
+ * 全局关掉 Element Plus 及页面内的过渡与动画（瞬时显示）。 */
+html.no-element-anim *,
+html.no-element-anim *::before,
+html.no-element-anim *::after {
+  transition: none !important;
+  animation: none !important;
+}
+
+html.dark {
+  --app-bg: #1d1e1f;
+  --app-text: #e5e6eb;
+  --app-text-secondary: #8f959e;
+  --panel-bg: #232426;
+  --panel-border: #3a3b3d;
+  --panel-hover: #2b2c2e;
+}
+
+/* 滚动条（暗色下更柔和） */
+html.dark ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+html.dark ::-webkit-scrollbar-thumb {
+  background: #4a4b4d;
+  border-radius: 5px;
+}
+
+html.dark ::-webkit-scrollbar-track {
+  background: transparent;
+}
