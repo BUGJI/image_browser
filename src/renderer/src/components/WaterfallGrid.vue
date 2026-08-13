@@ -21,7 +21,9 @@ const props = defineProps({
   // 外部触发刷新（如缓存维护完成后）：数值变化时重新加载图片列表
   refreshTick: { type: Number, default: 0 },
   // 非空时进入搜索模式：跨根目录按文件名搜索（支持 * ? 通配符）
-  searchQuery: { type: String, default: '' }
+  searchQuery: { type: String, default: '' },
+  // AI 搜索结果（非 null 时优先渲染，跳过 imagesList 拉取）
+  aiResults: { type: Array, default: null }
 })
 
 const GAP = 10
@@ -89,6 +91,20 @@ function scheduleLayout() {
 const isSearching = computed(() => !!props.searchQuery && props.searchQuery.trim() !== '')
 
 async function load() {
+  if (Array.isArray(props.aiResults)) {
+    items.value = props.aiResults.map((it) => ({
+      ...it,
+      x: 0,
+      y: 0,
+      w: 0,
+      h: 0,
+      _loaded: null
+    }))
+    totalHeight.value = 0
+    await nextTick()
+    doLayout()
+    return
+  }
   if (!isSearching.value && !props.folderPath) {
     items.value = []
     totalHeight.value = 0
@@ -117,7 +133,7 @@ async function load() {
   }
 }
 
-watch(() => [props.rootId, props.folderPath, props.searchQuery], load, { immediate: true })
+watch(() => [props.rootId, props.folderPath, props.searchQuery, props.aiResults], load, { immediate: true })
 
 // 缩放变化 → 重新布局
 watch(() => props.zoom, doLayout)

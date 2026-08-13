@@ -1,5 +1,6 @@
 appId: com.openclaw.image-browser
 productName: image-browser
+electronDist: node_modules/electron/dist
 directories:
   buildResources: build
 files:
@@ -36,5 +37,6 @@ appImage:
   artifactName: ${name}-${version}.${ext}
 npmRebuild: false
 publish:
-  provider: generic
-  url: https://example.com/auto-updates
+  provider: github
+  owner: BUGJI
+  repo: image_browser

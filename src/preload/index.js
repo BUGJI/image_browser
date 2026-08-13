@@ -104,6 +104,26 @@ const api = {
   // 传入 searchQuery 时跨整个根目录按文件名搜索（支持 * ? 通配符）
   imagesList: (rootId, folderPath, searchQuery) =>
     ipcRenderer.invoke('images:list', rootId, folderPath, searchQuery),
+
+  // --- AI 语义搜索 ---
+  // 向量索引维护：mode: 'update' | 'rebuild' | 'clean'
+  aiIndex: (rootId, mode) => ipcRenderer.invoke('ai:index', rootId, mode),
+  aiAbort: () => ipcRenderer.invoke('ai:abort'),
+  aiStatus: () => ipcRenderer.invoke('ai:status'),
+  // AI 语义搜索：把 query 向量化，返回与瀑布流一致的图片列表（Top-K）
+  aiSearch: (rootId, query) => ipcRenderer.invoke('ai:search', rootId, query),
+  // AI 流程测试（设置-测试）：图片 dataURL → 描述
+  aiTestCaption: (dataUrl) => ipcRenderer.invoke('ai:test-caption', dataUrl),
+  // AI 流程测试：文本 → 向量
+  aiTestEmbed: (text) => ipcRenderer.invoke('ai:test-embed', text),
+  // 测试 AI 接口连接（校验 baseUrl + API key，检查配置模型是否存在）
+  aiTestConnection: () => ipcRenderer.invoke('ai:test-connection'),
+  // 向量索引维护进度事件：{ rootId, rootPath, phase, done/total/current, done/aborted/error }
+  onAiProgress: (cb) => {
+    const listener = (_e, payload) => cb(payload)
+    ipcRenderer.on('ai:progress', listener)
+    return () => ipcRenderer.removeListener('ai:progress', listener)
+  },
   // 复制图片（dataURL → 系统剪贴板）
   copyImageDataUrl: (dataUrl) => ipcRenderer.invoke('clipboard:write-image', dataUrl),
   // 复制图片（直接读文件 → 系统剪贴板）

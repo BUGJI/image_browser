@@ -3,13 +3,10 @@ import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Setting, Folder, Search } from '@element-plus/icons-vue'
 import { useRootsStore } from '../stores/roots'
-import { useNotificationsStore } from '../stores/notifications'
 
 const { t } = useI18n()
 const rootsStore = useRootsStore()
-const notificationsStore = useNotificationsStore()
 let offRootsChanged = null
-let offScanProgress = null
 
 // 目录树数据（只含文件夹，来自主进程扫描）
 const treeData = ref([])
@@ -17,7 +14,6 @@ const scanning = ref(false)
 const searchText = ref('')
 const treeKey = ref(0) // 搜索词变化时重建树，让 default-expanded-keys 生效
 let scanSeq = 0 // 丢弃过期扫描结果
-let currentNotifyId = null // 当前扫描对应的进度通知
 
 // 展开状态持久化（每个根目录独立保存，localStorage）
 const treeRef = ref(null)
@@ -51,13 +47,6 @@ function displayName(root) {
   return parts.length ? parts[parts.length - 1] : root.path
 }
 
-function rootShortName(root) {
-  if (!root) return ''
-  if (root.alias && root.alias.trim()) return root.alias.trim()
-  const parts = root.path.split(/[\\/]+/).filter(Boolean)
-  return parts.length ? parts[parts.length - 1] : root.path
-}
-
 async function scanTree() {
   const root = rootsStore.currentRoot
   treeData.value = []
@@ -65,35 +54,17 @@ async function scanTree() {
   scanning.value = true
   const seq = ++scanSeq
 
-  // 进度通知（左下角弹出，可中止）
-  currentNotifyId = notificationsStore.add({
-    type: 'progress',
-    title: t('sidebar.scanningRoot', { name: rootShortName(root) }),
-    message: t('sidebar.prepareScan'),
-    cancellable: true,
-    onCancel: () => window.api.scanAbort()
-  })
-
   try {
     const tree = await window.api.scanTree(root.path)
     if (seq !== scanSeq) {
-      // 用户已切换目录，旧扫描视为中止（新扫描的通知会接管）
-      notificationsStore.finish(currentNotifyId, 'aborted', { message: t('sidebar.scanAbortedBySwitch') })
+      // 用户已切换目录，旧扫描结果作废
       return
     }
     treeData.value = tree ? [tree] : []
     persistedExpanded.value = loadExpanded()
     applyPersistedExpanded()
-    // 进度事件里通常已标记 done（带文件夹总数）；这里兜底，避免覆盖更详细的消息
-    const notify = notificationsStore.find(currentNotifyId)
-    if (notify && notify.status === 'active') {
-      notificationsStore.finish(currentNotifyId, 'done', { message: t('sidebar.scanDone') })
-    }
   } catch (e) {
     console.warn('目录树扫描失败', e)
-    if (seq === scanSeq) {
-      notificationsStore.finish(currentNotifyId, 'aborted', { message: t('sidebar.scanFailed') })
-    }
     treeData.value = []
   } finally {
     if (seq === scanSeq) scanning.value = false
@@ -102,24 +73,6 @@ async function scanTree() {
 
 // 切换根目录 → 重新扫描
 watch(() => rootsStore.currentRootId, scanTree, { immediate: true })
-
-// 扫描进度事件 → 更新进度通知
-offScanProgress = window.api.onScanProgress(({ scanned, done, aborted }) => {
-  if (scanSeq === 0) return
-  if (!currentNotifyId) return
-  if (aborted) {
-    notificationsStore.finish(currentNotifyId, 'aborted', { message: t('sidebar.scanAborted') })
-    return
-  }
-  if (done) {
-    notificationsStore.finish(currentNotifyId, 'done', {
-      message: t('sidebar.scanDoneCount', { n: scanned ?? 0 }),
-      actions: [{ label: t('sidebar.rescan'), kind: 'default', onClick: () => scanTree() }]
-    })
-    return
-  }
-  notificationsStore.update(currentNotifyId, { message: t('sidebar.scannedFolders', { n: scanned }) })
-})
 
 // 搜索过滤：保留名称匹配的节点 + 其祖先链
 const filteredTree = computed(() => {
@@ -215,7 +168,6 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   offRootsChanged?.()
-  offScanProgress?.()
 })
 </script>
 

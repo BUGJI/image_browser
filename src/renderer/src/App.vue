@@ -1,7 +1,7 @@
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ElConfigProvider } from 'element-plus'
+import { ElConfigProvider, ElMessage } from 'element-plus'
 import en from 'element-plus/es/locale/lang/en'
 import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import TitleBar from './components/TitleBar.vue'
@@ -9,12 +9,13 @@ import SideBar from './components/SideBar.vue'
 import NotificationHost from './components/NotificationHost.vue'
 import WaterfallGrid from './components/WaterfallGrid.vue'
 import CloseAskDialog from './components/CloseAskDialog.vue'
-import { Picture, Search } from '@element-plus/icons-vue'
+import { Picture, Search, Loading } from '@element-plus/icons-vue'
 import { useRootsStore } from './stores/roots'
 import { useThemeStore } from './stores/theme'
 import { useNotificationsStore } from './stores/notifications'
 import { useLocaleStore } from './stores/locale'
 import { useAnimationsStore } from './stores/animations'
+import { aiSearch } from './utils/ai-search'
 
 const { t } = useI18n()
 const localeStore = useLocaleStore()
@@ -42,19 +43,82 @@ const searchInput = ref('')
 const searchQuery = ref('')
 const isSearching = computed(() => searchQuery.value.trim() !== '')
 
-function applySearch() {
-  searchQuery.value = searchInput.value.trim()
+// AI 搜索：设置中启用后，搜索框右侧显示开关；开关开启时回车走 AI 检索
+const aiSearchEnabled = ref(false)
+const aiSearchActive = ref(false)
+// AI 搜索结果（非空数组时瀑布流优先渲染，覆盖普通搜索/文件夹列表）
+const aiResults = ref(null)
+const aiSearchBusy = ref(false)
+
+// 主进程 ai:search 抛出的错误码 → 界面提示文案
+const AI_ERROR_KEYS = {
+  AI_NO_ROOT: 'app.aiNoRoot',
+  AI_NO_KEY: 'app.aiNoKey',
+  AI_NO_CACHE: 'app.aiNoCache',
+  AI_NO_INDEX: 'app.aiNoIndex'
+}
+
+async function applySearch() {
+  const q = searchInput.value.trim()
+  if (aiSearchActive.value) {
+    await runAiSearch(q)
+    return
+  }
+  searchQuery.value = q
+  aiResults.value = null
+}
+
+// AI 检索：主进程向量化 query → 余弦相似度 → 返回与瀑布流一致的图片列表
+async function runAiSearch(q) {
+  if (!q || !rootsStore.currentRoot) {
+    clearSearch()
+    return
+  }
+  aiSearchBusy.value = true
+  try {
+    const results = await aiSearch(rootsStore.currentRoot.id, q)
+    aiResults.value = results || []
+    // 置为搜索态：显示瀑布流、隐藏文件夹横幅（grid 会优先渲染 aiResults）
+    searchQuery.value = q
+  } catch (e) {
+    aiResults.value = null
+    searchQuery.value = ''
+    ElMessage.warning(t(AI_ERROR_KEYS[e?.code] || 'app.aiSearchFailed', { error: e?.message || '' }))
+  } finally {
+    aiSearchBusy.value = false
+  }
 }
 
 function clearSearch() {
   searchInput.value = ''
   searchQuery.value = ''
+  aiResults.value = null
 }
+
+// AI 搜索开关关闭时，清掉已展示的 AI 结果，回到文件夹浏览
+watch(aiSearchActive, (v) => {
+  if (!v && aiResults.value) {
+    aiResults.value = null
+    searchQuery.value = ''
+  }
+})
 
 const rootsStore = useRootsStore()
 const themeStore = useThemeStore()
 const notificationsStore = useNotificationsStore()
 const animationsStore = useAnimationsStore()
+
+// 切换到文件夹 / 切换根目录时，退出 AI 结果视图
+watch(
+  () => [rootsStore.selectedFolder, rootsStore.currentRootId],
+  () => {
+    if (aiResults.value) {
+      aiResults.value = null
+      searchQuery.value = ''
+      searchInput.value = ''
+    }
+  }
+)
 
 const rootDisplayName = computed(() => {
   const root = rootsStore.currentRoot
@@ -187,6 +251,9 @@ onMounted(async () => {
   const mode = await window.api.getSetting('titlebar', 'custom')
   useCustomTitlebar.value = mode === 'custom'
 
+  // AI 搜索：主开关启用后显示工具栏开关
+  aiSearchEnabled.value = (await window.api.getSetting('aiSearchEnabled', 'false')) === 'true'
+
   // 缩放滑块最大值（开发者选项可配置，默认 2）
   const zm = parseFloat(await window.api.getSetting('zoomMax', '2'))
   zoomMax.value = Number.isFinite(zm) ? Math.max(1, zm) : 2
@@ -213,6 +280,10 @@ onMounted(async () => {
   offSettingsChanged = window.api.onSettingsChanged(({ key, value }) => {
     if (key === 'titlebar') {
       useCustomTitlebar.value = value === 'custom'
+    }
+    if (key === 'aiSearchEnabled') {
+      aiSearchEnabled.value = value === 'true'
+      if (!aiSearchEnabled.value) aiSearchActive.value = false
     }
     if (key === 'zoomMax') {
       const zm = parseFloat(value)
@@ -270,6 +341,19 @@ onBeforeUnmount(() => {
                   <el-icon :size="14"><Search /></el-icon>
                 </template>
               </el-input>
+            </div>
+
+            <!-- AI 搜索开关（设置中启用后显示） -->
+            <div v-if="aiSearchEnabled" class="ai-search-toggle">
+              <el-icon v-if="aiSearchBusy" class="is-loading ai-search-loading" :size="14">
+                <Loading />
+              </el-icon>
+              <el-switch
+                v-model="aiSearchActive"
+                size="small"
+                :aria-label="t('app.aiSearchToggle')"
+              />
+              <span class="ai-search-label">{{ t('app.aiSearchToggle') }}</span>
             </div>
 
             <div class="zoom-control">
@@ -411,6 +495,7 @@ onBeforeUnmount(() => {
                   :zoom="itemZoom"
                   :refresh-tick="cacheRefreshTick"
                   :search-query="searchQuery"
+                  :ai-results="aiResults"
                 />
               </div>
               <div v-else class="welcome">
@@ -517,6 +602,30 @@ onBeforeUnmount(() => {
 
 .search-input :deep(.el-input__inner) {
   font-size: 12px;
+}
+
+/* AI 搜索开关 */
+.ai-search-toggle {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  background: var(--panel-bg);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.ai-search-label {
+  font-size: 12px;
+  color: var(--app-text-secondary);
+  white-space: nowrap;
+}
+
+.ai-search-loading {
+  color: var(--el-color-primary);
 }
 
 /* 缩放控件 */
