@@ -13,9 +13,15 @@ const info = ref({
 })
 
 const checking = ref(false)
+const appVersion = ref('')
 
-onMounted(() => {
+onMounted(async () => {
   info.value = window.api.versions
+  try {
+    appVersion.value = (await window.api.appVersion?.()) || ''
+  } catch {
+    /* 忽略 */
+  }
 })
 
 // 检测更新：目前为桩实现，主进程始终返回「已是最新」
@@ -54,7 +60,7 @@ async function onCheckUpdate() {
     </el-card>
 
     <el-descriptions :column="1" border class="info-table">
-      <el-descriptions-item :label="t('about.version')">1.0.0</el-descriptions-item>
+      <el-descriptions-item :label="t('about.version')">{{ appVersion || '-' }}</el-descriptions-item>
       <el-descriptions-item label="Electron">{{ info.electron }}</el-descriptions-item>
       <el-descriptions-item label="Chromium">{{ info.chrome }}</el-descriptions-item>
       <el-descriptions-item :label="t('about.node')">{{ info.node }}</el-descriptions-item>

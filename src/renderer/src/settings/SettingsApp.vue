@@ -10,13 +10,16 @@ import RootsPage from './pages/RootsPage.vue'
 import AppearancePage from './pages/AppearancePage.vue'
 import ThemePage from './pages/ThemePage.vue'
 import AnimationsPage from './pages/AnimationsPage.vue'
+import AiSearchPage from './pages/AiSearchPage.vue'
 import AboutPage from './pages/AboutPage.vue'
 import TestPage from './pages/TestPage.vue'
 import DevOptionsPage from './pages/DevOptionsPage.vue'
+import ShortcutsPage from './pages/ShortcutsPage.vue'
 import NotificationHost from '../components/NotificationHost.vue'
 import { useThemeStore } from '../stores/theme'
 import { useLocaleStore } from '../stores/locale'
 import { useAnimationsStore } from '../stores/animations'
+import { useGifStore } from '../stores/gif'
 
 const { t } = useI18n()
 const localeStore = useLocaleStore()
@@ -25,6 +28,7 @@ const elementLocale = computed(() => (localeStore.locale === 'en-US' ? en : zhCn
 
 const themeStore = useThemeStore()
 const animationsStore = useAnimationsStore()
+const gifStore = useGifStore()
 let offSettingsChanged = null
 
 // 「测试」栏目是否显示（开发者选项控制，默认隐藏）
@@ -54,7 +58,8 @@ const treeData = computed(() => {
         { id: 'animations', label: t('settings.animations') }
       ]
     },
-    { id: 'dev-options', label: t('settings.devOptions'), icon: 'Monitor' }
+    { id: 'dev-options', label: t('settings.devOptions'), icon: 'Monitor' },
+    { id: 'shortcuts', label: t('settings.shortcuts'), icon: 'Key' }
   ]
   if (showTest.value) {
     nodes.push({ id: 'test', label: t('settings.test'), icon: 'Aim' })
@@ -71,6 +76,8 @@ const pageMap = {
   animations: AnimationsPage,
   test: TestPage,
   'dev-options': DevOptionsPage,
+  shortcuts: ShortcutsPage,
+  'ai-search': AiSearchPage,
   about: AboutPage
 }
 
@@ -88,11 +95,13 @@ onMounted(async () => {
   await animationsStore.load()
   themeStore.load()
   localeStore.load()
+  await gifStore.load()
   showTest.value = (await window.api.getSetting('showTest', 'false')) === 'true'
   offSettingsChanged = window.api.onSettingsChanged((payload) => {
     themeStore.onSettingsChanged(payload)
     localeStore.onSettingsChanged(payload)
     animationsStore.onSettingsChanged(payload)
+    gifStore.onSettingsChanged(payload)
     if (payload?.key === 'showTest') {
       showTest.value = payload.value === 'true'
     }

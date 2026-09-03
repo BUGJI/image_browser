@@ -26,6 +26,13 @@ const rememberWindowSize = ref(false)
 const checkUpdateOnStartup = ref(false)
 const rememberZoom = ref(false)
 
+// 快速复制默认类型：file = 复制原文件；image = 复制图片
+const quickCopyType = ref('file')
+const QUICK_COPY_OPTIONS = computed(() => [
+  { value: 'file', label: t('general.quickCopyFile'), desc: t('general.quickCopyFileDesc') },
+  { value: 'image', label: t('general.quickCopyImage'), desc: t('general.quickCopyImageDesc') }
+])
+
 // 同步外部加载/修改的语言（主进程持久化值可能在挂载后才恢复）
 watch(
   () => localeStore.locale,
@@ -48,6 +55,8 @@ onMounted(async () => {
   checkUpdateOnStartup.value =
     (await window.api.getSetting('checkUpdateOnStartup', 'false')) === 'true'
   rememberZoom.value = (await window.api.getSetting('rememberZoom', 'false')) === 'true'
+  const qc = await window.api.getSetting('quickCopyType', 'file')
+  quickCopyType.value = ['file', 'image'].includes(qc) ? qc : 'file'
 })
 
 async function onCloseActionChange(v) {
@@ -96,6 +105,16 @@ async function onRememberZoomChange(v) {
     ElMessage.error(t('common.saveFailed'))
   }
 }
+
+async function onQuickCopyTypeChange(v) {
+  try {
+    await window.api.setSetting('quickCopyType', v)
+    const opt = QUICK_COPY_OPTIONS.value.find((o) => o.value === v)
+    ElMessage.success(t('general.savedQuickCopyType', { type: opt?.label || v }))
+  } catch {
+    ElMessage.error(t('common.saveFailed'))
+  }
+}
 </script>
 
 <template>
@@ -133,6 +152,27 @@ async function onRememberZoomChange(v) {
           <el-option v-for="l in LOCALES" :key="l.value" :value="l.value" :label="l.label" />
         </el-select>
       </div>
+    </el-card>
+
+    <el-card class="behavior-card" shadow="never">
+      <template #header>{{ t('general.quickCopy') }}</template>
+      <div class="behavior-row">
+        <div class="behavior-label">
+          <div class="behavior-name">{{ t('general.quickCopyDefault') }}</div>
+          <div class="behavior-desc">{{ t('general.quickCopyDefaultDesc') }}</div>
+        </div>
+        <el-select v-model="quickCopyType" class="behavior-select" @change="onQuickCopyTypeChange">
+          <el-option
+            v-for="o in QUICK_COPY_OPTIONS"
+            :key="o.value"
+            :value="o.value"
+            :label="o.label"
+          />
+        </el-select>
+      </div>
+      <p class="behavior-tip">
+        {{ QUICK_COPY_OPTIONS.find((o) => o.value === quickCopyType)?.desc }}
+      </p>
     </el-card>
 
     <el-card class="behavior-card" shadow="never">

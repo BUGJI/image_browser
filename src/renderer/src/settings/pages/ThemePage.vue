@@ -1,11 +1,19 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
+import { useThemeStore } from '../../stores/theme'
 
 const { t } = useI18n()
+const themeStore = useThemeStore()
 // 主题启动方式：dark = 默认暗色；light = 默认亮色；last = 上次状态
 const themeStartup = ref('last')
+
+// 纯黑模式开关：直接联动 theme store（即时应用 + 跨窗口同步）
+const pureBlack = computed({
+  get: () => themeStore.pureBlack,
+  set: (v) => themeStore.setPureBlack(v)
+})
 
 onMounted(async () => {
   const ts = await window.api.getSetting('themeStartup', 'last')
@@ -41,6 +49,16 @@ async function onThemeStartupChange(v) {
         </el-radio-group>
       </div>
     </el-card>
+
+    <el-card class="theme-card" shadow="never">
+      <div class="theme-row">
+        <div class="theme-label">
+          <div class="theme-name">{{ t('theme.pureBlack') }}</div>
+          <div class="theme-desc">{{ t('theme.pureBlackDesc') }}</div>
+        </div>
+        <el-switch v-model="pureBlack" />
+      </div>
+    </el-card>
   </div>
 </template>
 
@@ -60,6 +78,10 @@ async function onThemeStartupChange(v) {
   max-width: 640px;
 }
 
+.theme-card + .theme-card {
+  margin-top: 16px;
+}
+
 .theme-row {
   display: flex;
   align-items: flex-start;
@@ -76,5 +98,10 @@ async function onThemeStartupChange(v) {
   margin-top: 2px;
   font-size: 12px;
   color: var(--el-text-color-secondary);
+}
+
+.theme-row .el-switch {
+  align-self: center;
+  flex-shrink: 0;
 }
 </style>

@@ -26,6 +26,7 @@ import { promises as fsp } from 'fs'
 import { join, extname, relative, dirname } from 'path'
 import { decode as decodeJpeg } from 'jpeg-js'
 import { PNG } from 'pngjs'
+import omggif from 'omggif'
 import WebP from 'webp-wasm'
 
 const CACHE_DIR_NAME = '.image_browser_cache'
@@ -142,7 +143,7 @@ async function ensureWebP() {
   }
 }
 
-/** 解码 jpg/png/webp 为 RGBA；不支持的格式返回 null（gif/bmp/tiff 暂无解码器） */
+/** 解码 jpg/png/webp/gif 为 RGBA；不支持的格式返回 null（bmp/tiff 暂无解码器） */
 async function decodeImage(absPath) {
   const ext = extname(absPath).toLowerCase()
   const buf = await fsp.readFile(absPath)
@@ -157,6 +158,14 @@ async function decodeImage(absPath) {
   if (ext === '.webp') {
     const img = await WebP.decode(buf)
     return { width: img.width, height: img.height, data: img.data }
+  }
+  if (ext === '.gif') {
+    // 只解第一帧作为静态缩略图（gif 原生会在 <img> 里自动播放，磁盘缓存只用首帧）
+    const reader = new omggif.GifReader(new Uint8Array(buf))
+    const { width, height } = reader
+    const data = new Uint8Array(width * height * 4)
+    reader.decodeAndBlitFrameRGBA(0, data)
+    return { width, height, data }
   }
   return null
 }

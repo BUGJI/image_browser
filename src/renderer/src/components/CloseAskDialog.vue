@@ -40,7 +40,6 @@ function choose(action) {
     append-to-body
   >
     <div class="close-ask-body">
-      <p class="close-ask-text">{{ t('closeAsk.ask') }}</p>
       <p class="close-ask-sub">{{ t('closeAsk.sub') }}</p>
       <el-checkbox v-model="remember" class="close-ask-remember">
         {{ t('closeAsk.remember') }}
@@ -58,12 +57,6 @@ function choose(action) {
   display: flex;
   flex-direction: column;
   gap: 8px;
-}
-
-.close-ask-text {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 600;
 }
 
 .close-ask-sub {

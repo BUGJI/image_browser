@@ -41,16 +41,7 @@ export default {
     noRootsTooltip: 'No roots yet, click Settings to add',
     selectRoot: 'Select root',
     noRoots: 'No roots added',
-    settings: 'Settings',
-    scanningRoot: 'Scanning: {name}',
-    prepareScan: 'Preparing to scan…',
-    scanAbortedBySwitch: 'Directory switched, scan aborted',
-    scanDone: 'Scan finished',
-    scanFailed: 'Scan failed or aborted',
-    scanAborted: 'Scan aborted',
-    scanDoneCount: 'Scan finished, {n} folders',
-    rescan: 'Rescan',
-    scannedFolders: 'Scanned {n} folders…'
+    settings: 'Settings'
   },
   app: {
     cacheMaintenance: 'Cache maintenance',
@@ -68,7 +59,15 @@ export default {
     noRoots: 'No roots yet',
     goToSettings: 'Go to Settings to add a root',
     setupTip: 'Register image directories in Settings to browse them here',
-    searchImages: 'Search images (Enter, supports * ? wildcards)'
+    searchImages: 'Search images (Enter, supports * ? wildcards)',
+    quickCopy: 'Quick copy',
+    quickCopyTip: 'When on, clicking an image copies it directly ({type}) without opening the lightbox',
+    aiSearchToggle: 'AI search',
+    aiNoRoot: 'Select a root first',
+    aiNoKey: 'Configure an API key in Settings first',
+    aiNoCache: 'This root has no cache yet; run "Roots → Update cache" first',
+    aiNoIndex: 'No vector index for this root yet; run "Settings → AI search → Maintenance tools → Update" first',
+    aiSearchFailed: 'AI search failed: {error}'
   },
   waterfall: {
     loading: 'Loading image list…',
@@ -79,15 +78,18 @@ export default {
   },
   lightbox: {
     origLoadFailed: 'Failed to load original (file may be moved or deleted)',
-    copied: 'Copied current image',
+    copied: 'Copied image to clipboard',
+    copiedFile: 'Copied original file to clipboard',
     copyFailed: 'Copy failed: {error}',
-    copyTip: 'Copy current image (Ctrl+C)',
+    copyFileTip: 'Copy original file ({key})',
+    copyImageTip: 'Copy image ({key})',
+    copyFileAction: 'Copy file',
+    copyImageAction: 'Copy image',
     loadingOrig: 'Loading original…',
-    hint: 'Ctrl+C copy · ←/→ navigate · Esc close'
+    navHint: '←/→ navigate · Esc close'
   },
   closeAsk: {
     title: 'Close Image Browser',
-    ask: 'Minimize to tray or quit the app?',
     sub: 'When minimized to tray, the app keeps running in the background and can be reopened from the system tray.',
     remember: 'Remember my choice, don\'t ask again',
     toTray: 'Minimize to tray',
@@ -101,6 +103,9 @@ export default {
     theme: 'Theme setting',
     animations: 'Animations',
     devOptions: 'Developer options',
+    shortcuts: 'Shortcuts',
+    extensions: 'Extensions',
+    aiSearch: 'AI Search',
     test: 'Test',
     about: 'About',
     language: 'Language',
@@ -136,7 +141,16 @@ export default {
     startupWindow: 'Startup & Window',
     rememberZoom: 'Remember zoom',
     rememberZoomDesc:
-      'Remember the main screen zoom value and restore it on next launch; when off, defaults to 1.5 every launch'
+      'Remember the main screen zoom value and restore it on next launch; when off, defaults to 1.5 every launch',
+    quickCopy: 'Quick copy',
+    quickCopyDefault: 'Quick copy type',
+    quickCopyDefaultDesc:
+      'When the "Quick copy" switch is on in the main window, clicking an image copies it using this type instead of opening the lightbox',
+    quickCopyFile: 'Copy original file',
+    quickCopyFileDesc: 'Copy as a file, so you can paste it into File Explorer to get the original',
+    quickCopyImage: 'Copy image',
+    quickCopyImageDesc: 'Copy as an image, pasteable into chats or image editors',
+    savedQuickCopyType: 'Saved: quick copy defaults to {type}'
   },
   roots: {
     pageDesc: 'Register image directories to browse, switchable on the main screen.',
@@ -174,7 +188,22 @@ export default {
     needPath: 'Please enter a directory path',
     added: 'Root added',
     updated: 'Root updated',
-    startFailed: 'Failed to start: {error}'
+    startFailed: 'Failed to start: {error}',
+    gifSectionTitle: 'Animated GIF',
+    gifSectionDesc:
+      'Controls how GIF animations play in the grid thumbnails. The lightbox always shows the original animation and is not affected. Changes take effect immediately.',
+    gifPlayMode: 'Grid GIF playback',
+    gifAll: 'Play all',
+    gifAllDesc: 'Show the animation directly (default, same as the old behavior)',
+    gifHover: 'Play on hover',
+    gifHoverDesc: 'Show the first frame by default; play while hovering, stop on leave; re-hover restarts',
+    gifNone: 'Do not play',
+    gifNoneDesc: 'Always show the static first frame',
+    gifThumbSource: 'First-frame poster source',
+    gifSourceDisk: 'Disk cache',
+    gifSourceRealtime: 'Real-time',
+    gifSourceDesc:
+      'Disk cache: generate and store a first-frame thumbnail for GIFs during cache maintenance, smoothest browsing (recommended). Real-time: stop generating/writing first-frame thumbnails for GIFs to save disk space; posters are decoded on demand at a small performance cost. Previously generated thumbnails can be removed with "Clean unused cache".'
   },
   appearance: {
     pageDesc: 'Settings related to the interface display.',
@@ -194,7 +223,30 @@ export default {
     tip: 'Custom title bar is the default. After switching to the system title bar, the window uses the native system title bar.'
   },
   theme: {
-    pageDesc: 'Theme appearance used when the app starts.'
+    pageDesc: 'Theme appearance used when the app starts.',
+    pureBlack: 'Pure black (AMOLED)',
+    pureBlackDesc:
+      'Applies in dark mode only: replaces all dark backgrounds, panels and borders with pure black #000, great for OLED screens and more power-efficient.'
+  },
+  shortcuts: {
+    pageDesc: 'Customize the "Copy file / Copy image" shortcuts used in the lightbox.',
+    copyFile: 'Copy original file',
+    copyFileDesc: 'Put the current image into the clipboard as a file, so you can paste it into File Explorer to get the original',
+    copyImage: 'Copy image',
+    copyImageDesc: 'Put the image pixels into the clipboard, pasteable into chats or image editors',
+    pressKeys: 'Press shortcut',
+    unbound: 'Unbound',
+    conflict: 'That combination is already bound to "{action}", pick another one',
+    recordTip:
+      'Click a key area then press the new combination; plain letters/digits need a modifier (Ctrl/Alt/Shift), while F2~F24 can be used alone.',
+    reset: 'Reset to defaults',
+    wheelSection: 'Lightbox wheel',
+    wheelAction: 'Wheel action',
+    wheelActionDesc: 'What the mouse wheel does inside the lightbox',
+    wheelZoom: 'Zoom image',
+    wheelZoomDesc: 'Scroll up/down to zoom in/out the original; drag to pan when zoomed, double-click to reset',
+    wheelNavigate: 'Navigate images',
+    wheelNavigateDesc: 'Scroll the wheel to go to the previous/next image (keyboard and buttons still work)'
   },
   animations: {
     pageDesc: 'Toggles to control interface animations.',
@@ -218,6 +270,46 @@ export default {
     foundUpdate: 'New version available: v{version}',
     checkFailed: 'Update check failed: {error}'
   },
+  aiSearch: {
+    pageDesc: 'Connect an OpenAI-compatible API to search images with natural language / semantics.',
+    enableMaster: 'Enable AI search',
+    masterDesc: 'Shows the AI search toggle next to the search box on the main window',
+    wip: 'This feature is a work in progress for preview only; search quality and stability may be limited.',
+    endpoint: 'API config',
+    baseUrl: 'Base URL',
+    baseUrlDesc: 'Base URL of the OpenAI-compatible API (with /v1)',
+    apiKey: 'API key',
+    apiKeyDesc: 'API key used for authentication',
+    model: 'Embedding model',
+    modelDesc: 'Embeds text / descriptions into vectors for semantic search, e.g. text-embedding-3-small',
+    visionModel: 'Vision model',
+    visionModelDesc: 'Captions each image while building the vector index, e.g. gpt-4o-mini',
+    resultCount: 'Result count',
+    resultCountDesc: 'Matching images returned by one AI search ({min} ~ {max})',
+    testConnection: 'Test connection',
+    testOk: 'Connected',
+    testFailed: 'Connection failed',
+    enabled: 'AI search enabled',
+    disabled: 'AI search disabled',
+    maintainTools: 'Maintenance tools',
+    taskRunning: 'Task running',
+    maintainDesc: 'Build a vector index for the selected root (vision model captions + embedding model vectors), used by AI semantic search.',
+    maintainDir: 'Maintenance root',
+    maintainDirDesc: 'Pick the root to maintain; vectors are stored in its cache.db under .image_browser_cache',
+    selectMaintainRoot: 'Select a root to maintain',
+    selectRootFirst: 'Select a root to maintain first',
+    enableMasterFirst: 'Enable "AI search" first',
+    updateIndex: 'Update vector index',
+    rebuildIndex: 'Rebuild vector index',
+    cleanIndex: 'Clean orphan vectors',
+    startFailed: 'Failed to start: {error}',
+    embedding: 'Embedding {done}/{total} ({current})',
+    indexDone: 'Vector index maintenance finished',
+    statsEmbedded: '{n} embedded',
+    statsRemoved: '{n} stale removed',
+    statsFailed: '{n} failed',
+    usageTip: 'Workflow: build the vector index for a root under Maintenance tools, then enable the AI search toggle on the main window and type a natural-language description (e.g. "sunset beach") and press Enter for semantic search.'
+  },
   devOptions: {
     pageDesc: 'Debug and experimental features for developers.',
     enableMaster: 'Enable developer options',
@@ -234,6 +326,15 @@ export default {
     zoomTitle: 'Waterfall zoom',
     zoomMax: 'Slider max value',
     zoomMaxDesc: 'Maximum value of the zoom slider on main screen ({min} ~ {max})',
+    lightZoomTitle: 'Lightbox zoom',
+    lightZoomDesc: 'These take effect the next time the lightbox opens.',
+    lightZoomMin: 'Min zoom',
+    lightZoomMinDesc: 'Lowest scale allowed for the lightbox image (1 = exactly fit the window)',
+    lightZoomMax: 'Max zoom',
+    lightZoomMaxDesc: 'Highest scale allowed for the lightbox image',
+    lightZoomStep: 'Zoom step',
+    lightZoomStepDesc: 'Multiplier applied per wheel notch (e.g. 1.2 = +20% per notch)',
+    lightZoomSaved: 'Saved: lightbox zoom takes effect the next time it opens',
     cacheTitle: 'Cache maintenance',
     cacheDesc: 'These parameters apply the next time you run "Roots → Update/Rebuild cache".',
     thumbWidth: 'Max thumbnail width',
@@ -290,7 +391,21 @@ export default {
     mockWarningTitle: 'Warning',
     mockWarningMsg: 'This is a warning notification',
     mockErrorTitle: 'Error',
-    mockErrorMsg: 'This is an error notification'
+    mockErrorMsg: 'This is an error notification',
+    aiFlow: 'AI flow test',
+    aiFlowDesc: 'End-to-end test of the AI search pipeline: image → caption → vector; each step shows its prompt and result.',
+    aiStep1: '1. Pick an image',
+    aiBrowse: 'Browse…',
+    aiStep2: '2. Image to text (vision model)',
+    aiRunCaption: 'Run image to text',
+    aiStep3: '3. Text to vector (embedding model)',
+    aiEmbedPlaceholder: 'Text to embed (auto-filled with the caption after step 2)',
+    aiRunEmbed: 'Run text to vector',
+    aiPromptLabel: 'Prompt',
+    aiResultLabel: 'Result',
+    aiVectorInfo: 'Vector ({dims} dims, first 8 shown)',
+    aiEmbedEmpty: 'Enter some text to embed first',
+    aiNoImage: 'Pick an image first'
   },
   tray: {
     open: 'Open Image Browser',

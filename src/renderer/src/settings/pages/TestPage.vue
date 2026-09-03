@@ -1,6 +1,8 @@
 <script setup>
-import { computed, onBeforeUnmount } from 'vue'
+import { computed, ref, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { ElMessage } from 'element-plus'
+import { Picture } from '@element-plus/icons-vue'
 import { useNotificationsStore } from '../../stores/notifications'
 
 const { t } = useI18n()
@@ -10,6 +12,87 @@ const timers = []
 onBeforeUnmount(() => {
   timers.forEach((t) => clearInterval(t))
 })
+
+// ---------- AI 流程测试：图片 → 描述 → 向量 ----------
+const fileInput = ref(null)
+const captioning = ref(false)
+const embedding = ref(false)
+const imagePreview = ref('')
+const fileName = ref('')
+const captionResult = ref(null)
+const embedText = ref('')
+const embedResult = ref(null)
+
+function browseImage() {
+  fileInput.value?.click()
+}
+
+function onFileChange() {
+  const f = fileInput.value?.files?.[0]
+  if (!f) return
+  fileName.value = f.name
+  if (imagePreview.value) URL.revokeObjectURL(imagePreview.value)
+  imagePreview.value = URL.createObjectURL(f)
+  captionResult.value = null
+  embedResult.value = null
+  embedText.value = ''
+}
+
+function base64FromArrayBuffer(buf) {
+  const bytes = new Uint8Array(buf)
+  let binary = ''
+  const chunk = 0x8000
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk))
+  }
+  return btoa(binary)
+}
+
+async function runCaption() {
+  const f = fileInput.value?.files?.[0]
+  if (!f) {
+    ElMessage.warning(t('test.aiNoImage'))
+    return
+  }
+  captioning.value = true
+  captionResult.value = null
+  try {
+    const buf = await f.arrayBuffer()
+    const dataUrl = `data:${f.type || 'image/jpeg'};base64,${base64FromArrayBuffer(buf)}`
+    captionResult.value = await window.api.aiTestCaption(dataUrl)
+    // 自动把生成的描述填入步骤 3，可直接转向量
+    if (captionResult.value?.caption) {
+      embedText.value = captionResult.value.caption
+    }
+  } catch (e) {
+    ElMessage.error(String(e?.message || e))
+  } finally {
+    captioning.value = false
+  }
+}
+
+async function runEmbed() {
+  const text = embedText.value.trim()
+  if (!text) {
+    ElMessage.warning(t('test.aiEmbedEmpty'))
+    return
+  }
+  embedding.value = true
+  embedResult.value = null
+  try {
+    embedResult.value = await window.api.aiTestEmbed(text)
+  } catch (e) {
+    ElMessage.error(String(e?.message || e))
+  } finally {
+    embedding.value = false
+  }
+}
+
+function vectorPreview(vec) {
+  if (!Array.isArray(vec)) return ''
+  const head = vec.slice(0, 8).map((v) => v.toFixed(4)).join(', ')
+  return `[${head}, …]`
+}
 
 // ---------- 触发器：进度通知（模拟，可中止） ----------
 function triggerProgress() {
@@ -131,6 +214,92 @@ function fmtTime(ts) {
       </div>
     </el-card>
 
+    <!-- AI 流程测试：图片 → 描述 → 向量 -->
+    <el-card class="test-card" shadow="never">
+      <template #header>{{ t('test.aiFlow') }}</template>
+      <p class="test-desc">{{ t('test.aiFlowDesc') }}</p>
+
+      <input ref="fileInput" type="file" accept="image/*" hidden @change="onFileChange" />
+
+      <!-- 步骤 1：选择图片 -->
+      <div class="ai-step">
+        <div class="ai-step-head">
+          <el-tag size="small" type="primary" class="ai-step-tag">1</el-tag>
+          <span class="ai-step-name">{{ t('test.aiStep1') }}</span>
+        </div>
+        <div class="ai-step-body">
+          <el-button :icon="Picture" @click="browseImage">{{ t('test.aiBrowse') }}</el-button>
+          <div v-if="imagePreview" class="ai-image">
+            <img :src="imagePreview" class="ai-image-preview" alt="" />
+            <span class="ai-image-name">{{ fileName }}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 步骤 2：图片转文字 -->
+      <div class="ai-step">
+        <div class="ai-step-head">
+          <el-tag size="small" type="success" class="ai-step-tag">2</el-tag>
+          <span class="ai-step-name">{{ t('test.aiStep2') }}</span>
+        </div>
+        <div class="ai-step-body">
+          <el-button
+            type="primary"
+            :disabled="!imagePreview"
+            :loading="captioning"
+            @click="runCaption"
+          >
+            {{ t('test.aiRunCaption') }}
+          </el-button>
+          <template v-if="captionResult">
+            <div class="ai-result">
+              <div class="ai-result-label">{{ t('test.aiPromptLabel') }}（{{ captionResult.model }}）</div>
+              <pre class="ai-result-box">{{ captionResult.prompt }}</pre>
+            </div>
+            <div class="ai-result">
+              <div class="ai-result-label">{{ t('test.aiResultLabel') }}</div>
+              <pre class="ai-result-box ai-result-caption">{{ captionResult.caption }}</pre>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- 步骤 3：文字转向量 -->
+      <div class="ai-step">
+        <div class="ai-step-head">
+          <el-tag size="small" type="warning" class="ai-step-tag">3</el-tag>
+          <span class="ai-step-name">{{ t('test.aiStep3') }}</span>
+        </div>
+        <div class="ai-step-body">
+          <div class="ai-embed-row">
+            <el-input
+              v-model="embedText"
+              :placeholder="t('test.aiEmbedPlaceholder')"
+              clearable
+            />
+            <el-button
+              type="warning"
+              :disabled="!embedText.trim()"
+              :loading="embedding"
+              @click="runEmbed"
+            >
+              {{ t('test.aiRunEmbed') }}
+            </el-button>
+          </div>
+          <template v-if="embedResult">
+            <div class="ai-result">
+              <div class="ai-result-label">{{ t('test.aiPromptLabel') }}（{{ embedResult.model }}）</div>
+              <pre class="ai-result-box">{{ embedResult.prompt }}</pre>
+            </div>
+            <div class="ai-result">
+              <div class="ai-result-label">{{ t('test.aiVectorInfo', { dims: embedResult.dims }) }}</div>
+              <pre class="ai-result-box">{{ vectorPreview(embedResult.vector) }}</pre>
+            </div>
+          </template>
+        </div>
+      </div>
+    </el-card>
+
     <el-card class="test-card" shadow="never">
       <template #header>
         <span>{{ t('test.currentNotify', { count: store.items.length }) }}</span>
@@ -214,5 +383,98 @@ function fmtTime(ts) {
   color: #aaa;
   font-size: 12px;
   flex-shrink: 0;
+}
+
+/* AI 流程测试 */
+.test-desc {
+  margin: 0 0 16px;
+  color: #999;
+  font-size: 13px;
+}
+
+.ai-step {
+  padding: 14px 0;
+  border-top: 1px dashed #eee;
+}
+
+.ai-step:first-of-type {
+  border-top: none;
+}
+
+.ai-step-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.ai-step-tag {
+  font-weight: 600;
+}
+
+.ai-step-name {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.ai-step-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.ai-image {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ai-image-preview {
+  max-width: 180px;
+  max-height: 120px;
+  border-radius: 6px;
+  border: 1px solid #eee;
+  object-fit: contain;
+}
+
+.ai-image-name {
+  color: #666;
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.ai-embed-row {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+
+.ai-result {
+  width: 100%;
+}
+
+.ai-result-label {
+  font-size: 12px;
+  color: #999;
+  margin-bottom: 4px;
+}
+
+.ai-result-box {
+  margin: 0;
+  padding: 8px 10px;
+  background: var(--el-fill-color-light, #f5f7fa);
+  border-radius: 6px;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.ai-result-caption {
+  color: var(--el-color-primary);
+  font-size: 13px;
+  font-weight: 500;
 }
 </style>

@@ -23,8 +23,9 @@ for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
 const pinia = createPinia()
 app.use(pinia)
 app.use(i18n)
-// Element Plus 组件库文案由 App.vue 中的 el-config-provider 按当前语言动态提供
-app.use(ElementPlus)
+// Element Plus 组件库文案由 App.vue 中的 el-config-provider 按当前语言动态提供；
+// zIndex 基准设 6000，确保 message 等弹层高于灯箱遮罩（z-index 5000）
+app.use(ElementPlus, { zIndex: 6000 })
 app.mount('#app')
 
 // 挂载后恢复语言设置（el-config-provider 会响应式切换）

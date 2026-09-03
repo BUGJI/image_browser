@@ -89,3 +89,33 @@ html.dark ::-webkit-scrollbar-thumb {
 html.dark ::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* 纯黑模式（暗色变体，html.dark.pure-black）：把所有暗色背景/面板替换为 #000 */
+html.dark.pure-black {
+  --app-bg: #000;
+  --panel-bg: #000;
+  --panel-hover: #101010;
+  --panel-border: #1b1b1d;
+
+  --el-bg-color-page: #000;
+  --el-bg-color: #000;
+  --el-bg-color-overlay: #000;
+  --el-fill-color-blank: #000;
+  --el-fill-color-extra-light: #0d0d0d;
+  --el-fill-color-lighter: #0d0d0d;
+  --el-fill-color-light: #141414;
+  --el-fill-color: #191919;
+  --el-fill-color-dark: #1e1e1e;
+  --el-fill-color-darker: #242424;
+
+  --el-border-color-extra-light: #101010;
+  --el-border-color-lighter: #161616;
+  --el-border-color-light: #1c1c1c;
+  --el-border-color: #222;
+  --el-border-color-dark: #2c2c2c;
+  --el-border-color-darker: #353535;
+}
+
+html.dark.pure-black ::-webkit-scrollbar-thumb {
+  background: #262626;
+}
