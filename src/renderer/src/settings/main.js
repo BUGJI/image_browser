@@ -22,7 +22,7 @@ for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
 const pinia = createPinia()
 app.use(pinia)
 app.use(i18n)
-app.use(ElementPlus)
+app.use(ElementPlus, { zIndex: 6000 })
 app.mount('#settings-app')
 
 // 挂载后恢复语言设置（el-config-provider 会响应式切换）

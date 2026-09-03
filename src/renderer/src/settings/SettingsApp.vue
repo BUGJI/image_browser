@@ -14,6 +14,7 @@ import AiSearchPage from './pages/AiSearchPage.vue'
 import AboutPage from './pages/AboutPage.vue'
 import TestPage from './pages/TestPage.vue'
 import DevOptionsPage from './pages/DevOptionsPage.vue'
+import ShortcutsPage from './pages/ShortcutsPage.vue'
 import NotificationHost from '../components/NotificationHost.vue'
 import { useThemeStore } from '../stores/theme'
 import { useLocaleStore } from '../stores/locale'
@@ -57,7 +58,8 @@ const treeData = computed(() => {
         { id: 'animations', label: t('settings.animations') }
       ]
     },
-    { id: 'dev-options', label: t('settings.devOptions'), icon: 'Monitor' }
+    { id: 'dev-options', label: t('settings.devOptions'), icon: 'Monitor' },
+    { id: 'shortcuts', label: t('settings.shortcuts'), icon: 'Key' }
   ]
   if (showTest.value) {
     nodes.push({ id: 'test', label: t('settings.test'), icon: 'Aim' })
@@ -74,6 +76,7 @@ const pageMap = {
   animations: AnimationsPage,
   test: TestPage,
   'dev-options': DevOptionsPage,
+  shortcuts: ShortcutsPage,
   'ai-search': AiSearchPage,
   about: AboutPage
 }

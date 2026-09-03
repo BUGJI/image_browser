@@ -129,7 +129,9 @@ const api = {
   // 复制图片（dataURL → 系统剪贴板）
   copyImageDataUrl: (dataUrl) => ipcRenderer.invoke('clipboard:write-image', dataUrl),
   // 复制图片（直接读文件 → 系统剪贴板）
-  copyImagePath: (absPath) => ipcRenderer.invoke('clipboard:write-image-path', absPath)
+  copyImagePath: (absPath) => ipcRenderer.invoke('clipboard:write-image-path', absPath),
+  // 复制原文件（文件列表 → 剪贴板，可在文件管理器直接粘贴）
+  copyFile: (absPath) => ipcRenderer.invoke('clipboard:copy-file', absPath)
 }
 
 if (process.contextIsolated) {

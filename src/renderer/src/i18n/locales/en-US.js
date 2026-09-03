@@ -60,6 +60,8 @@ export default {
     goToSettings: 'Go to Settings to add a root',
     setupTip: 'Register image directories in Settings to browse them here',
     searchImages: 'Search images (Enter, supports * ? wildcards)',
+    quickCopy: 'Quick copy',
+    quickCopyTip: 'When on, clicking an image copies it directly ({type}) without opening the lightbox',
     aiSearchToggle: 'AI search',
     aiNoRoot: 'Select a root first',
     aiNoKey: 'Configure an API key in Settings first',
@@ -76,11 +78,15 @@ export default {
   },
   lightbox: {
     origLoadFailed: 'Failed to load original (file may be moved or deleted)',
-    copied: 'Copied current image',
+    copied: 'Copied image to clipboard',
+    copiedFile: 'Copied original file to clipboard',
     copyFailed: 'Copy failed: {error}',
-    copyTip: 'Copy current image (Ctrl+C)',
+    copyFileTip: 'Copy original file ({key})',
+    copyImageTip: 'Copy image ({key})',
+    copyFileAction: 'Copy file',
+    copyImageAction: 'Copy image',
     loadingOrig: 'Loading original…',
-    hint: 'Ctrl+C copy · ←/→ navigate · Esc close'
+    navHint: '←/→ navigate · Esc close'
   },
   closeAsk: {
     title: 'Close Image Browser',
@@ -97,6 +103,7 @@ export default {
     theme: 'Theme setting',
     animations: 'Animations',
     devOptions: 'Developer options',
+    shortcuts: 'Shortcuts',
     extensions: 'Extensions',
     aiSearch: 'AI Search',
     test: 'Test',
@@ -134,7 +141,16 @@ export default {
     startupWindow: 'Startup & Window',
     rememberZoom: 'Remember zoom',
     rememberZoomDesc:
-      'Remember the main screen zoom value and restore it on next launch; when off, defaults to 1.5 every launch'
+      'Remember the main screen zoom value and restore it on next launch; when off, defaults to 1.5 every launch',
+    quickCopy: 'Quick copy',
+    quickCopyDefault: 'Quick copy type',
+    quickCopyDefaultDesc:
+      'When the "Quick copy" switch is on in the main window, clicking an image copies it using this type instead of opening the lightbox',
+    quickCopyFile: 'Copy original file',
+    quickCopyFileDesc: 'Copy as a file, so you can paste it into File Explorer to get the original',
+    quickCopyImage: 'Copy image',
+    quickCopyImageDesc: 'Copy as an image, pasteable into chats or image editors',
+    savedQuickCopyType: 'Saved: quick copy defaults to {type}'
   },
   roots: {
     pageDesc: 'Register image directories to browse, switchable on the main screen.',
@@ -211,6 +227,26 @@ export default {
     pureBlack: 'Pure black (AMOLED)',
     pureBlackDesc:
       'Applies in dark mode only: replaces all dark backgrounds, panels and borders with pure black #000, great for OLED screens and more power-efficient.'
+  },
+  shortcuts: {
+    pageDesc: 'Customize the "Copy file / Copy image" shortcuts used in the lightbox.',
+    copyFile: 'Copy original file',
+    copyFileDesc: 'Put the current image into the clipboard as a file, so you can paste it into File Explorer to get the original',
+    copyImage: 'Copy image',
+    copyImageDesc: 'Put the image pixels into the clipboard, pasteable into chats or image editors',
+    pressKeys: 'Press shortcut',
+    unbound: 'Unbound',
+    conflict: 'That combination is already bound to "{action}", pick another one',
+    recordTip:
+      'Click a key area then press the new combination; plain letters/digits need a modifier (Ctrl/Alt/Shift), while F2~F24 can be used alone.',
+    reset: 'Reset to defaults',
+    wheelSection: 'Lightbox wheel',
+    wheelAction: 'Wheel action',
+    wheelActionDesc: 'What the mouse wheel does inside the lightbox',
+    wheelZoom: 'Zoom image',
+    wheelZoomDesc: 'Scroll up/down to zoom in/out the original; drag to pan when zoomed, double-click to reset',
+    wheelNavigate: 'Navigate images',
+    wheelNavigateDesc: 'Scroll the wheel to go to the previous/next image (keyboard and buttons still work)'
   },
   animations: {
     pageDesc: 'Toggles to control interface animations.',
@@ -290,6 +326,15 @@ export default {
     zoomTitle: 'Waterfall zoom',
     zoomMax: 'Slider max value',
     zoomMaxDesc: 'Maximum value of the zoom slider on main screen ({min} ~ {max})',
+    lightZoomTitle: 'Lightbox zoom',
+    lightZoomDesc: 'These take effect the next time the lightbox opens.',
+    lightZoomMin: 'Min zoom',
+    lightZoomMinDesc: 'Lowest scale allowed for the lightbox image (1 = exactly fit the window)',
+    lightZoomMax: 'Max zoom',
+    lightZoomMaxDesc: 'Highest scale allowed for the lightbox image',
+    lightZoomStep: 'Zoom step',
+    lightZoomStepDesc: 'Multiplier applied per wheel notch (e.g. 1.2 = +20% per notch)',
+    lightZoomSaved: 'Saved: lightbox zoom takes effect the next time it opens',
     cacheTitle: 'Cache maintenance',
     cacheDesc: 'These parameters apply the next time you run "Roots → Update/Rebuild cache".',
     thumbWidth: 'Max thumbnail width',

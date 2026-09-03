@@ -1,4 +1,7 @@
 import { app, ipcMain, BrowserWindow, dialog, clipboard, nativeImage, protocol, net } from 'electron'
+import { execFile } from 'child_process'
+import { existsSync } from 'fs'
+import { join } from 'path'
 import { electronApp, optimizer } from '@electron-toolkit/utils'
 import { initDb, queryOne } from './db'
 import { initSettingsTable, getSetting, setSetting } from './settings'
@@ -32,6 +35,7 @@ import {
 import { registerAiIpc } from './ai'
 import { initLogger } from './logger'
 import { checkForUpdates } from './updater'
+import { readClipboardImageBuffer } from './image-decode'
 
 // 自定义协议特权注册必须在 app ready 之前
 // 注意：不能加 standard:true —— 会把数字 host（如 2）按 IPv4 规范化为 0.0.0.2，导致 rootId 解析失败
@@ -221,16 +225,54 @@ function registerIpc() {
     return true
   })
 
-  // 复制图片到剪贴板（直接读文件，避免自定义协议下 canvas 污染）
-  ipcMain.handle('clipboard:write-image-path', (_e, absPath) => {
-    const img = nativeImage.createFromPath(absPath)
-    if (img.isEmpty()) throw new Error('无法读取图片文件')
+  // 复制图片到剪贴板（直接读文件，避免自定义协议下 canvas 污染；
+  // nativeImage 解码不了的格式（GIF/WebP 等）自动转 PNG）
+  ipcMain.handle('clipboard:write-image-path', async (_e, absPath) => {
+    const buf = await readClipboardImageBuffer(absPath)
+    if (!buf) throw new Error('无法读取或解码该图片（文件可能已被移动或格式不受支持）')
+    const img = nativeImage.createFromBuffer(buf)
+    if (img.isEmpty()) throw new Error('无法读取或解码该图片（文件可能已被移动或格式不受支持）')
     clipboard.writeImage(img)
     return true
   })
 
+  // 复制原文件到剪贴板（Windows 文件列表 CF_HDROP，可在文件管理器直接粘贴出文件）。
+  // Electron 未提供写文件列表的 API，借 Windows PowerShell 的 Clipboard.SetFileDropList 实现。
+  ipcMain.handle('clipboard:copy-file', (_e, absPath) => copyFileToClipboard(absPath))
+
   // --- 托盘关闭行为 ---
   registerTrayIpc({ ipcMain })
+}
+
+// 把单个文件以「文件」形式放入剪贴板（Windows CF_HDROP）。
+// 借 PowerShell 的 Clipboard.SetFileDropList 实现（Electron 未提供写文件列表 API）。
+function copyFileToClipboard(absPath) {
+  return new Promise((resolve, reject) => {
+    if (!absPath || !existsSync(absPath)) {
+      reject(new Error('文件不存在或已被移动'))
+      return
+    }
+    const winDir = process.env.WINDIR || 'C:\\Windows'
+    const powershell = join(winDir, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
+    // 单引号包裹路径，路径内的单引号按 PS 规则双写转义
+    const esc = absPath.replace(/'/g, "''")
+    const script = [
+      "Add-Type -AssemblyName System.Windows.Forms",
+      "$c = New-Object 'System.Collections.Specialized.StringCollection'",
+      `[void]$c.Add('${esc}')`,
+      "[System.Windows.Forms.Clipboard]::SetFileDropList($c)"
+    ].join('; ')
+    const b64 = Buffer.from(script, 'utf16le').toString('base64')
+    execFile(
+      powershell,
+      ['-NoProfile', '-STA', '-EncodedCommand', b64],
+      { timeout: 15000, windowsHide: true },
+      (err) => {
+        if (err) reject(new Error('复制文件到剪贴板失败：' + err.message))
+        else resolve(true)
+      }
+    )
+  })
 }
 
 // 单实例锁：只允许一个进程运行；第二个实例启动时直接退出并唤醒已有实例

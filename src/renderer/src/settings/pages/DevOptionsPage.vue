@@ -15,6 +15,13 @@ const zoomMax = ref(2)
 const ZOOM_MAX_MIN = 1
 const ZOOM_MAX_MAX = 100
 
+// 灯箱缩放限制
+const LIGHT_ZOOM_MIN_BOUND = 0.1
+const LIGHT_ZOOM_MAX_BOUND = 100
+const lightZoomMin = ref(0.5)
+const lightZoomMax = ref(8)
+const lightZoomStep = ref(1.2)
+
 // 缓存维护参数
 const cacheThumbWidth = ref(512)
 const cacheThumbQuality = ref(80)
@@ -34,6 +41,10 @@ onMounted(async () => {
   const zm = parseFloat(await window.api.getSetting('zoomMax', '2'))
   zoomMax.value = Number.isFinite(zm) ? clampZoomMax(zm) : 2
 
+  lightZoomMin.value = clampNum(await window.api.getSetting('lightboxZoomMin', '0.5'), LIGHT_ZOOM_MIN_BOUND, LIGHT_ZOOM_MAX_BOUND, 0.5)
+  lightZoomMax.value = clampNum(await window.api.getSetting('lightboxZoomMax', '8'), LIGHT_ZOOM_MIN_BOUND, LIGHT_ZOOM_MAX_BOUND, 8)
+  lightZoomStep.value = clampNum(await window.api.getSetting('lightboxZoomStep', '1.2'), 1.01, 2, 1.2)
+
   cacheThumbWidth.value = clampNum(await window.api.getSetting('cacheThumbWidth', '512'), 64, 4096, 512)
   cacheThumbQuality.value = clampNum(await window.api.getSetting('cacheThumbQuality', '80'), 1, 100, 80)
   cacheScanBatch.value = clampNum(await window.api.getSetting('cacheScanBatch', '100'), 10, 1000, 100)
@@ -49,6 +60,9 @@ onMounted(async () => {
       const zm = parseFloat(value)
       if (Number.isFinite(zm)) zoomMax.value = clampZoomMax(zm)
     }
+    else if (key === 'lightboxZoomMin') lightZoomMin.value = clampNum(value, LIGHT_ZOOM_MIN_BOUND, LIGHT_ZOOM_MAX_BOUND, 0.5)
+    else if (key === 'lightboxZoomMax') lightZoomMax.value = clampNum(value, LIGHT_ZOOM_MIN_BOUND, LIGHT_ZOOM_MAX_BOUND, 8)
+    else if (key === 'lightboxZoomStep') lightZoomStep.value = clampNum(value, 1.01, 2, 1.2)
     else if (key === 'cacheThumbWidth') cacheThumbWidth.value = clampNum(value, 64, 4096, 512)
     else if (key === 'cacheThumbQuality') cacheThumbQuality.value = clampNum(value, 1, 100, 80)
     else if (key === 'cacheScanBatch') cacheScanBatch.value = clampNum(value, 10, 1000, 100)
@@ -107,6 +121,27 @@ async function onZoomMaxChange(v) {
   } catch {
     ElMessage.error(t('common.saveFailed'))
   }
+}
+
+async function saveLightZoomSetting(key, v, min, max, fallback, decimals) {
+  const n = clampNum(v, min, max, fallback)
+  const val = Number(n.toFixed(decimals ?? 2))
+  try {
+    await window.api.setSetting(key, String(val))
+    ElMessage.success(t('devOptions.lightZoomSaved'))
+  } catch {
+    ElMessage.error(t('common.saveFailed'))
+  }
+}
+
+function onLightZoomMinChange(v) {
+  saveLightZoomSetting('lightboxZoomMin', v, LIGHT_ZOOM_MIN_BOUND, LIGHT_ZOOM_MAX_BOUND, 0.5, 1)
+}
+function onLightZoomMaxChange(v) {
+  saveLightZoomSetting('lightboxZoomMax', v, LIGHT_ZOOM_MIN_BOUND, LIGHT_ZOOM_MAX_BOUND, 8, 1)
+}
+function onLightZoomStepChange(v) {
+  saveLightZoomSetting('lightboxZoomStep', v, 1.01, 2, 1.2, 2)
 }
 
 async function saveCacheSetting(key, v, min, max, fallback) {
@@ -205,6 +240,66 @@ async function onLoggingChange(v) {
           :disabled="disabled"
           size="default"
           @change="onZoomMaxChange"
+        />
+      </div>
+    </el-card>
+
+    <el-card class="dev-card" shadow="never">
+      <template #header>{{ t('devOptions.lightZoomTitle') }}</template>
+      <div class="dev-desc-block">{{ t('devOptions.lightZoomDesc') }}</div>
+
+      <div class="dev-row cache-row">
+        <div class="dev-label">
+          <div class="dev-name">{{ t('devOptions.lightZoomMin') }}</div>
+          <div class="dev-desc">{{ t('devOptions.lightZoomMinDesc') }}</div>
+        </div>
+        <el-input-number
+          v-model="lightZoomMin"
+          :min="LIGHT_ZOOM_MIN_BOUND"
+          :max="LIGHT_ZOOM_MAX_BOUND"
+          :step="0.1"
+          :precision="1"
+          :disabled="disabled"
+          size="default"
+          @change="onLightZoomMinChange"
+        />
+      </div>
+
+      <el-divider />
+
+      <div class="dev-row cache-row">
+        <div class="dev-label">
+          <div class="dev-name">{{ t('devOptions.lightZoomMax') }}</div>
+          <div class="dev-desc">{{ t('devOptions.lightZoomMaxDesc') }}</div>
+        </div>
+        <el-input-number
+          v-model="lightZoomMax"
+          :min="LIGHT_ZOOM_MIN_BOUND"
+          :max="LIGHT_ZOOM_MAX_BOUND"
+          :step="1"
+          :precision="1"
+          :disabled="disabled"
+          size="default"
+          @change="onLightZoomMaxChange"
+        />
+      </div>
+
+      <el-divider />
+
+      <div class="dev-row cache-row">
+        <div class="dev-label">
+          <div class="dev-name">{{ t('devOptions.lightZoomStep') }}</div>
+          <div class="dev-desc">{{ t('devOptions.lightZoomStepDesc') }}</div>
+        </div>
+        <el-input-number
+          v-model="lightZoomStep"
+          :min="1.01"
+          :max="2"
+          :step="0.05"
+          :precision="2"
+          :disabled="disabled"
+          size="default"
+          @change="onLightZoomStepChange"
         />
       </div>
     </el-card>

@@ -44,6 +44,22 @@ const searchInput = ref('')
 const searchQuery = ref('')
 const isSearching = computed(() => searchQuery.value.trim() !== '')
 
+// 快速复制：开启后点击图片直接复制（类型见设置-常规），不进灯箱
+const QUICK_COPY_KEY = 'quick-copy'
+const quickCopyEnabled = ref(false)
+const quickCopyType = ref('file') // 'file' | 'image'
+const quickCopyLabel = computed(() =>
+  t(quickCopyType.value === 'file' ? 'lightbox.copyFileAction' : 'lightbox.copyImageAction')
+)
+function toggleQuickCopy() {
+  quickCopyEnabled.value = !quickCopyEnabled.value
+  try {
+    localStorage.setItem(QUICK_COPY_KEY, quickCopyEnabled.value ? '1' : '0')
+  } catch {
+    /* ignore */
+  }
+}
+
 // AI 搜索：设置中启用后，搜索框右侧显示开关；开关开启时回车走 AI 检索
 const aiSearchEnabled = ref(false)
 const aiSearchActive = ref(false)
@@ -256,6 +272,15 @@ onMounted(async () => {
   // AI 搜索：主开关启用后显示工具栏开关
   aiSearchEnabled.value = (await window.api.getSetting('aiSearchEnabled', 'false')) === 'true'
 
+  // 快速复制：类型取自「设置 - 常规」，开关状态本地记忆
+  const qcType = await window.api.getSetting('quickCopyType', 'file')
+  quickCopyType.value = ['file', 'image'].includes(qcType) ? qcType : 'file'
+  try {
+    quickCopyEnabled.value = localStorage.getItem(QUICK_COPY_KEY) === '1'
+  } catch {
+    /* ignore */
+  }
+
   // 缩放滑块最大值（开发者选项可配置，默认 2）
   const zm = parseFloat(await window.api.getSetting('zoomMax', '2'))
   zoomMax.value = Number.isFinite(zm) ? Math.max(1, zm) : 2
@@ -298,6 +323,9 @@ onMounted(async () => {
         }
       }
     }
+    if (key === 'quickCopyType') {
+      quickCopyType.value = ['file', 'image'].includes(value) ? value : 'file'
+    }
     themeStore.onSettingsChanged({ key, value })
     localeStore.onSettingsChanged({ key, value })
     animationsStore.onSettingsChanged({ key, value })
@@ -327,8 +355,28 @@ onBeforeUnmount(() => {
         <SideBar />
 
         <main class="app-content">
-          <!-- 悬浮栏：搜索 + 缩放滑块 + 通知中心 + 主题切换 -->
+          <!-- 悬浮栏：快速复制 + 搜索 + AI + 缩放滑块 + 通知中心 + 主题切换 -->
           <div class="floating-toolbar">
+            <!-- 快速复制开关：开启后点击图片直接复制，不进灯箱 -->
+            <el-tooltip
+              :content="t('app.quickCopyTip', { type: quickCopyLabel })"
+              placement="bottom"
+              :show-after="150"
+            >
+              <div
+                class="quick-copy-toggle"
+                :class="{ 'quick-copy-on': quickCopyEnabled }"
+                @click="toggleQuickCopy"
+              >
+                <span class="quick-copy-label">{{ t('app.quickCopy') }}</span>
+                <el-switch
+                  :model-value="quickCopyEnabled"
+                  size="small"
+                  class="quick-copy-switch"
+                />
+              </div>
+            </el-tooltip>
+
             <!-- 图片搜索（回车触发，支持 * ? 通配符） -->
             <div class="toolbar-search">
               <el-input
@@ -500,6 +548,8 @@ onBeforeUnmount(() => {
                   :refresh-tick="cacheRefreshTick"
                   :search-query="searchQuery"
                   :ai-results="aiResults"
+                  :quick-copy="quickCopyEnabled"
+                  :quick-copy-type="quickCopyType"
                 />
               </div>
               <div v-else class="welcome">
@@ -606,6 +656,55 @@ onBeforeUnmount(() => {
 
 .search-input :deep(.el-input__inner) {
   font-size: 12px;
+}
+
+/* 快速复制开关 */
+.quick-copy-toggle {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  background: var(--panel-bg);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  cursor: pointer;
+  user-select: none;
+  transition: border-color 0.2s, color 0.2s;
+}
+
+.quick-copy-toggle:hover {
+  border-color: #409eff;
+}
+
+.quick-copy-on {
+  border-color: #409eff;
+}
+
+.quick-copy-label {
+  font-size: 12px;
+  color: var(--app-text-secondary);
+  white-space: nowrap;
+}
+
+.quick-copy-on .quick-copy-label {
+  color: var(--el-color-primary);
+}
+
+.quick-copy-toggle :deep(.el-switch) {
+  pointer-events: none;
+}
+
+.quick-copy-toggle :deep(.el-switch__core) {
+  min-width: 26px;
+  height: 14px;
+}
+
+.quick-copy-toggle :deep(.el-switch__core .el-switch__action) {
+  width: 10px;
+  height: 10px;
 }
 
 /* AI 搜索开关 */
