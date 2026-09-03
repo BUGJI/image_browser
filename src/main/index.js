@@ -85,6 +85,7 @@ function registerIpc() {
   })
 
   // --- 应用 ---
+  ipcMain.handle('app:get-version', () => app.getVersion())
   ipcMain.handle('app:relaunch', () => {
     app.relaunch()
     app.exit(0)

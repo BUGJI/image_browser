@@ -204,7 +204,10 @@ export default {
     tip: '自定义顶栏为默认样式；切换为系统顶栏后，窗口将使用系统原生标题栏。'
   },
   theme: {
-    pageDesc: '应用启动时使用的主题外观。'
+    pageDesc: '应用启动时使用的主题外观。',
+    pureBlack: '纯黑模式（AMOLED）',
+    pureBlackDesc:
+      '仅暗色模式生效：将背景、面板与边框等所有暗色替换为纯黑 #000，适合 OLED 屏幕，更省电。'
   },
   animations: {
     pageDesc: '控制界面中各动画效果的开关。',

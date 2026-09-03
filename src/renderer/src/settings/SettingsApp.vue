@@ -57,13 +57,7 @@ const treeData = computed(() => {
         { id: 'animations', label: t('settings.animations') }
       ]
     },
-    { id: 'dev-options', label: t('settings.devOptions'), icon: 'Monitor' },
-    {
-      id: 'extensions',
-      label: t('settings.extensions'),
-      icon: 'MagicStick',
-      children: [{ id: 'ai-search', label: t('settings.aiSearch') }]
-    }
+    { id: 'dev-options', label: t('settings.devOptions'), icon: 'Monitor' }
   ]
   if (showTest.value) {
     nodes.push({ id: 'test', label: t('settings.test'), icon: 'Aim' })

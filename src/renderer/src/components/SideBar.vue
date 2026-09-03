@@ -241,8 +241,6 @@ onBeforeUnmount(() => {
           class="root-select"
           :placeholder="rootsStore.roots.length ? t('sidebar.selectRoot') : t('sidebar.noRoots')"
           size="default"
-          clearable
-          @clear="rootsStore.setCurrent(null)"
         >
           <el-option
             v-for="root in rootsStore.roots"

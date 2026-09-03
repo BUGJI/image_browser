@@ -207,7 +207,10 @@ export default {
     tip: 'Custom title bar is the default. After switching to the system title bar, the window uses the native system title bar.'
   },
   theme: {
-    pageDesc: 'Theme appearance used when the app starts.'
+    pageDesc: 'Theme appearance used when the app starts.',
+    pureBlack: 'Pure black (AMOLED)',
+    pureBlackDesc:
+      'Applies in dark mode only: replaces all dark backgrounds, panels and borders with pure black #000, great for OLED screens and more power-efficient.'
   },
   animations: {
     pageDesc: 'Toggles to control interface animations.',

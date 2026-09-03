@@ -44,6 +44,8 @@ const api = {
   },
 
   // --- 应用 ---
+  // 应用自身版本号（来自 package.json / app.getVersion()）
+  appVersion: () => ipcRenderer.invoke('app:get-version'),
   appRelaunch: () => ipcRenderer.invoke('app:relaunch'),
   // 检测更新（桩实现，返回 { hasUpdate, latestVersion, checkedAt }）
   checkUpdate: () => ipcRenderer.invoke('app:check-update'),
