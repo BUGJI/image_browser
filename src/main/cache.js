@@ -65,9 +65,13 @@ export function getCacheConfig() {
     thumbWidth: num(getSetting('cacheThumbWidth', null), DEFAULT_THUMB_WIDTH),
     thumbQuality: Math.min(100, Math.max(1, num(getSetting('cacheThumbQuality', null), DEFAULT_THUMB_QUALITY))),
     scanBatch: num(getSetting('cacheScanBatch', null), DEFAULT_SCAN_BATCH),
-    thumbBatch: num(getSetting('cacheThumbBatch', null), DEFAULT_THUMB_BATCH)
+    thumbBatch: num(getSetting('cacheThumbBatch', null), DEFAULT_THUMB_BATCH),
+    // GIF 首帧来源：realtime = 渲染进程实时取首帧、不写磁盘缓存（节省空间，消耗性能）
+    gifRealtime: getSetting('gifThumbSource', 'disk') === 'realtime'
   }
 }
+
+const GIF_NAME_RE = /\.gif$/i
 
 const IMAGE_EXTS = new Set([
   '.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tif', '.tiff'
@@ -553,21 +557,30 @@ export async function runCacheTask(root, mode, { onProgress = () => {}, shouldAb
               f.absPath, f.relPath, f.name, f.folder, f.size, f.mtime,
               null, null, null, nowMs, nowMs
             )
-            needThumb.push({
-              id: Number(info.lastInsertRowid),
-              absPath: f.absPath,
-              relPath: f.relPath,
-              name: f.name
-            })
+            const isGif = GIF_NAME_RE.test(f.name)
+            // 「实时获取」开启时 GIF 首帧不落盘
+            if (!(cfg.gifRealtime && isGif)) {
+              needThumb.push({
+                id: Number(info.lastInsertRowid),
+                absPath: f.absPath,
+                relPath: f.relPath,
+                name: f.name
+              })
+            }
             stats.added++
           } else if (row.mtime !== f.mtime || row.size !== f.size) {
             updateStmt.run(f.name, f.folder, f.size, f.mtime, nowMs, f.absPath)
             clearThumbStmt.run(f.absPath) // 原图变了，旧缩略图作废
-            needThumb.push({ id: row.id, absPath: f.absPath, relPath: f.relPath, name: f.name })
+            if (!(cfg.gifRealtime && GIF_NAME_RE.test(f.name))) {
+              needThumb.push({ id: row.id, absPath: f.absPath, relPath: f.relPath, name: f.name })
+            }
             stats.updated++
           } else if (!row.thumb) {
             // 索引在但缩略图缺失（上次失败/旧版平铺缓存）→ 重试
-            needThumb.push({ id: row.id, absPath: f.absPath, relPath: f.relPath, name: f.name })
+            // 「实时获取」开启时 GIF 首帧不落盘，跳过，避免每次维护都重试
+            if (!(cfg.gifRealtime && GIF_NAME_RE.test(f.name))) {
+              needThumb.push({ id: row.id, absPath: f.absPath, relPath: f.relPath, name: f.name })
+            }
           }
         }
 

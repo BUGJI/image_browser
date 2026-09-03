@@ -12,7 +12,8 @@ import {
   createTray,
   attachWindowCloseBehavior,
   registerTrayIpc,
-  handleWindowAllClosed
+  handleWindowAllClosed,
+  showMainWindow
 } from './tray'
 import {
   initRootsTable,
@@ -28,6 +29,7 @@ import {
   registerImageProtocol,
   handleImagesList
 } from './cache'
+import { registerAiIpc } from './ai'
 import { initLogger } from './logger'
 import { checkForUpdates } from './updater'
 
@@ -83,6 +85,7 @@ function registerIpc() {
   })
 
   // --- 应用 ---
+  ipcMain.handle('app:get-version', () => app.getVersion())
   ipcMain.handle('app:relaunch', () => {
     app.relaunch()
     app.exit(0)
@@ -202,6 +205,9 @@ function registerIpc() {
   // --- 缓存维护（每根目录独立 .image_browser_cache）---
   registerCacheIpc({ ipcMain })
 
+  // --- AI 语义搜索（向量索引维护 + 搜索）---
+  registerAiIpc({ ipcMain })
+
   // 图片列表：优先缓存索引，无缓存回退即时扫描；searchQuery 非空时跨根目录搜索
   ipcMain.handle('images:list', (_e, rootId, folderPath, searchQuery) =>
     handleImagesList(rootId, folderPath, searchQuery)
@@ -227,39 +233,54 @@ function registerIpc() {
   registerTrayIpc({ ipcMain })
 }
 
-app.whenReady().then(() => {
-  electronApp.setAppUserModelId('com.openclaw.image-browser')
+// 单实例锁：只允许一个进程运行；第二个实例启动时直接退出并唤醒已有实例
+const gotTheLock = app.requestSingleInstanceLock()
 
-  app.on('browser-window-created', (_, window) => {
-    optimizer.watchWindowShortcuts(window)
+if (!gotTheLock) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    showMainWindow()
   })
 
-  // 初始化 SQLite + 设置表 + 根目录表
-  initDb()
-  initSettingsTable()
-  initRootsTable()
+  startApp()
+}
 
-  // 日志模块（开发者选项「记录日志」开关；替换 console + 注册 IPC + 监听渲染进程 console）
-  initLogger()
+function startApp() {
+  app.whenReady().then(() => {
+    electronApp.setAppUserModelId('com.openclaw.image-browser')
 
-  // image:// 图片协议（webp 优先，回退原图）
-  registerImageProtocol({ protocol, net })
+    app.on('browser-window-created', (_, window) => {
+      optimizer.watchWindowShortcuts(window)
+    })
 
-  registerIpc()
+    // 初始化 SQLite + 设置表 + 根目录表
+    initDb()
+    initSettingsTable()
+    initRootsTable()
 
-  const mainWindow = createMainWindow()
-  attachWindowCloseBehavior(mainWindow)
-  createTray()
+    // 日志模块（开发者选项「记录日志」开关；替换 console + 注册 IPC + 监听渲染进程 console）
+    initLogger()
 
-  // 「每次启动检测更新」开关：启动后自动检查（桩实现，接入真实逻辑后在此通知用户）
-  if (getSetting('checkUpdateOnStartup', 'false') === 'true') {
-    checkForUpdates()
-  }
+    // image:// 图片协议（webp 优先，回退原图）
+    registerImageProtocol({ protocol, net })
 
-  app.on('activate', function () {
-    if (BrowserWindow.getAllWindows().length === 0) createMainWindow()
+    registerIpc()
+
+    const mainWindow = createMainWindow()
+    attachWindowCloseBehavior(mainWindow)
+    createTray()
+
+    // 「每次启动检测更新」开关：启动后自动检查（桩实现，接入真实逻辑后在此通知用户）
+    if (getSetting('checkUpdateOnStartup', 'false') === 'true') {
+      checkForUpdates()
+    }
+
+    app.on('activate', function () {
+      if (BrowserWindow.getAllWindows().length === 0) createMainWindow()
+    })
   })
-})
+}
 
 // 托盘常驻：窗口全关不自动退出（除非正在退出或配置为「关闭软件」）
 app.on('window-all-closed', handleWindowAllClosed)

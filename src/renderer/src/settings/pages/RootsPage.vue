@@ -4,8 +4,10 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Edit, Delete, FolderOpened, ArrowUp, ArrowDown } from '@element-plus/icons-vue'
 import { useNotificationsStore } from '../../stores/notifications'
+import { useGifStore } from '../../stores/gif'
 
 const { t } = useI18n()
+const gifStore = useGifStore()
 const roots = ref([])
 const loading = ref(false)
 
@@ -122,6 +124,31 @@ onBeforeUnmount(() => {
   offCacheProgress?.()
 })
 
+// ---------- 动图（GIF）设置 ----------
+// 实时来源开关：realtime ↔ disk
+const realtimeSource = computed({
+  get: () => gifStore.thumbSource === 'realtime',
+  set: (v) => setThumbSource(v ? 'realtime' : 'disk')
+})
+
+async function onPlayModeChange(v) {
+  try {
+    await gifStore.setPlayMode(v)
+    ElMessage.success(t('common.saved'))
+  } catch {
+    ElMessage.error(t('common.saveFailed'))
+  }
+}
+
+async function setThumbSource(v) {
+  try {
+    await gifStore.setThumbSource(v)
+    ElMessage.success(t('common.saved'))
+  } catch {
+    ElMessage.error(t('common.saveFailed'))
+  }
+}
+
 const form = reactive({
   path: '',
   alias: ''
@@ -221,7 +248,11 @@ async function moveRoot(index, delta) {
   }
 }
 
-onMounted(loadRoots)
+onMounted(async () => {
+  // 动图设置：先读库再显示（radio 默认 all、来源默认 disk）
+  await gifStore.load()
+  loadRoots()
+})
 </script>
 
 <template>
@@ -322,6 +353,49 @@ onMounted(loadRoots)
             </span>
           </el-tooltip>
         </template>
+      </div>
+    </el-card>
+
+    <!-- 动图（GIF）设置 -->
+    <el-card class="maintain-card" shadow="never">
+      <template #header>
+        <div class="maintain-head">
+          <span>{{ t('roots.gifSectionTitle') }}</span>
+        </div>
+      </template>
+      <p class="maintain-desc">{{ t('roots.gifSectionDesc') }}</p>
+
+      <div class="gif-block">
+        <div class="gif-label">{{ t('roots.gifPlayMode') }}</div>
+        <el-radio-group v-model="gifStore.playMode" class="gif-radio-group" @change="onPlayModeChange">
+          <div class="gif-radio-row">
+            <el-radio value="all">{{ t('roots.gifAll') }}</el-radio>
+            <span class="gif-radio-desc">{{ t('roots.gifAllDesc') }}</span>
+          </div>
+          <div class="gif-radio-row">
+            <el-radio value="hover">{{ t('roots.gifHover') }}</el-radio>
+            <span class="gif-radio-desc">{{ t('roots.gifHoverDesc') }}</span>
+          </div>
+          <div class="gif-radio-row">
+            <el-radio value="none">{{ t('roots.gifNone') }}</el-radio>
+            <span class="gif-radio-desc">{{ t('roots.gifNoneDesc') }}</span>
+          </div>
+        </el-radio-group>
+      </div>
+
+      <el-divider />
+
+      <div class="gif-block">
+        <div class="gif-label">
+          <span>{{ t('roots.gifThumbSource') }}</span>
+          <el-switch
+            v-model="realtimeSource"
+            class="gif-source-switch"
+            :active-text="t('roots.gifSourceRealtime')"
+            :inactive-text="t('roots.gifSourceDisk')"
+          />
+        </div>
+        <p class="gif-source-desc">{{ t('roots.gifSourceDesc') }}</p>
       </div>
     </el-card>
 
@@ -426,5 +500,54 @@ onMounted(loadRoots)
 .maintain-select {
   width: 260px;
   flex-shrink: 0;
+}
+
+/* 动图（GIF）设置 */
+.gif-block {
+  max-width: 560px;
+}
+
+.gif-label {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--app-text);
+}
+
+.gif-radio-group {
+  display: block;
+  margin-top: 10px;
+}
+
+.gif-radio-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.gif-radio-row .el-radio {
+  white-space: nowrap;
+  flex-shrink: 0;
+  margin-right: 0;
+}
+
+.gif-radio-desc {
+  color: #999;
+  font-size: 12px;
+  line-height: 20px;
+  padding-top: 2px;
+}
+
+.gif-source-switch {
+  margin-left: auto;
+}
+
+.gif-source-desc {
+  margin: 8px 0 0;
+  color: #999;
+  font-size: 12px;
 }
 </style>

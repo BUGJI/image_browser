@@ -2,7 +2,9 @@
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Lightbox from './Lightbox.vue'
-import { buildImageUrl } from '../utils/image-url'
+import GifThumb from './GifThumb.vue'
+import { buildImageUrl, isGifName } from '../utils/image-url'
+import { useGifStore } from '../stores/gif'
 
 const { t } = useI18n()
 
@@ -11,6 +13,7 @@ const { t } = useI18n()
  * - 多列绝对定位布局，图片高度来自缓存索引（width/height），缺失时 onload 校准
  * - 只渲染可视区域附近的 item（虚拟化），图片天然懒加载
  * - 缩略图优先（image:// auto → webp），无缓存回退原图
+ * - GIF 网格卡片交给 GifThumb（遵循 gifPlayMode / gifThumbSource 动图设置）
  */
 
 const props = defineProps({
@@ -21,8 +24,12 @@ const props = defineProps({
   // 外部触发刷新（如缓存维护完成后）：数值变化时重新加载图片列表
   refreshTick: { type: Number, default: 0 },
   // 非空时进入搜索模式：跨根目录按文件名搜索（支持 * ? 通配符）
-  searchQuery: { type: String, default: '' }
+  searchQuery: { type: String, default: '' },
+  // AI 搜索结果（非 null 时优先渲染，跳过 imagesList 拉取）
+  aiResults: { type: Array, default: null }
 })
+
+const gifStore = useGifStore()
 
 const GAP = 10
 const COL_BASE_WIDTH = 200
@@ -89,6 +96,20 @@ function scheduleLayout() {
 const isSearching = computed(() => !!props.searchQuery && props.searchQuery.trim() !== '')
 
 async function load() {
+  if (Array.isArray(props.aiResults)) {
+    items.value = props.aiResults.map((it) => ({
+      ...it,
+      x: 0,
+      y: 0,
+      w: 0,
+      h: 0,
+      _loaded: null
+    }))
+    totalHeight.value = 0
+    await nextTick()
+    doLayout()
+    return
+  }
   if (!isSearching.value && !props.folderPath) {
     items.value = []
     totalHeight.value = 0
@@ -117,7 +138,7 @@ async function load() {
   }
 }
 
-watch(() => [props.rootId, props.folderPath, props.searchQuery], load, { immediate: true })
+watch(() => [props.rootId, props.folderPath, props.searchQuery, props.aiResults], load, { immediate: true })
 
 // 缩放变化 → 重新布局
 watch(() => props.zoom, doLayout)
@@ -227,7 +248,16 @@ function closeLightbox() {
         }"
         @click="openLightbox(item)"
       >
+        <GifThumb
+          v-if="isGifName(item.name)"
+          :root-id="rootId"
+          :item="item"
+          :play-mode="gifStore.playMode"
+          :thumb-source="gifStore.thumbSource"
+          @load="onImgLoad(item, $event)"
+        />
         <img
+          v-else
           :src="srcFor(item)"
           :alt="item.name"
           draggable="false"

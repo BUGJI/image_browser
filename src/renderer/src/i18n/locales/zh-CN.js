@@ -41,16 +41,7 @@ export default {
     noRootsTooltip: '还没有根目录，点击设置添加',
     selectRoot: '选择根目录',
     noRoots: '未添加目录',
-    settings: '设置',
-    scanningRoot: '正在扫描：{name}',
-    prepareScan: '准备扫描…',
-    scanAbortedBySwitch: '已切换目录，扫描中止',
-    scanDone: '扫描完成',
-    scanFailed: '扫描失败或已中止',
-    scanAborted: '扫描已中止',
-    scanDoneCount: '扫描完成，共 {n} 个文件夹',
-    rescan: '重新扫描',
-    scannedFolders: '已扫描 {n} 个文件夹…'
+    settings: '设置'
   },
   app: {
     cacheMaintenance: '缓存维护',
@@ -68,7 +59,13 @@ export default {
     noRoots: '还没有根目录',
     goToSettings: '去设置添加根目录',
     setupTip: '在设置中注册图片目录，主界面即可切换浏览',
-    searchImages: '搜索图片（回车，支持 * ? 通配符）'
+    searchImages: '搜索图片（回车，支持 * ? 通配符）',
+    aiSearchToggle: 'AI 搜索',
+    aiNoRoot: '请先选择一个根目录',
+    aiNoKey: '请先在设置中配置 API 密钥',
+    aiNoCache: '该根目录尚未建立缓存，请先运行「根目录 → 更新缓存」',
+    aiNoIndex: '该根目录尚未建立向量索引，请先在「设置 → AI搜索 → 维护工具」中运行更新',
+    aiSearchFailed: 'AI 搜索失败：{error}'
   },
   waterfall: {
     loading: '加载图片列表…',
@@ -86,8 +83,7 @@ export default {
     hint: 'Ctrl+C 复制当前图片 · ←/→ 切换 · Esc 关闭'
   },
   closeAsk: {
-    title: '关闭 Image Browser',
-    ask: '要最小化到托盘还是关闭软件？',
+    title: '关闭程序',
     sub: '最小化到托盘后，应用仍在后台运行，可从系统托盘重新打开。',
     remember: '记住我的选择，下次不再询问',
     toTray: '最小化到托盘',
@@ -101,6 +97,8 @@ export default {
     theme: '主题设置',
     animations: '动画',
     devOptions: '开发者选项',
+    extensions: '扩展功能',
+    aiSearch: 'AI搜索',
     test: '测试',
     about: '关于',
     language: '语言',
@@ -171,7 +169,22 @@ export default {
     needPath: '请填写目录路径',
     added: '根目录已添加',
     updated: '根目录已更新',
-    startFailed: '启动失败：{error}'
+    startFailed: '启动失败：{error}',
+    gifSectionTitle: '动图（GIF）',
+    gifSectionDesc:
+      '控制网格缩略图中 GIF 动图的播放方式；灯箱始终显示原图播放，不受此设置影响。修改后即时生效。',
+    gifPlayMode: '网格动图播放',
+    gifAll: '全部播放',
+    gifAllDesc: '直接显示动图（默认，等同旧版行为）',
+    gifHover: '悬停后播放',
+    gifHoverDesc: '平时显示首帧，鼠标悬停时播放，移开即停；再次悬停从头播放',
+    gifNone: '不播放',
+    gifNoneDesc: '始终显示首帧静态图',
+    gifThumbSource: '首帧海报来源',
+    gifSourceDisk: '记录磁盘缓存',
+    gifSourceRealtime: '实时获取',
+    gifSourceDesc:
+      '记录磁盘缓存：缓存维护时为 GIF 生成首帧缩略图并写入缓存目录，浏览最流畅（推荐）。实时获取：不再为 GIF 生成/写入首帧缩略图，节省磁盘空间，浏览时按需现算、略耗性能；此前已生成的旧缩略图可用「清理无用缓存」移除。'
   },
   appearance: {
     pageDesc: '界面显示相关的设置。',
@@ -191,7 +204,10 @@ export default {
     tip: '自定义顶栏为默认样式；切换为系统顶栏后，窗口将使用系统原生标题栏。'
   },
   theme: {
-    pageDesc: '应用启动时使用的主题外观。'
+    pageDesc: '应用启动时使用的主题外观。',
+    pureBlack: '纯黑模式（AMOLED）',
+    pureBlackDesc:
+      '仅暗色模式生效：将背景、面板与边框等所有暗色替换为纯黑 #000，适合 OLED 屏幕，更省电。'
   },
   animations: {
     pageDesc: '控制界面中各动画效果的开关。',
@@ -214,6 +230,46 @@ export default {
     upToDate: '当前已是最新版本（v{version}）',
     foundUpdate: '发现新版本：v{version}',
     checkFailed: '检测更新失败：{error}'
+  },
+  aiSearch: {
+    pageDesc: '接入 OpenAI 兼容接口，用自然语言/语义搜索图片。',
+    enableMaster: '启用AI搜索',
+    masterDesc: '启用后，主界面搜索框右侧显示 AI 搜索开关',
+    wip: '此功能尚未完善，仅供体验，检索质量与稳定性可能有限。',
+    endpoint: '接口配置',
+    baseUrl: '基础地址',
+    baseUrlDesc: 'OpenAI 兼容 API 的基础地址（含 /v1）',
+    apiKey: 'API 密钥',
+    apiKeyDesc: '用于调用接口的密钥',
+    model: '向量模型',
+    modelDesc: '把文本/描述转为向量做语义检索，如 text-embedding-3-small',
+    visionModel: '视觉模型',
+    visionModelDesc: '建向量索引时用其为每张图片生成描述，如 gpt-4o-mini',
+    resultCount: '返回结果数',
+    resultCountDesc: '一次 AI 搜索返回的匹配图片数（{min} ~ {max}）',
+    testConnection: '测试连接',
+    testOk: '连接成功',
+    testFailed: '连接失败',
+    enabled: 'AI 搜索已启用',
+    disabled: 'AI 搜索已关闭',
+    maintainTools: '维护工具',
+    taskRunning: '任务运行中',
+    maintainDesc: '为所选根目录的图片建立向量索引（视觉模型生成描述 + 向量模型转向量），供 AI 语义搜索使用。',
+    maintainDir: '维护根目录',
+    maintainDirDesc: '选择要维护的根目录',
+    selectMaintainRoot: '选择要维护的根目录',
+    selectRootFirst: '请先选择要维护的根目录',
+    enableMasterFirst: '请先开启「启用AI搜索」',
+    updateIndex: '更新向量索引',
+    rebuildIndex: '重建向量索引',
+    cleanIndex: '清理无用向量',
+    startFailed: '启动失败：{error}',
+    embedding: '向量化中 {done}/{total}（{current}）',
+    indexDone: '向量索引维护完成',
+    statsEmbedded: '已向量化 {n} 张',
+    statsRemoved: '清理 {n} 条失效',
+    statsFailed: '失败 {n} 张',
+    usageTip: '使用流程：先在「维护工具」中为根目录建立向量索引，然后在主界面打开 AI 搜索开关，输入自然语言描述（如“海边的日落”）回车即可语义检索。'
   },
   devOptions: {
     pageDesc: '面向开发者的调试与实验性功能。',
@@ -286,7 +342,21 @@ export default {
     mockWarningTitle: '注意',
     mockWarningMsg: '这是一条警告通知',
     mockErrorTitle: '出错了',
-    mockErrorMsg: '这是一条错误通知'
+    mockErrorMsg: '这是一条错误通知',
+    aiFlow: 'AI 流程测试',
+    aiFlowDesc: '端到端测试 AI 搜索链路：图片 → 描述 → 向量，每一步都返回提示词与结果。',
+    aiStep1: '1. 选择图片',
+    aiBrowse: '选择图片…',
+    aiStep2: '2. 图片转文字（视觉模型）',
+    aiRunCaption: '运行图片转文字',
+    aiStep3: '3. 文字转向量（向量模型）',
+    aiEmbedPlaceholder: '输入要向量化的文本（图片转文字后自动填入描述）',
+    aiRunEmbed: '运行文字转向量',
+    aiPromptLabel: '提示词',
+    aiResultLabel: '结果',
+    aiVectorInfo: '向量（共 {dims} 维，前 8 项预览）',
+    aiEmbedEmpty: '请先输入要向量化的文本',
+    aiNoImage: '请先选择图片'
   },
   tray: {
     open: '打开 Image Browser',

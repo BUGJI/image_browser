@@ -10,6 +10,8 @@ import { useAnimationsStore } from './animations'
  */
 export const useThemeStore = defineStore('theme', () => {
   const mode = ref('light') // 'light' | 'dark'
+  // 纯黑模式（暗色变体）：暗色下把所有暗色背景替换为 #000
+  const pureBlack = ref(false)
 
   // 主题切换临时过渡类：切换瞬间给 html 加上，过渡结束移除
   let transitionTimer = null
@@ -29,7 +31,10 @@ export const useThemeStore = defineStore('theme', () => {
     } else {
       html.classList.remove('theme-transition')
     }
-    html.classList.toggle('dark', mode.value === 'dark')
+    const dark = mode.value === 'dark'
+    html.classList.toggle('dark', dark)
+    // 纯黑只在暗色下作为变体生效（html.dark.pure-black 驱动 main.css 覆盖变量）
+    html.classList.toggle('pure-black', dark && pureBlack.value)
   }
 
   async function load() {
@@ -43,6 +48,7 @@ export const useThemeStore = defineStore('theme', () => {
       const saved = await window.api.getSetting('theme', 'light')
       mode.value = saved === 'dark' ? 'dark' : 'light'
     }
+    pureBlack.value = (await window.api.getSetting('pureBlack', 'false')) === 'true'
     apply()
   }
 
@@ -60,12 +66,25 @@ export const useThemeStore = defineStore('theme', () => {
     setMode(mode.value === 'light' ? 'dark' : 'light')
   }
 
+  async function setPureBlack(v) {
+    pureBlack.value = !!v
+    apply()
+    try {
+      await window.api.setSetting('pureBlack', pureBlack.value ? 'true' : 'false')
+    } catch {
+      /* 浏览器调试环境无 window.api 时忽略 */
+    }
+  }
+
   function onSettingsChanged(payload) {
     if (payload?.key === 'theme') {
       mode.value = payload.value === 'dark' ? 'dark' : 'light'
       apply()
+    } else if (payload?.key === 'pureBlack') {
+      pureBlack.value = payload.value === 'true'
+      apply()
     }
   }
 
-  return { mode, apply, load, setMode, toggle, onSettingsChanged }
+  return { mode, pureBlack, apply, load, setMode, setPureBlack, toggle, onSettingsChanged }
 })

@@ -101,6 +101,7 @@ export function ensureDevMock() {
 
   window.api = {
     getDbVersion: async () => 'dev-mock',
+    appVersion: async () => 'dev-mock',
     windowMinimize: async () => {},
     windowToggleMaximize: async () => false,
     // 浏览器调试：模拟主进程的关闭行为（读 closeAction 配置）
