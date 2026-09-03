@@ -12,3 +12,6 @@ iso-out2/
 probe-out/
 .qwenpaw-screens/
 *.zip
+
+# session-local task notes
+GIF_PAUSE_TODO.md

@@ -169,7 +169,22 @@ export default {
     needPath: '请填写目录路径',
     added: '根目录已添加',
     updated: '根目录已更新',
-    startFailed: '启动失败：{error}'
+    startFailed: '启动失败：{error}',
+    gifSectionTitle: '动图（GIF）',
+    gifSectionDesc:
+      '控制网格缩略图中 GIF 动图的播放方式；灯箱始终显示原图播放，不受此设置影响。修改后即时生效。',
+    gifPlayMode: '网格动图播放',
+    gifAll: '全部播放',
+    gifAllDesc: '直接显示动图（默认，等同旧版行为）',
+    gifHover: '悬停后播放',
+    gifHoverDesc: '平时显示首帧，鼠标悬停时播放，移开即停；再次悬停从头播放',
+    gifNone: '不播放',
+    gifNoneDesc: '始终显示首帧静态图',
+    gifThumbSource: '首帧海报来源',
+    gifSourceDisk: '记录磁盘缓存',
+    gifSourceRealtime: '实时获取',
+    gifSourceDesc:
+      '记录磁盘缓存：缓存维护时为 GIF 生成首帧缩略图并写入缓存目录，浏览最流畅（推荐）。实时获取：不再为 GIF 生成/写入首帧缩略图，节省磁盘空间，浏览时按需现算、略耗性能；此前已生成的旧缩略图可用「清理无用缓存」移除。'
   },
   appearance: {
     pageDesc: '界面显示相关的设置。',

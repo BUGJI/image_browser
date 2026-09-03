@@ -19,3 +19,8 @@ export function buildImageUrl(rootId, absPath, size = 'auto') {
     size === 'orig' ? '?size=orig' : size === 'thumb' ? '?size=thumb' : ''
   return `image://${rootId}/${encoded}${q}`
 }
+
+/** 按文件名判断是否为 GIF（网格缩略图动图播放控制只针对 .gif） */
+export function isGifName(name) {
+  return /\.gif$/i.test(String(name || ''))
+}

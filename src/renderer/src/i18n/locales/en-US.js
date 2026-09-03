@@ -172,7 +172,22 @@ export default {
     needPath: 'Please enter a directory path',
     added: 'Root added',
     updated: 'Root updated',
-    startFailed: 'Failed to start: {error}'
+    startFailed: 'Failed to start: {error}',
+    gifSectionTitle: 'Animated GIF',
+    gifSectionDesc:
+      'Controls how GIF animations play in the grid thumbnails. The lightbox always shows the original animation and is not affected. Changes take effect immediately.',
+    gifPlayMode: 'Grid GIF playback',
+    gifAll: 'Play all',
+    gifAllDesc: 'Show the animation directly (default, same as the old behavior)',
+    gifHover: 'Play on hover',
+    gifHoverDesc: 'Show the first frame by default; play while hovering, stop on leave; re-hover restarts',
+    gifNone: 'Do not play',
+    gifNoneDesc: 'Always show the static first frame',
+    gifThumbSource: 'First-frame poster source',
+    gifSourceDisk: 'Disk cache',
+    gifSourceRealtime: 'Real-time',
+    gifSourceDesc:
+      'Disk cache: generate and store a first-frame thumbnail for GIFs during cache maintenance, smoothest browsing (recommended). Real-time: stop generating/writing first-frame thumbnails for GIFs to save disk space; posters are decoded on demand at a small performance cost. Previously generated thumbnails can be removed with "Clean unused cache".'
   },
   appearance: {
     pageDesc: 'Settings related to the interface display.',

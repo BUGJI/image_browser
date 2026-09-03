@@ -16,6 +16,7 @@ import { useNotificationsStore } from './stores/notifications'
 import { useLocaleStore } from './stores/locale'
 import { useAnimationsStore } from './stores/animations'
 import { aiSearch } from './utils/ai-search'
+import { useGifStore } from './stores/gif'
 
 const { t } = useI18n()
 const localeStore = useLocaleStore()
@@ -107,6 +108,7 @@ const rootsStore = useRootsStore()
 const themeStore = useThemeStore()
 const notificationsStore = useNotificationsStore()
 const animationsStore = useAnimationsStore()
+const gifStore = useGifStore()
 
 // 切换到文件夹 / 切换根目录时，退出 AI 结果视图
 watch(
@@ -277,6 +279,7 @@ onMounted(async () => {
   await animationsStore.load()
   themeStore.load()
   localeStore.load()
+  await gifStore.load()
   offSettingsChanged = window.api.onSettingsChanged(({ key, value }) => {
     if (key === 'titlebar') {
       useCustomTitlebar.value = value === 'custom'
@@ -298,6 +301,7 @@ onMounted(async () => {
     themeStore.onSettingsChanged({ key, value })
     localeStore.onSettingsChanged({ key, value })
     animationsStore.onSettingsChanged({ key, value })
+    gifStore.onSettingsChanged({ key, value })
   })
 
   await rootsStore.refresh()
