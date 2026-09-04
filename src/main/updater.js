@@ -1,8 +1,17 @@
 import { app } from 'electron'
+import { getSetting } from './settings'
 
 const REPO_OWNER = 'BUGJI'
 const REPO_NAME = 'image_browser'
 const LATEST_RELEASE_URL = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/latest`
+
+// 当前生效版本：设置-测试 中的覆盖版本非空且合法时用它，否则用 package 版本。
+// 覆盖版本便于联调更新检测链路（无需真的改 package.json）。
+export function getEffectiveVersion() {
+  const override = String(getSetting('overrideVersion', '') || '').trim()
+  if (/^\d+(?:\.\d+){1,2}$/.test(override)) return override
+  return app.getVersion()
+}
 
 /**
  * 更新检测模块
@@ -20,7 +29,7 @@ const LATEST_RELEASE_URL = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NA
  *   }
  */
 export async function checkForUpdates() {
-  const current = app.getVersion()
+  const current = getEffectiveVersion()
   const checkedAt = new Date().toISOString()
 
   try {

@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, onBeforeUnmount } from 'vue'
+import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { Picture } from '@element-plus/icons-vue'
@@ -193,6 +193,29 @@ function fmtTime(ts) {
   const pad = (x) => String(x).padStart(2, '0')
   return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 }
+
+// ---------- 版本号覆盖（用于测试更新检测链路） ----------
+const versionOverride = ref('')
+const realVersion = ref('')
+
+onMounted(async () => {
+  versionOverride.value = (await window.api.getSetting('overrideVersion', '')) || ''
+  realVersion.value = (await window.api.appVersion?.()) || ''
+})
+
+async function onVersionOverrideSave() {
+  const v = versionOverride.value.trim()
+  if (v && !/^\d+(\.\d+){1,2}$/.test(v)) {
+    ElMessage.warning(t('test.versionBadFormat'))
+    return
+  }
+  try {
+    await window.api.setSetting('overrideVersion', v)
+    ElMessage.success(t('test.versionSaved', { v: v || realVersion.value }))
+  } catch {
+    ElMessage.error(t('common.saveFailed'))
+  }
+}
 </script>
 
 <template>
@@ -297,6 +320,21 @@ function fmtTime(ts) {
             </div>
           </template>
         </div>
+      </div>
+    </el-card>
+
+    <el-card class="test-card" shadow="never">
+      <template #header>{{ t('test.versionSection') }}</template>
+      <p class="test-desc">{{ t('test.versionDesc') }}</p>
+      <div class="version-row">
+        <el-input
+          v-model="versionOverride"
+          :placeholder="t('test.versionPlaceholder', { v: realVersion })"
+          clearable
+          class="version-input"
+          @keyup.enter="onVersionOverrideSave"
+        />
+        <el-button type="primary" @click="onVersionOverrideSave">{{ t('common.save') }}</el-button>
       </div>
     </el-card>
 
@@ -476,5 +514,16 @@ function fmtTime(ts) {
   color: var(--el-color-primary);
   font-size: 13px;
   font-weight: 500;
+}
+
+.version-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 420px;
+}
+
+.version-input {
+  flex: 1;
 }
 </style>

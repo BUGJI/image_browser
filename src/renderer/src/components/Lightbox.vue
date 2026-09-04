@@ -2,11 +2,13 @@
 import { ref, watch, onMounted, onBeforeUnmount, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
-import { Close, ArrowLeft, ArrowRight, CopyDocument, Files } from '@element-plus/icons-vue'
+import { Close, ArrowLeft, ArrowRight, CopyDocument, Files, Star, StarFilled } from '@element-plus/icons-vue'
 import { buildImageUrl } from '../utils/image-url'
 import { loadShortcuts, eventMatches } from '../utils/shortcuts'
+import { useFavoritesStore } from '../stores/favorites'
 
 const { t } = useI18n()
+const favoritesStore = useFavoritesStore()
 
 /**
  * 灯箱：查看原图 + 键盘导航（←/→/Esc）
@@ -206,6 +208,21 @@ function onCopyImageClick() {
   copyImage()
 }
 
+// 收藏 / 取消收藏当前图片
+async function toggleFavCurrent() {
+  const item = current.value
+  if (!item?.absPath) return
+  try {
+    const added = await favoritesStore.toggle(
+      { id: props.rootId },
+      { absPath: item.absPath, name: item.name }
+    )
+    ElMessage.success(added ? t('lightbox.favAdded') : t('lightbox.favRemoved'))
+  } catch (err) {
+    ElMessage.error(String(err?.message || t('common.operationFailed')))
+  }
+}
+
 onMounted(async () => {
   shortcuts.value = await loadShortcuts()
   const wa = await window.api?.getSetting('lightboxWheelAction', 'zoom')
@@ -240,6 +257,25 @@ onBeforeUnmount(() => {
           <span class="lightbox-name">{{ current?.name || '' }}</span>
         </span>
         <div class="lightbox-toolbar-right">
+          <el-tooltip
+            :content="
+              favoritesStore.isFav(current?.absPath)
+                ? t('lightbox.favRemove')
+                : t('lightbox.favAdd')
+            "
+            placement="bottom"
+          >
+            <button
+              class="lb-btn lb-btn-fav"
+              :class="{ 'is-fav': favoritesStore.isFav(current?.absPath) }"
+              @click="toggleFavCurrent"
+            >
+              <el-icon :size="16">
+                <Star v-if="!favoritesStore.isFav(current?.absPath)" />
+                <StarFilled v-else />
+              </el-icon>
+            </button>
+          </el-tooltip>
           <el-tooltip
             :content="t('lightbox.copyFileTip', { key: shortcuts.copyFile })"
             placement="bottom"
@@ -382,6 +418,11 @@ onBeforeUnmount(() => {
 .lb-btn-copied {
   color: #67c23a;
   background: rgba(103, 194, 58, 0.22);
+}
+
+.lb-btn-fav.is-fav {
+  color: #ffd04b;
+  background: rgba(255, 208, 75, 0.18);
 }
 
 .lb-nav {

@@ -41,7 +41,8 @@ export default {
     noRootsTooltip: '还没有根目录，点击设置添加',
     selectRoot: '选择根目录',
     noRoots: '未添加目录',
-    settings: '设置'
+    settings: '设置',
+    favorites: '我的收藏'
   },
   app: {
     cacheMaintenance: '缓存维护',
@@ -59,9 +60,13 @@ export default {
     noRoots: '还没有根目录',
     goToSettings: '去设置添加根目录',
     setupTip: '在设置中注册图片目录，主界面即可切换浏览',
-    searchImages: '搜索图片（回车，支持 * ? 通配符）',
+    searchImages: '搜索图片',
     quickCopy: '快速复制',
     quickCopyTip: '开启后单击图片直接复制（当前：{type}），不再进入灯箱预览',
+    myFavorites: '我的收藏',
+    favBannerRoot: '根目录：{name}',
+    favCount: '共 {n} 张',
+    favEmpty: '还没有收藏的图片\n在图片卡片或灯箱中点击星标即可收藏',
     aiSearchToggle: 'AI 搜索',
     aiNoRoot: '请先选择一个根目录',
     aiNoKey: '请先在设置中配置 API 密钥',
@@ -85,6 +90,10 @@ export default {
     copyImageTip: '复制图片（{key}）',
     copyFileAction: '复制原文件',
     copyImageAction: '复制图片',
+    favAdd: '收藏到「我的收藏」',
+    favRemove: '取消收藏',
+    favAdded: '已收藏到「我的收藏」',
+    favRemoved: '已取消收藏',
     loadingOrig: '加载原图中…',
     navHint: '←/→ 切换 · Esc 关闭'
   },
@@ -103,6 +112,7 @@ export default {
     theme: '主题设置',
     animations: '动画',
     devOptions: '开发者选项',
+    cardPage: '图片卡片',
     shortcuts: '快捷键',
     extensions: '扩展功能',
     aiSearch: 'AI搜索',
@@ -199,7 +209,11 @@ export default {
     gifSourceDisk: '记录磁盘缓存',
     gifSourceRealtime: '实时获取',
     gifSourceDesc:
-      '记录磁盘缓存：缓存维护时为 GIF 生成首帧缩略图并写入缓存目录，浏览最流畅（推荐）。实时获取：不再为 GIF 生成/写入首帧缩略图，节省磁盘空间，浏览时按需现算、略耗性能；此前已生成的旧缩略图可用「清理无用缓存」移除。'
+      '记录磁盘缓存：缓存维护时为 GIF 生成首帧缩略图并写入缓存目录，浏览最流畅（推荐）。实时获取：不再为 GIF 生成/写入首帧缩略图，节省磁盘空间，浏览时按需现算、略耗性能；此前已生成的旧缩略图可用「清理无用缓存」移除。',
+    favSectionTitle: '收藏',
+    favSectionDesc: '「我的收藏」功能设置。',
+    showFavorites: '显示收藏项',
+    showFavoritesDesc: '在左侧目录树顶部显示「我的收藏」入口（展示当前根目录下收藏的图片）'
   },
   appearance: {
     pageDesc: '界面显示相关的设置。',
@@ -223,6 +237,18 @@ export default {
     pureBlack: '纯黑模式（AMOLED）',
     pureBlackDesc:
       '仅暗色模式生效：将背景、面板与边框等所有暗色替换为纯黑 #000，适合 OLED 屏幕，更省电。'
+  },
+  grid: {
+    pageDesc: '主界面图片卡片的显示设置。',
+    nameRow: '文件名',
+    nameRowDesc: '图片卡片上文件名信息的显示方式',
+    extRow: '格式角标',
+    extRowDesc: '卡片右上角显示的图片格式（如 png / jpg）',
+    favRow: '收藏按钮',
+    favRowDesc: '卡片左上角的收藏按钮（功能待接入）',
+    optNone: '不显示',
+    optHover: '悬停显示',
+    optAlways: '一直显示'
   },
   shortcuts: {
     pageDesc: '自定义灯箱中「复制原文件 / 复制图片」的快捷键。',
@@ -313,8 +339,8 @@ export default {
     devtools: '网页开发者工具',
     devtoolsDesc: '打开所有窗口的 Chromium DevTools',
     reopen: '重新打开',
-    showTest: '显示「设置 - 测试」栏目',
-    showTestDesc: '在左侧设置树中显示/隐藏「测试」栏目',
+    showTest: '显示测试页',
+    showTestDesc: '用于调试一些新的功能',
     logging: '记录日志',
     loggingDesc:
       '捕获所有日志，自动写入 userData/logs/app-YYYYMMDD.log',
@@ -349,7 +375,13 @@ export default {
     loggingOff: '日志记录已关闭'
   },
   test: {
-    pageDesc: '用于触发各类通知、以及后续需要手动验证的操作。通知会从左下角弹出，并进入通知中心历史。',
+    pageDesc: '非开发者不建议乱点，可能会引发工作不正常的问题',
+    versionSection: '版本号覆盖测试',
+    versionDesc:
+      '填写后，应用以该版本号运行（立即影响「关于」页与手动检测；启动时的自动更新检测需重启应用后生效）。留空则不修改。',
+    versionPlaceholder: '留空不修改（当前 v{v}）',
+    versionSaved: '已保存，重启后生效',
+    versionBadFormat: '版本号格式应为 x.y 或 x.y.z',
     notifyTriggers: '通知触发器',
     progress: '进度通知（可中止）',
     confirm: '常规通知（取消/确定）',
@@ -404,5 +436,12 @@ export default {
   tray: {
     open: '打开 Image Browser',
     quit: '退出'
+  },
+  update: {
+    title: '发现新版本 v{version}',
+    msg: '检测到新版本 v{version}，点击「查看」前往下载页面。',
+    releaseNote: '更新说明：\n{notes}',
+    view: '查看',
+    later: '忽略'
   }
 }

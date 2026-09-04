@@ -2,10 +2,12 @@
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
+import { Star, StarFilled } from '@element-plus/icons-vue'
 import Lightbox from './Lightbox.vue'
 import GifThumb from './GifThumb.vue'
 import { buildImageUrl, isGifName } from '../utils/image-url'
 import { useGifStore } from '../stores/gif'
+import { useFavoritesStore } from '../stores/favorites'
 
 const { t } = useI18n()
 
@@ -31,10 +33,21 @@ const props = defineProps({
   // 快速复制：开启后点击图片直接复制（不进灯箱）
   quickCopy: { type: Boolean, default: false },
   // 快速复制类型：file = 复制原文件；image = 复制图片
-  quickCopyType: { type: String, default: 'file' }
+  quickCopyType: { type: String, default: 'file' },
+  // 文件名显示方式：none / hover / always
+  nameMode: { type: String, default: 'hover' },
+  // 右上角格式角标显示方式：none / hover / always
+  extMode: { type: String, default: 'none' },
+  // 左上角收藏按钮显示方式：none / hover / always
+  favMode: { type: String, default: 'none' },
+  // 收藏列表（“我的收藏”视图）：非 null 时直接渲染这些图片
+  favItems: { type: Array, default: null },
+  // 覆盖空态文案（如“我的收藏”为空时的提示）
+  emptyText: { type: String, default: '' }
 })
 
 const gifStore = useGifStore()
+const favoritesStore = useFavoritesStore()
 
 const GAP = 10
 const COL_BASE_WIDTH = 200
@@ -100,16 +113,20 @@ function scheduleLayout() {
 
 const isSearching = computed(() => !!props.searchQuery && props.searchQuery.trim() !== '')
 
+function initItems(list) {
+  return (list || []).map((it) => ({ ...it, x: 0, y: 0, w: 0, h: 0, _loaded: null }))
+}
+
 async function load() {
+  if (Array.isArray(props.favItems)) {
+    items.value = initItems(props.favItems)
+    totalHeight.value = 0
+    await nextTick()
+    doLayout()
+    return
+  }
   if (Array.isArray(props.aiResults)) {
-    items.value = props.aiResults.map((it) => ({
-      ...it,
-      x: 0,
-      y: 0,
-      w: 0,
-      h: 0,
-      _loaded: null
-    }))
+    items.value = initItems(props.aiResults)
     totalHeight.value = 0
     await nextTick()
     doLayout()
@@ -126,14 +143,7 @@ async function load() {
     const list = isSearching.value
       ? await window.api.imagesList(props.rootId, null, props.searchQuery)
       : await window.api.imagesList(props.rootId, props.folderPath)
-    items.value = (list || []).map((it) => ({
-      ...it,
-      x: 0,
-      y: 0,
-      w: 0,
-      h: 0,
-      _loaded: null
-    }))
+    items.value = initItems(list)
     await nextTick()
     doLayout()
   } catch (err) {
@@ -143,7 +153,11 @@ async function load() {
   }
 }
 
-watch(() => [props.rootId, props.folderPath, props.searchQuery, props.aiResults], load, { immediate: true })
+watch(
+  () => [props.rootId, props.folderPath, props.searchQuery, props.aiResults, props.favItems],
+  load,
+  { immediate: true }
+)
 
 // 缩放变化 → 重新布局
 watch(() => props.zoom, doLayout)
@@ -206,6 +220,12 @@ function srcFor(item) {
   return buildImageUrl(props.rootId, item.absPath, item.hasThumb ? 'thumb' : 'auto')
 }
 
+function extOf(item) {
+  const n = item?.name || ''
+  const i = n.lastIndexOf('.')
+  return i > 0 ? n.slice(i + 1).toLowerCase() : ''
+}
+
 function onImgLoad(item, e) {
   const img = e.target
   if (img.naturalWidth && img.naturalHeight) {
@@ -231,6 +251,14 @@ function handleItemClick(item, e) {
     return
   }
   openLightbox(item)
+}
+
+async function toggleFav(item) {
+  try {
+    await favoritesStore.toggle({ id: props.rootId }, item)
+  } catch (err) {
+    ElMessage.error(String(err?.message || t('common.operationFailed')))
+  }
 }
 
 async function doQuickCopy(item, e) {
@@ -284,7 +312,11 @@ async function copyViaCanvas(e) {
     </div>
 
     <div v-else-if="!items.length" class="waterfall-state">
-      <el-empty :description="isSearching ? t('waterfall.noSearchResult') : t('waterfall.empty')" />
+      <el-empty
+        :description="
+          props.emptyText || (isSearching ? t('waterfall.noSearchResult') : t('waterfall.empty'))
+        "
+      />
     </div>
 
     <div v-else class="waterfall-inner" :style="{ height: totalHeight + 'px' }">
@@ -292,6 +324,14 @@ async function copyViaCanvas(e) {
         v-for="item in visibleItems"
         :key="item.absPath"
         class="waterfall-item"
+        :class="{
+          'wf-name-none': props.nameMode === 'none',
+          'wf-name-always': props.nameMode === 'always',
+          'wf-ext-none': props.extMode === 'none',
+          'wf-ext-always': props.extMode === 'always',
+          'wf-fav-none': props.favMode === 'none',
+          'wf-fav-always': props.favMode === 'always'
+        }"
         :style="{
           transform: `translate(${item.x}px, ${item.y}px)`,
           width: item.w + 'px',
@@ -314,6 +354,19 @@ async function copyViaCanvas(e) {
           draggable="false"
           @load="onImgLoad(item, $event)"
         />
+        <button
+          type="button"
+          class="waterfall-fav"
+          :class="{ 'is-fav': favoritesStore.isFav(item.absPath) }"
+          :title="item.name"
+          @click.stop="toggleFav(item)"
+        >
+          <el-icon :size="13">
+            <Star v-if="!favoritesStore.isFav(item.absPath)" />
+            <StarFilled v-else />
+          </el-icon>
+        </button>
+        <span v-if="extOf(item)" class="waterfall-badge">{{ extOf(item) }}</span>
         <div class="waterfall-hover">
           <span class="waterfall-name">{{ item.name }}</span>
         </div>
@@ -404,6 +457,86 @@ async function copyViaCanvas(e) {
 
 .waterfall-item:hover .waterfall-hover {
   opacity: 1;
+}
+
+.wf-name-always .waterfall-hover {
+  opacity: 1;
+}
+
+.wf-name-none .waterfall-hover {
+  display: none;
+}
+
+.waterfall-badge {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  padding: 1px 6px;
+  font-size: 11px;
+  line-height: 16px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  opacity: 0;
+  transition: opacity 0.18s ease;
+  pointer-events: none;
+  text-transform: lowercase;
+}
+
+.waterfall-item:hover .waterfall-badge {
+  opacity: 1;
+}
+
+.wf-ext-always .waterfall-badge {
+  opacity: 1;
+}
+
+.wf-ext-none .waterfall-badge {
+  display: none;
+}
+
+.waterfall-fav {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 1;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.35);
+  color: #fff;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.18s ease, background 0.18s ease, color 0.18s ease;
+}
+
+.waterfall-fav:hover {
+  background: rgba(0, 0, 0, 0.6);
+  color: #ffd04b;
+}
+
+.waterfall-item:hover .waterfall-fav {
+  opacity: 1;
+}
+
+.waterfall-fav.is-fav {
+  color: #ffd04b;
+}
+
+.waterfall-fav.is-fav:hover {
+  color: #fff;
+}
+
+.wf-fav-always .waterfall-fav {
+  opacity: 1;
+}
+
+.wf-fav-none .waterfall-fav {
+  display: none;
 }
 
 .waterfall-name {

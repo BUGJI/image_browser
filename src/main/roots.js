@@ -100,6 +100,7 @@ export function updateRoot(id, path, alias = '') {
 
 export function removeRoot(id) {
   getDb().prepare('DELETE FROM roots WHERE id = ?').run(id)
+  getDb().prepare('DELETE FROM favorites WHERE root_id = ?').run(id)
   // 删除的是当前选中时清空
   if (getSetting('currentRootId', '') === String(id)) {
     setSetting('currentRootId', '')

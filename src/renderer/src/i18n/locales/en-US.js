@@ -41,7 +41,8 @@ export default {
     noRootsTooltip: 'No roots yet, click Settings to add',
     selectRoot: 'Select root',
     noRoots: 'No roots added',
-    settings: 'Settings'
+    settings: 'Settings',
+    favorites: 'My favorites'
   },
   app: {
     cacheMaintenance: 'Cache maintenance',
@@ -59,9 +60,13 @@ export default {
     noRoots: 'No roots yet',
     goToSettings: 'Go to Settings to add a root',
     setupTip: 'Register image directories in Settings to browse them here',
-    searchImages: 'Search images (Enter, supports * ? wildcards)',
+    searchImages: 'Search images',
     quickCopy: 'Quick copy',
     quickCopyTip: 'When on, clicking an image copies it directly ({type}) without opening the lightbox',
+    myFavorites: 'My favorites',
+    favBannerRoot: 'Root: {name}',
+    favCount: '{n} images',
+    favEmpty: 'No favorites yet\nStar an image on its card or in the lightbox to add it',
     aiSearchToggle: 'AI search',
     aiNoRoot: 'Select a root first',
     aiNoKey: 'Configure an API key in Settings first',
@@ -85,6 +90,10 @@ export default {
     copyImageTip: 'Copy image ({key})',
     copyFileAction: 'Copy file',
     copyImageAction: 'Copy image',
+    favAdd: 'Add to favorites',
+    favRemove: 'Remove from favorites',
+    favAdded: 'Added to favorites',
+    favRemoved: 'Removed from favorites',
     loadingOrig: 'Loading original…',
     navHint: '←/→ navigate · Esc close'
   },
@@ -103,6 +112,7 @@ export default {
     theme: 'Theme setting',
     animations: 'Animations',
     devOptions: 'Developer options',
+    cardPage: 'Image card',
     shortcuts: 'Shortcuts',
     extensions: 'Extensions',
     aiSearch: 'AI Search',
@@ -203,7 +213,11 @@ export default {
     gifSourceDisk: 'Disk cache',
     gifSourceRealtime: 'Real-time',
     gifSourceDesc:
-      'Disk cache: generate and store a first-frame thumbnail for GIFs during cache maintenance, smoothest browsing (recommended). Real-time: stop generating/writing first-frame thumbnails for GIFs to save disk space; posters are decoded on demand at a small performance cost. Previously generated thumbnails can be removed with "Clean unused cache".'
+      'Disk cache: generate and store a first-frame thumbnail for GIFs during cache maintenance, smoothest browsing (recommended). Real-time: stop generating/writing first-frame thumbnails for GIFs to save disk space; posters are decoded on demand at a small performance cost. Previously generated thumbnails can be removed with "Clean unused cache".',
+    favSectionTitle: 'Favorites',
+    favSectionDesc: 'Settings for "My favorites".',
+    showFavorites: 'Show favorites',
+    showFavoritesDesc: 'Show the "My favorites" entry at the top of the folder tree (lists images favorited under the current root)'
   },
   appearance: {
     pageDesc: 'Settings related to the interface display.',
@@ -227,6 +241,18 @@ export default {
     pureBlack: 'Pure black (AMOLED)',
     pureBlackDesc:
       'Applies in dark mode only: replaces all dark backgrounds, panels and borders with pure black #000, great for OLED screens and more power-efficient.'
+  },
+  grid: {
+    pageDesc: 'Display settings for the image cards on the main screen.',
+    nameRow: 'File name',
+    nameRowDesc: 'How file names are shown on image cards',
+    extRow: 'Format badge',
+    extRowDesc: 'Image format shown at the top-right of a card (e.g. png / jpg)',
+    favRow: 'Favorite button',
+    favRowDesc: 'Favorite button at the top-left of a card (feature pending)',
+    optNone: 'Hidden',
+    optHover: 'On hover',
+    optAlways: 'Always'
   },
   shortcuts: {
     pageDesc: 'Customize the "Copy file / Copy image" shortcuts used in the lightbox.',
@@ -318,8 +344,8 @@ export default {
     devtools: 'Web developer tools',
     devtoolsDesc: 'Close and reopen Chromium DevTools for all windows (for troubleshooting)',
     reopen: 'Reopen',
-    showTest: 'Show "Settings - Test" section',
-    showTestDesc: 'Show/hide the "Test" section in the settings tree (hidden by default)',
+    showTest: 'Show Test section',
+    showTestDesc: 'For features test',
     logging: 'Logging',
     loggingDesc:
       'Capture all main/renderer/worker logs (DEBUG / INFO / WARNING / ERROR), written to userData/logs/app-YYYYMMDD.log',
@@ -355,7 +381,13 @@ export default {
   },
   test: {
     pageDesc:
-      'Used to trigger various notifications and operations that need manual verification. Notifications pop up at the bottom left and enter the notification center history.',
+      'Engineers only. Do Not Touch',
+    versionSection: 'Version override test',
+    versionDesc:
+      'When filled in, the app reports this version (immediately affects the About page and manual checks; the update check at startup takes effect after restarting). Leave empty to keep the real version.',
+    versionPlaceholder: 'Leave empty (currently v{v})',
+    versionSaved: 'Saved, restart to applies',
+    versionBadFormat: 'Version must look like x.y or x.y.z',
     notifyTriggers: 'Notification triggers',
     progress: 'Progress (cancellable)',
     confirm: 'Normal (cancel/OK)',
@@ -410,5 +442,12 @@ export default {
   tray: {
     open: 'Open Image Browser',
     quit: 'Quit'
+  },
+  update: {
+    title: 'New version v{version} available',
+    msg: 'Version v{version} is available — click "View" to go to the download page.',
+    releaseNote: 'Release notes:\n{notes}',
+    view: 'View',
+    later: 'Dismiss'
   }
 }

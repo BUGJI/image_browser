@@ -1,12 +1,20 @@
 <script setup>
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Setting, Folder, Search } from '@element-plus/icons-vue'
+import { Setting, Folder, Search, StarFilled } from '@element-plus/icons-vue'
 import { useRootsStore } from '../stores/roots'
 
 const { t } = useI18n()
 const rootsStore = useRootsStore()
 let offRootsChanged = null
+
+// 「我的收藏」入口：作为目录树内第一个伪节点，由 App 决定是否显示与高亮
+const props = defineProps({
+  showFavorites: { type: Boolean, default: false },
+  favActive: { type: Boolean, default: false }
+})
+const emit = defineEmits(['show-favorites'])
+const FAV_KEY = '__favorites__'
 
 // 目录树数据（只含文件夹，来自主进程扫描）
 const treeData = ref([])
@@ -92,6 +100,17 @@ const filteredTree = computed(() => {
   return filter(treeData.value)
 })
 
+// 树内第一个伪节点「我的收藏」（显示在根目录之上，搜索时隐藏）
+const favNode = computed(() =>
+  props.showFavorites && rootsStore.currentRoot && !searchText.value.trim()
+    ? { path: FAV_KEY, name: t('sidebar.favorites'), isFavorites: true, children: [] }
+    : null
+)
+const displayedTree = computed(() => {
+  if (!favNode.value) return filteredTree.value
+  return [favNode.value, ...filteredTree.value]
+})
+
 // 搜索时展开过滤后所有节点（含父链）；无搜索时用持久化的展开状态
 const expandedKeys = computed(() => {
   if (searchText.value.trim()) {
@@ -143,10 +162,17 @@ watch(searchText, () => {
   treeKey.value++
 })
 
-// 当前选中文件夹（任意层级），树内高亮
+// 当前选中文件夹（任意层级），树内高亮；收藏视图时高亮收藏节点
 const selectedPath = computed(() => rootsStore.selectedFolder?.path || '')
+const currentNodeKey = computed(() =>
+  props.favActive ? FAV_KEY : selectedPath.value
+)
 
 function handleNodeClick(data) {
+  if (data.isFavorites) {
+    emit('show-favorites')
+    return
+  }
   rootsStore.selectFolder({ name: data.name, path: data.path })
 }
 
@@ -174,7 +200,7 @@ onBeforeUnmount(() => {
 <template>
   <aside class="sidebar">
     <div class="sidebar-content">
-      <!-- 有根目录：顶部搜索框 + 目录树 -->
+      <!-- 有根目录：我的收藏 + 搜索框 + 目录树 -->
       <template v-if="rootsStore.currentRoot">
         <div class="dir-search">
           <el-input
@@ -194,11 +220,11 @@ onBeforeUnmount(() => {
             v-if="treeData.length"
             ref="treeRef"
             :key="treeKey"
-            :data="filteredTree"
+            :data="displayedTree"
             node-key="path"
             :props="{ label: 'name', children: 'children' }"
             :default-expanded-keys="expandedKeys"
-            :current-node-key="selectedPath"
+            :current-node-key="currentNodeKey"
             :expand-on-click-node="false"
             highlight-current
             class="dir-tree"
@@ -208,9 +234,14 @@ onBeforeUnmount(() => {
             @node-collapse="handleNodeCollapse"
           >
             <template #default="{ data }">
-              <span class="tree-node">
-                <el-icon :size="14" class="tree-node-icon"><Folder /></el-icon>
-                <span class="tree-node-label" :title="data.path">{{ data.name }}</span>
+              <span class="tree-node" :class="{ 'tree-node-fav': data.isFavorites }">
+                <el-icon :size="14" class="tree-node-icon">
+                  <StarFilled v-if="data.isFavorites" />
+                  <Folder v-else />
+                </el-icon>
+                <span class="tree-node-label" :title="data.isFavorites ? '' : data.path">
+                  {{ data.name }}
+                </span>
               </span>
             </template>
           </el-tree>

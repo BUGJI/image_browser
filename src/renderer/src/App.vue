@@ -9,7 +9,7 @@ import SideBar from './components/SideBar.vue'
 import NotificationHost from './components/NotificationHost.vue'
 import WaterfallGrid from './components/WaterfallGrid.vue'
 import CloseAskDialog from './components/CloseAskDialog.vue'
-import { Picture, Search, Loading } from '@element-plus/icons-vue'
+import { Picture, Search, Loading, StarFilled } from '@element-plus/icons-vue'
 import { useRootsStore } from './stores/roots'
 import { useThemeStore } from './stores/theme'
 import { useNotificationsStore } from './stores/notifications'
@@ -17,6 +17,7 @@ import { useLocaleStore } from './stores/locale'
 import { useAnimationsStore } from './stores/animations'
 import { aiSearch } from './utils/ai-search'
 import { useGifStore } from './stores/gif'
+import { useFavoritesStore } from './stores/favorites'
 
 const { t } = useI18n()
 const localeStore = useLocaleStore()
@@ -30,6 +31,29 @@ let offSettingsChanged = null
 let offCacheProgress = null
 let cacheNotifyId = null
 let cacheRootKey = null
+// 启动更新检测推送（发现新版本时弹出忽略/查看通知）
+let offUpdateAvailable = null
+
+const UPDATE_RELEASES_URL = 'https://github.com/BUGJI/image_browser/releases'
+
+function showUpdateNotify(p) {
+  if (!p?.latestVersion) return
+  notificationsStore.add({
+    type: 'info',
+    title: t('update.title', { version: p.latestVersion }),
+    message: p.releaseNotes
+      ? t('update.releaseNote', { notes: String(p.releaseNotes).slice(0, 500) })
+      : t('update.msg', { version: p.latestVersion }),
+    actions: [
+      {
+        label: t('update.view'),
+        kind: 'primary',
+        onClick: () => window.api?.openExternal(p.downloadUrl || UPDATE_RELEASES_URL)
+      },
+      { label: t('update.later'), kind: 'default' }
+    ]
+  })
+}
 
 // 瀑布流缩放：值越大 item 越小，一行容纳更多图片
 const itemZoom = ref(1.5)
@@ -51,6 +75,13 @@ const quickCopyType = ref('file') // 'file' | 'image'
 const quickCopyLabel = computed(() =>
   t(quickCopyType.value === 'file' ? 'lightbox.copyFileAction' : 'lightbox.copyImageAction')
 )
+
+// 瀑布流卡片文件名显示方式：none / hover / always（设置 - 外观）
+const itemNameMode = ref('hover')
+// 卡片右上角格式角标显示方式：none / hover / always（默认不显示）
+const itemExtMode = ref('none')
+// 卡片左上角收藏按钮显示方式：none / hover / always（默认不显示）
+const itemFavMode = ref('none')
 function toggleQuickCopy() {
   quickCopyEnabled.value = !quickCopyEnabled.value
   try {
@@ -125,6 +156,40 @@ const themeStore = useThemeStore()
 const notificationsStore = useNotificationsStore()
 const animationsStore = useAnimationsStore()
 const gifStore = useGifStore()
+const favoritesStore = useFavoritesStore()
+
+// 「我的收藏」视图（仅当前根目录）
+const showFavorites = ref(false) // 设置 - 根目录：是否显示入口
+const favActive = ref(false) // 是否正在浏览“我的收藏”
+const favItems = computed(() =>
+  favActive.value && favoritesStore.rootId === rootsStore.currentRootId ? favoritesStore.list : null
+)
+
+function enterFavorites() {
+  const root = rootsStore.currentRoot
+  if (!root) return
+  favActive.value = true
+  rootsStore.selectFolder(null)
+  clearSearch()
+  if (favoritesStore.rootId !== root.id) {
+    favoritesStore.load(root)
+  }
+}
+// 选中普通文件夹 / 切换根目录时退出收藏视图
+watch(
+  () => rootsStore.selectedFolder,
+  (v) => {
+    if (v) favActive.value = false
+  }
+)
+watch(
+  () => rootsStore.currentRootId,
+  (rid) => {
+    favActive.value = false
+    const root = rootsStore.roots.find((r) => r.id === rid)
+    favoritesStore.load(root)
+  }
+)
 
 // 切换到文件夹 / 切换根目录时，退出 AI 结果视图
 watch(
@@ -281,6 +346,15 @@ onMounted(async () => {
     /* ignore */
   }
 
+  // 瀑布流文件名显示方式（设置 - 外观）
+  const inm = await window.api.getSetting('itemNameMode', 'hover')
+  itemNameMode.value = ['none', 'hover', 'always'].includes(inm) ? inm : 'hover'
+  const iem = await window.api.getSetting('itemExtMode', 'none')
+  itemExtMode.value = ['none', 'hover', 'always'].includes(iem) ? iem : 'none'
+  const ifm = await window.api.getSetting('itemFavMode', 'none')
+  itemFavMode.value = ['none', 'hover', 'always'].includes(ifm) ? ifm : 'none'
+  showFavorites.value = (await window.api.getSetting('showFavorites', 'false')) === 'true'
+
   // 缩放滑块最大值（开发者选项可配置，默认 2）
   const zm = parseFloat(await window.api.getSetting('zoomMax', '2'))
   zoomMax.value = Number.isFinite(zm) ? Math.max(1, zm) : 2
@@ -326,6 +400,18 @@ onMounted(async () => {
     if (key === 'quickCopyType') {
       quickCopyType.value = ['file', 'image'].includes(value) ? value : 'file'
     }
+    if (key === 'itemNameMode') {
+      itemNameMode.value = ['none', 'hover', 'always'].includes(value) ? value : 'hover'
+    }
+    if (key === 'itemExtMode') {
+      itemExtMode.value = ['none', 'hover', 'always'].includes(value) ? value : 'none'
+    }
+    if (key === 'itemFavMode') {
+      itemFavMode.value = ['none', 'hover', 'always'].includes(value) ? value : 'none'
+    }
+    if (key === 'showFavorites') {
+      showFavorites.value = value === 'true'
+    }
     themeStore.onSettingsChanged({ key, value })
     localeStore.onSettingsChanged({ key, value })
     animationsStore.onSettingsChanged({ key, value })
@@ -336,11 +422,15 @@ onMounted(async () => {
 
   // 缓存维护进度：主窗口也接收（通知滞留在全局通知列表）
   offCacheProgress = window.api.onCacheProgress(onGlobalCacheProgress)
+
+  // 启动检测更新：主进程发现新版本时用「忽略/查看」通知提示
+  offUpdateAvailable = window.api.onUpdateAvailable((p) => showUpdateNotify(p))
 })
 
 onBeforeUnmount(() => {
   offSettingsChanged?.()
   offCacheProgress?.()
+  offUpdateAvailable?.()
 })
 </script>
 
@@ -352,7 +442,11 @@ onBeforeUnmount(() => {
       <CloseAskDialog />
 
       <div class="app-body">
-        <SideBar />
+        <SideBar
+          :show-favorites="showFavorites"
+          :fav-active="favActive"
+          @show-favorites="enterFavorites"
+        />
 
         <main class="app-content">
           <!-- 悬浮栏：快速复制 + 搜索 + AI + 缩放滑块 + 通知中心 + 主题切换 -->
@@ -531,7 +625,7 @@ onBeforeUnmount(() => {
               </div>
             </div>
             <div class="root-body">
-              <template v-if="rootsStore.selectedFolder && !isSearching">
+              <template v-if="rootsStore.selectedFolder && !isSearching && !favActive">
                 <div class="folder-banner">
                   <el-icon :size="18" class="folder-banner-icon"><Folder /></el-icon>
                   <div class="folder-banner-text">
@@ -540,7 +634,24 @@ onBeforeUnmount(() => {
                   </div>
                 </div>
               </template>
-              <div v-if="rootsStore.selectedFolder || isSearching" class="folder-body">
+              <template v-else-if="favActive">
+                <div class="folder-banner">
+                  <el-icon :size="18" class="folder-banner-icon fav-banner-icon">
+                    <StarFilled />
+                  </el-icon>
+                  <div class="folder-banner-text">
+                    <h3 class="folder-banner-name">{{ t('app.myFavorites') }}</h3>
+                    <p class="folder-banner-path">
+                      {{ t('app.favBannerRoot', { name: rootDisplayName }) }} ·
+                      {{ t('app.favCount', { n: favoritesStore.list.length }) }}
+                    </p>
+                  </div>
+                </div>
+              </template>
+              <div
+                v-if="rootsStore.selectedFolder || isSearching || favActive"
+                class="folder-body"
+              >
                 <WaterfallGrid
                   :root-id="rootsStore.currentRoot.id"
                   :folder-path="rootsStore.selectedFolder?.path || ''"
@@ -548,8 +659,13 @@ onBeforeUnmount(() => {
                   :refresh-tick="cacheRefreshTick"
                   :search-query="searchQuery"
                   :ai-results="aiResults"
+                  :fav-items="favItems"
+                  :empty-text="favActive ? t('app.favEmpty') : ''"
                   :quick-copy="quickCopyEnabled"
                   :quick-copy-type="quickCopyType"
+                  :name-mode="itemNameMode"
+                  :ext-mode="itemExtMode"
+                  :fav-mode="itemFavMode"
                 />
               </div>
               <div v-else class="welcome">
@@ -646,6 +762,8 @@ onBeforeUnmount(() => {
 
 .search-input :deep(.el-input__wrapper) {
   border-radius: 10px;
+  min-height: 36px;
+  height: 36px;
   background: var(--panel-bg);
   box-shadow: 0 0 0 1px var(--panel-border) inset;
 }

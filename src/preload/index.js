@@ -49,6 +49,14 @@ const api = {
   appRelaunch: () => ipcRenderer.invoke('app:relaunch'),
   // 检测更新（桩实现，返回 { hasUpdate, latestVersion, checkedAt }）
   checkUpdate: () => ipcRenderer.invoke('app:check-update'),
+  // 启动检测到新版本时主进程推送；返回取消订阅函数
+  onUpdateAvailable: (cb) => {
+    const listener = (_e, payload) => cb(payload)
+    ipcRenderer.on('app:update-available', listener)
+    return () => ipcRenderer.removeListener('app:update-available', listener)
+  },
+  // 用系统默认浏览器打开外部链接
+  openExternal: (url) => ipcRenderer.invoke('shell:open-external', url),
   // 开关所有窗口的开发者工具
   toggleDevtools: (open) => ipcRenderer.invoke('devtools:toggle', open),
   // 重启所有窗口的开发者工具（关闭再打开）
@@ -88,6 +96,12 @@ const api = {
     ipcRenderer.on('roots:current-changed', listener)
     return () => ipcRenderer.removeListener('roots:current-changed', listener)
   },
+
+  // --- 图片收藏（按根目录）---
+  // 返回 [{ rootId, absPath, name }]
+  favList: (rootId) => ipcRenderer.invoke('favorites:list', rootId),
+  // 收藏/取消收藏：传入 { absPath, name }；返回 { added }
+  favToggle: (rootId, item) => ipcRenderer.invoke('favorites:toggle', rootId, item),
 
   // --- 缓存维护（每根目录独立缓存）---
   // mode: 'update' | 'rebuild' | 'clean'

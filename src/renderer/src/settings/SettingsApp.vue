@@ -15,6 +15,7 @@ import AboutPage from './pages/AboutPage.vue'
 import TestPage from './pages/TestPage.vue'
 import DevOptionsPage from './pages/DevOptionsPage.vue'
 import ShortcutsPage from './pages/ShortcutsPage.vue'
+import GridPage from './pages/GridPage.vue'
 import NotificationHost from '../components/NotificationHost.vue'
 import { useThemeStore } from '../stores/theme'
 import { useLocaleStore } from '../stores/locale'
@@ -55,7 +56,8 @@ const treeData = computed(() => {
       children: [
         { id: 'titlebar', label: t('settings.titlebar') },
         { id: 'theme', label: t('settings.theme') },
-        { id: 'animations', label: t('settings.animations') }
+        { id: 'animations', label: t('settings.animations') },
+        { id: 'card', label: t('settings.cardPage') }
       ]
     },
     { id: 'dev-options', label: t('settings.devOptions'), icon: 'Monitor' },
@@ -76,6 +78,7 @@ const pageMap = {
   animations: AnimationsPage,
   test: TestPage,
   'dev-options': DevOptionsPage,
+  card: GridPage,
   shortcuts: ShortcutsPage,
   'ai-search': AiSearchPage,
   about: AboutPage

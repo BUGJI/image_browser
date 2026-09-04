@@ -1,4 +1,4 @@
-import { app, ipcMain, BrowserWindow, dialog, clipboard, nativeImage, protocol, net } from 'electron'
+import { app, ipcMain, BrowserWindow, dialog, clipboard, nativeImage, protocol, net, shell } from 'electron'
 import { execFile } from 'child_process'
 import { existsSync } from 'fs'
 import { join } from 'path'
@@ -26,6 +26,11 @@ import {
   removeRoot,
   reorderRoots
 } from './roots'
+import {
+  initFavoritesTable,
+  listFavorites,
+  toggleFavorite
+} from './favorites'
 import { scanDirTree, ScanAbortedError } from './fs-scan.mjs'
 import {
   registerCacheIpc,
@@ -34,7 +39,7 @@ import {
 } from './cache'
 import { registerAiIpc } from './ai'
 import { initLogger } from './logger'
-import { checkForUpdates } from './updater'
+import { checkForUpdates, getEffectiveVersion } from './updater'
 import { readClipboardImageBuffer } from './image-decode'
 
 // 自定义协议特权注册必须在 app ready 之前
@@ -89,7 +94,8 @@ function registerIpc() {
   })
 
   // --- 应用 ---
-  ipcMain.handle('app:get-version', () => app.getVersion())
+  // 生效版本（设置-测试可覆盖，用于联调更新链路）
+  ipcMain.handle('app:get-version', () => getEffectiveVersion())
   ipcMain.handle('app:relaunch', () => {
     app.relaunch()
     app.exit(0)
@@ -97,6 +103,13 @@ function registerIpc() {
 
   // 检测更新：目前为桩实现，始终返回已是最新
   ipcMain.handle('app:check-update', () => checkForUpdates())
+
+  // 用系统默认浏览器打开外部链接（仅允许 http/https）
+  ipcMain.handle('shell:open-external', async (_e, url) => {
+    if (typeof url !== 'string' || !/^https?:\/\//.test(url)) return false
+    await shell.openExternal(url)
+    return true
+  })
 
   // --- 开发者工具开关 ---
   ipcMain.handle('devtools:toggle', (_e, open) => {
@@ -143,6 +156,10 @@ function registerIpc() {
     broadcast('roots:changed')
     return roots
   })
+
+  // --- 图片收藏（按根目录独立） ---
+  ipcMain.handle('favorites:list', (_e, rootId) => listFavorites(rootId))
+  ipcMain.handle('favorites:toggle', (_e, rootId, item) => toggleFavorite(rootId, item))
 
   // 当前选中根目录（持久化到 settings 表）
   ipcMain.handle('roots:get-current', () => {
@@ -275,6 +292,32 @@ function copyFileToClipboard(absPath) {
   })
 }
 
+// 启动更新检测：等主窗口页面加载完成后执行，保证渲染进程已挂载好监听
+function scheduleStartupUpdateCheck(win) {
+  if (!win || win.isDestroyed()) return
+  const web = win.webContents
+  if (web.isLoadingMainFrame()) {
+    web.once('did-finish-load', () => runStartupUpdateCheck(win))
+  } else {
+    runStartupUpdateCheck(win)
+  }
+}
+
+async function runStartupUpdateCheck(win) {
+  try {
+    const res = await checkForUpdates()
+    if (!res?.hasUpdate || !win || win.isDestroyed()) return
+    win.webContents.send('app:update-available', {
+      currentVersion: getEffectiveVersion(),
+      latestVersion: res.latestVersion,
+      downloadUrl: res.downloadUrl || '',
+      releaseNotes: res.releaseNotes || ''
+    })
+  } catch {
+    /* 检测失败静默 */
+  }
+}
+
 // 单实例锁：只允许一个进程运行；第二个实例启动时直接退出并唤醒已有实例
 const gotTheLock = app.requestSingleInstanceLock()
 
@@ -296,10 +339,11 @@ function startApp() {
       optimizer.watchWindowShortcuts(window)
     })
 
-    // 初始化 SQLite + 设置表 + 根目录表
+    // 初始化 SQLite + 设置表 + 根目录表 + 收藏表
     initDb()
     initSettingsTable()
     initRootsTable()
+    initFavoritesTable()
 
     // 日志模块（开发者选项「记录日志」开关；替换 console + 注册 IPC + 监听渲染进程 console）
     initLogger()
@@ -313,9 +357,9 @@ function startApp() {
     attachWindowCloseBehavior(mainWindow)
     createTray()
 
-    // 「每次启动检测更新」开关：启动后自动检查（桩实现，接入真实逻辑后在此通知用户）
+    // 「每次启动检测更新」开关：页面加载完成后自动检测，发现新版本推送给主窗口提示
     if (getSetting('checkUpdateOnStartup', 'false') === 'true') {
-      checkForUpdates()
+      scheduleStartupUpdateCheck(mainWindow)
     }
 
     app.on('activate', function () {

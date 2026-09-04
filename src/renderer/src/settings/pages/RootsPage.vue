@@ -248,9 +248,22 @@ async function moveRoot(index, delta) {
   }
 }
 
+// 是否在左侧目录树顶部显示「我的收藏」
+const showFavorites = ref(false)
+
+async function onShowFavoritesChange(v) {
+  try {
+    await window.api.setSetting('showFavorites', v ? 'true' : 'false')
+    ElMessage.success(t('common.saved'))
+  } catch {
+    ElMessage.error(t('common.saveFailed'))
+  }
+}
+
 onMounted(async () => {
   // 动图设置：先读库再显示（radio 默认 all、来源默认 disk）
   await gifStore.load()
+  showFavorites.value = (await window.api.getSetting('showFavorites', 'false')) === 'true'
   loadRoots()
 })
 </script>
@@ -396,6 +409,19 @@ onMounted(async () => {
           />
         </div>
         <p class="gif-source-desc">{{ t('roots.gifSourceDesc') }}</p>
+      </div>
+    </el-card>
+
+    <!-- 收藏 -->
+    <el-card class="maintain-card" shadow="never">
+      <template #header>{{ t('roots.favSectionTitle') }}</template>
+      <p class="maintain-desc">{{ t('roots.favSectionDesc') }}</p>
+      <div class="gif-block">
+        <div class="gif-label">
+          <span>{{ t('roots.showFavorites') }}</span>
+          <el-switch v-model="showFavorites" @change="onShowFavoritesChange" />
+        </div>
+        <p class="gif-source-desc">{{ t('roots.showFavoritesDesc') }}</p>
       </div>
     </el-card>
 
