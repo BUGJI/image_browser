@@ -52,6 +52,27 @@ const favoritesStore = useFavoritesStore()
 const GAP = 10
 const COL_BASE_WIDTH = 200
 const OVERSCAN = 900
+const FALLBACK_RATIO = 0.75
+
+// 内存维度缓存：`rootId\u0000absPath -> {w,h}`。跨文件夹导航/滚动复用，
+// 让没有缓存索引（未跑维护）的图片也能用上一次加载到的真实比例，减少占位跳动。
+// 纯内存（本会话有效），有上限，超限淘汰最旧插入项。
+const DIM_CACHE_MAX = 120000
+const dimCache = new Map()
+
+function rememberDims(rootId, absPath, w, h) {
+  if (!absPath || !w || !h) return
+  const key = rootId + '\u0000' + absPath
+  if (dimCache.has(key)) return
+  if (dimCache.size >= DIM_CACHE_MAX) {
+    dimCache.delete(dimCache.keys().next().value)
+  }
+  dimCache.set(key, { w, h })
+}
+
+function knownDims(rootId, absPath) {
+  return dimCache.get(rootId + '\u0000' + absPath) || null
+}
 
 const items = ref([])
 const loading = ref(false)
@@ -74,18 +95,41 @@ function calcCols() {
   return Math.max(1, Math.floor((containerW.value + GAP) / (colMin + GAP)))
 }
 
-function itemRatio(item) {
+/** 已知真实比例时返回比例，未知返回 null */
+function rawRatio(item) {
   if (item.width && item.height) return item.height / item.width
   if (item._loaded) return item._loaded.h / item._loaded.w
-  return 0.75 // 未知尺寸占位 3:4
+  return null
 }
 
 function doLayout() {
+  // 1) 用内存里的真实尺寸回填（缓存索引缺失时），避免重复抖动
+  for (const it of items.value) {
+    if (it.width && it.height) continue
+    const d = knownDims(props.rootId, it.absPath)
+    if (d) {
+      it.width = d.w
+      it.height = d.h
+    }
+  }
+
+  // 2) 占位比例：用本屏已知图片比例均值，尽量贴近真实（不再一律 3:4）
+  let sum = 0
+  let n = 0
+  for (const it of items.value) {
+    const r = rawRatio(it)
+    if (r != null) {
+      sum += r
+      n++
+    }
+  }
+  const avgRatio = n ? sum / n : FALLBACK_RATIO
+
   const cols = calcCols()
   const colH = new Array(cols).fill(0)
   const itemW = (containerW.value - GAP * (cols - 1)) / cols
   for (const item of items.value) {
-    const h = itemW * itemRatio(item)
+    const h = itemW * (rawRatio(item) ?? avgRatio)
     let col = 0
     let minH = Infinity
     for (let i = 0; i < cols; i++) {
@@ -229,6 +273,7 @@ function extOf(item) {
 function onImgLoad(item, e) {
   const img = e.target
   if (img.naturalWidth && img.naturalHeight) {
+    rememberDims(props.rootId, item.absPath, img.naturalWidth, img.naturalHeight)
     item._loaded = { w: img.naturalWidth, h: img.naturalHeight }
     item.width = img.naturalWidth
     item.height = img.naturalHeight

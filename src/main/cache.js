@@ -95,6 +95,12 @@ const MIME_BY_EXT = {
 // rootPath -> { db, cacheDir, thumbDir }
 const cacheConnections = new Map()
 
+// 协议层缩略图路径缓存（避免每张图请求都同步查 DB + 磁盘探测）。
+// 值：缩略图绝对路径，或 null（负缓存：该图无缩略图，需回退原图）。
+// 每个 root 独立 Map，带容量上限（删除最旧插入项）；维护任务开始时整体失效。
+const thumbIndexByRoot = new Map()
+const THUMB_INDEX_MAX = 30000
+
 // ---------------------------------------------------------------- 连接管理
 
 /**
@@ -154,6 +160,45 @@ function closeRootCache(rootPath) {
     }
     cacheConnections.delete(rootPath)
   }
+  thumbIndexByRoot.delete(rootPath)
+}
+
+/**
+ * 解析缩略图路径，结果缓存于内存（含 null 负缓存）。
+ * 返回：缩略图绝对路径，或 null（无缩略图，协议回退原图）。
+ */
+function resolveThumb(cache, root, absPath) {
+  let index = thumbIndexByRoot.get(root.path)
+  if (!index) {
+    index = new Map()
+    thumbIndexByRoot.set(root.path, index)
+  }
+  if (index.has(absPath)) return index.get(absPath)
+
+  let thumb = null
+  const row = cache.db.prepare('SELECT thumb FROM files WHERE abs_path = ?').get(absPath)
+  if (row?.thumb) {
+    const p = join(cache.thumbDir, row.thumb)
+    if (existsSync(p)) thumb = p
+  }
+  // 兼容/推导：镜像路径 image_cache/<rel_path>.webp
+  if (!thumb) {
+    const rel = relative(root.path, absPath).split(/[\\/]+/).join('/')
+    const p = join(cache.thumbDir, rel + '.webp')
+    if (existsSync(p)) thumb = p
+  }
+
+  // 容量上限：超出时淘汰最旧插入的条目（Map 迭代序 = 插入序）
+  if (index.size >= THUMB_INDEX_MAX && !index.has(absPath)) {
+    index.delete(index.keys().next().value)
+  }
+  index.set(absPath, thumb)
+  return thumb
+}
+
+/** 维护任务会增删缩略图，任务开始/结束时清空索引强制重查 */
+function invalidateThumbIndex(rootPath) {
+  thumbIndexByRoot.delete(rootPath)
 }
 
 function metaGet(db, key, fallback = null) {
@@ -775,6 +820,9 @@ export function registerCacheIpc({ ipcMain }) {
       throw new Error('未知维护模式: ' + mode)
     }
 
+    // 维护会增删缩略图：清空该根目录的内存索引，让协议重查
+    invalidateThumbIndex(root.path)
+
     cacheTaskController?.abort()
     const ac = new AbortController()
     cacheTaskController = ac
@@ -798,10 +846,12 @@ export function registerCacheIpc({ ipcMain }) {
       shouldAbort: () => ac.signal.aborted
     })
       .then((stats) => {
+        invalidateThumbIndex(root.path)
         console.log('[cache] task promise resolved, sending done once, stats =', JSON.stringify(stats))
         send({ done: true, stats })
       })
       .catch((err) => {
+        invalidateThumbIndex(root.path)
         if (ac.signal.aborted || err instanceof ScanAbortedError) {
           send({ aborted: true })
         } else {
@@ -921,21 +971,8 @@ export function registerImageProtocol({ protocol }) {
         if (root) {
           const cache = openRootCache(root.path, { create: false })
           if (cache) {
-            let thumbPath = null
-            // 1) DB 索引
-            const row = cache.db
-              .prepare('SELECT thumb FROM files WHERE abs_path = ?')
-              .get(absPath)
-            if (row?.thumb) {
-              const p = join(cache.thumbDir, row.thumb)
-              if (existsSync(p)) thumbPath = p
-            }
-            // 2) 兼容/推导：镜像路径 image_cache/<rel_path>.webp
-            if (!thumbPath) {
-              const rel = relative(root.path, absPath).split(/[\\/]+/).join('/')
-              const p = join(cache.thumbDir, rel + '.webp')
-              if (existsSync(p)) thumbPath = p
-            }
+            // 走内存索引（命中跳过 DB 查询与磁盘探测），维护任务时会失效重查
+            const thumbPath = resolveThumb(cache, root, absPath)
             if (thumbPath) {
               file = thumbPath
               thumbServed = true
@@ -944,8 +981,13 @@ export function registerImageProtocol({ protocol }) {
         }
       }
 
-      if (!existsSync(file)) return new Response('not found', { status: 404 })
-      const st = await fsp.stat(file)
+      // 单次 stat 同时完成存在性检查与取大小（避免原来的 existsSync + stat 两次 syscall）
+      let st
+      try {
+        st = await fsp.stat(file)
+      } catch {
+        return new Response('not found', { status: 404 })
+      }
       const mime = MIME_BY_EXT[extname(file).toLowerCase()] || 'application/octet-stream'
       // 原图请求不缓存；缩略图请求（?size=thumb）若回退到原图（缩略图尚未生成）
       // 也不缓存，避免浏览器把缓存建立前的原图响应当作缩略图复用。
