@@ -414,7 +414,7 @@ function onTopKChange() {
 }
 
 .ai-card {
-  max-width: 640px;
+  max-width: 720px;
   margin-bottom: 24px;
 }
 
@@ -526,6 +526,6 @@ function onTopKChange() {
 }
 
 .tip {
-  max-width: 640px;
+  max-width: 720px;
 }
 </style>

@@ -112,6 +112,7 @@ export default {
     theme: '主题设置',
     animations: '动画',
     devOptions: '开发者选项',
+    performance: '性能',
     cardPage: '图片卡片',
     shortcuts: '快捷键',
     extensions: '扩展功能',
@@ -358,6 +359,15 @@ export default {
     lightZoomSaved: '已保存：灯箱缩放参数下次打开灯箱时生效',
     cacheTitle: '缓存维护',
     cacheDesc: '以下参数下次运行「根目录 → 更新/重建缓存」时生效。',
+    cacheUseCli: '使用外部转换器建立缓存',
+    cacheUseCliDesc:
+      '开启后缩略图改为一次调用 image_compresser.exe 生成（而非应用内解码），可绕开应用内一切解码/调度问题。exe 路径在下方填写（留空自动探测）。自动使用 --resize，宽高/质量/并发沿用上面的设置。',
+    cacheCliExe: '转换器路径',
+    cacheCliExeDesc:
+      'image_compresser.exe 的绝对路径。留空 = 自动在项目根目录 / 打包 extraResources 探测。',
+    cacheSequential: '建缓存时连续读取',
+    cacheSequentialDesc:
+      '开（默认）：任务按扫描顺序分配，每个 worker 连续读取同一目录的文件，对机械硬盘更友好。关：任务跨目录打散轮流分配，重图/卡顿分散到不同时刻，整体推进更平滑（更适合 SSD）。',
     thumbWidth: '缩略图最大宽度',
     thumbWidthDesc: '生成 webp 缩略图的宽边上限（像素，64 ~ 4096）',
     thumbQuality: '缩略图质量',
@@ -366,6 +376,15 @@ export default {
     scanBatchDesc: '扫描时每批返回的文件数（10 ~ 1000，越小越省内存）',
     thumbBatch: '缩略图批次数量',
     thumbBatchDesc: '每次交给 worker 生成的缩略图数量（10 ~ 500）',
+    thumbWorkers: '缩略图并发 worker 数',
+    thumbWorkersDesc:
+      '并行解码/编码缩略图的 worker 数量。0 = 自动（同时受 CPU 核数与可用内存约束，超大图解码很吃内存）；调大更吃 CPU/内存，内存不足会反而变慢（抖动）。',
+    thumbTimeout: '单段超时（毫秒）',
+    thumbTimeoutDesc:
+      '一个 worker 段最多运行多久，超时则跳过该段剩余任务（10000 ~ 600000）。',
+    thumbSlow: '重图告警阈值（毫秒）',
+    thumbSlowDesc:
+      '生成耗时超过该值的缩略图，会打印 [WARN] 及文件路径（1000 ~ 60000），便于定位重图。',
     enabled: '开发者选项已启用',
     disabled: '开发者选项已关闭',
     devtoolsReopened: '已重新打开开发者工具',
@@ -436,6 +455,27 @@ export default {
   tray: {
     open: '打开 Image Browser',
     quit: '退出'
+  },
+  performance: {
+    pageDesc:
+      '让瀑布流浏览更跟手的调节项：以少量解码/IO 或磁盘空间换取响应速度。加载类改动即时生效，缩略图尺寸需重建缓存后生效。',
+    scrollTitle: '网格滚动与预加载',
+    bufferLazy: '缓冲区图片懒加载',
+    bufferLazyDesc:
+      '视口外的缓冲区图片，接近屏幕时才解码（由浏览器调度）。快速滚动时减少无效请求、解码阵雨与 GPU 上传。关闭 = 缓冲区内全部立即加载（旧行为，预取更激进）。',
+    preload: '预加载距离',
+    preloadDesc:
+      '在视口上下各提前多远准备图片。越大：超快滚动时越不容易出现空白，但同时加载更多；越小：IO/解码压力越小。',
+    preloadUnit: '{n} px',
+    thumbTitle: '缩略图缓存尺寸',
+    thumbDesc:
+      'webp 缩略图的目标宽度。越小解码越快、越省内存与磁盘；常见缩放/DPI 下网格卡片实际只需约 300–400px。追求跟手可设为 256–384。',
+    thumbPx: '{n} px',
+    thumbApplyHint:
+      '仅对新生成的缩略图生效。设置后到「根目录」对该根执行一次「更新缓存」或「重建缓存」即可；已缓存的旧图最长 1 天内仍可能沿用旧尺寸。',
+    advancedHint:
+      '缩略图质量、生成批大小等可在「开发者选项」微调；缓存维护入口在「根目录」页。',
+    saved: '已保存'
   },
   update: {
     title: '发现新版本 v{version}',

@@ -175,8 +175,8 @@ export function createSettingsWindow() {
     height: 620,
     minWidth: 700,
     minHeight: 480,
-    parent: mainWindow,
-    modal: false,
+    // 不要设置 parent：Windows 上 owned 子窗口不占独立任务栏按钮，
+    // 最小化会退化到“缩到左下角”而不是进任务栏
     show: false,
     autoHideMenuBar: true,
     ...(process.platform === 'linux' ? { icon } : {}),

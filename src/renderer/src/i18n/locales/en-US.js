@@ -112,6 +112,7 @@ export default {
     theme: 'Theme setting',
     animations: 'Animations',
     devOptions: 'Developer options',
+    performance: 'Performance',
     cardPage: 'Image card',
     shortcuts: 'Shortcuts',
     extensions: 'Extensions',
@@ -363,6 +364,15 @@ export default {
     lightZoomSaved: 'Saved: lightbox zoom takes effect the next time it opens',
     cacheTitle: 'Cache maintenance',
     cacheDesc: 'These parameters apply the next time you run "Roots → Update/Rebuild cache".',
+    cacheUseCli: 'Build cache with external converter',
+    cacheUseCliDesc:
+      'When on, thumbnails are generated in one pass by image_compresser.exe instead of the built-in decoder. This bypasses every in-app decode/scheduling issue; set the exe path below (leave empty to auto-detect). Requires --resize; width/quality/workers are taken from the settings above.',
+    cacheCliExe: 'Converter path',
+    cacheCliExeDesc:
+      'Absolute path to image_compresser.exe. Empty = auto-detect at the project root / packaged extraResources.',
+    cacheSequential: 'Sequential reads while building cache',
+    cacheSequentialDesc:
+      'On (default): tasks are assigned in scan order, so each worker reads files from the same folder consecutively — friendlier to mechanical HDDs. Off: tasks are interleaved across folders, spreading heavy/stuck images out so the whole batch feels smoother (better for SSDs).',
     thumbWidth: 'Max thumbnail width',
     thumbWidthDesc: 'Upper bound of the webp thumbnail width (pixels, 64 ~ 4096)',
     thumbQuality: 'Thumbnail quality',
@@ -371,6 +381,15 @@ export default {
     scanBatchDesc: 'Number of files returned per batch when scanning (10 ~ 1000, smaller saves memory)',
     thumbBatch: 'Thumbnail batch size',
     thumbBatchDesc: 'Number of thumbnails handed to the worker each time (10 ~ 500)',
+    thumbWorkers: 'Concurrent thumbnail workers',
+    thumbWorkersDesc:
+      'How many workers decode/encode thumbnails in parallel. 0 = auto (bounded by both CPU cores and available RAM, since large decodes are memory-hungry); higher uses more CPU but can cause memory/GC thrash on huge images.',
+    thumbTimeout: 'Chunk timeout (ms)',
+    thumbTimeoutDesc:
+      'Max time one worker chunk may run before the remaining jobs in it are skipped (10000 ~ 600000).',
+    thumbSlow: 'Slow-image warning threshold (ms)',
+    thumbSlowDesc:
+      'Thumbnails that take longer than this print a [WARN] with the file path (1000 ~ 60000), for locating heavy images.',
     enabled: 'Developer options enabled',
     disabled: 'Developer options disabled',
     devtoolsReopened: 'Developer tools reopened',
@@ -442,6 +461,27 @@ export default {
   tray: {
     open: 'Open Image Browser',
     quit: 'Quit'
+  },
+  performance: {
+    pageDesc:
+      'Tuning for smooth grid browsing. These trade a little decode/IO or storage for responsiveness; changes to loading behavior apply immediately, thumbnail size applies after rebuilding the cache.',
+    scrollTitle: 'Grid scrolling & preloading',
+    bufferLazy: 'Lazy-load buffered images',
+    bufferLazyDesc:
+      'Images in the buffer area outside the viewport are decoded only as they approach the screen (browser-managed). Reduces wasted requests, decode bursts and GPU upload while scrolling fast. Off = load everything in the buffer immediately (older behavior, more aggressive prefetch).',
+    preload: 'Preload distance',
+    preloadDesc:
+      'How far above and below the viewport images are prepared ahead of time. Higher = fewer blank gaps on very fast scrolling but more concurrent loads; lower = less IO/decode pressure.',
+    preloadUnit: '{n} px',
+    thumbTitle: 'Thumbnail cache size',
+    thumbDesc:
+      'Width of cached webp thumbnails. Smaller thumbs decode faster and use less memory/disk; grid cards only need roughly 300–400 px at normal zoom and DPI. Set 256–384 for a more responsive feel.',
+    thumbPx: '{n} px wide',
+    thumbApplyHint:
+      'Applies to newly generated thumbnails. Run "Roots → Update cache" (or "Rebuild cache") for it to take effect; already-cached thumbnails may keep serving for up to a day.',
+    advancedHint:
+      'Thumbnail quality and generation batch sizes can be fine-tuned in "Developer options"; cache maintenance runs from the "Roots" page.',
+    saved: 'Saved'
   },
   update: {
     title: 'New version v{version} available',

@@ -16,6 +16,7 @@ import TestPage from './pages/TestPage.vue'
 import DevOptionsPage from './pages/DevOptionsPage.vue'
 import ShortcutsPage from './pages/ShortcutsPage.vue'
 import GridPage from './pages/GridPage.vue'
+// PerformancePage 已隐藏备用：其选项并入 DevOptionsPage，需要时可重新接入
 import NotificationHost from '../components/NotificationHost.vue'
 import { useThemeStore } from '../stores/theme'
 import { useLocaleStore } from '../stores/locale'
@@ -143,5 +144,19 @@ onBeforeUnmount(() => {
   background: var(--app-bg);
   color: var(--app-text);
   padding: 28px 32px;
+}
+</style>
+
+<style>
+/* 设置窗口通用：数值输入框固定不收缩，避免被长文案挤压 */
+.settings-app .el-input-number {
+  width: 150px;
+  min-width: 150px;
+  flex: 0 0 auto;
+}
+.settings-app .dev-row .el-input-number,
+.settings-app .perf-row .el-input-number {
+  width: 150px;
+  min-width: 150px;
 }
 </style>

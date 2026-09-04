@@ -28,6 +28,31 @@ const cacheThumbQuality = ref(80)
 const cacheScanBatch = ref(100)
 const cacheThumbBatch = ref(100)
 
+// 缓存并发/超时/慢图告警
+const THUMB_WORKERS_DEFAULT = 0 // 0 = 自动按核数
+const THUMB_WORKERS_MAX = 64
+const THUMB_TIMEOUT_DEFAULT = 120000
+const THUMB_TIMEOUT_MIN = 10000
+const THUMB_TIMEOUT_MAX = 600000
+const THUMB_SLOW_DEFAULT = 3000
+const THUMB_SLOW_MIN = 1000
+const THUMB_SLOW_MAX = 60000
+const thumbWorkers = ref(THUMB_WORKERS_DEFAULT)
+const thumbTimeout = ref(THUMB_TIMEOUT_DEFAULT)
+const thumbSlowMs = ref(THUMB_SLOW_DEFAULT)
+
+// 缓存任务分配：true = 连续读取（顺序分配，机械硬盘友好）；false = 跨目录打散
+const sequentialRead = ref(true)
+// 使用外部转换器 image_compresser.exe 生成缩略图
+const useCli = ref(false)
+const cliExePath = ref('')
+
+// 网格滚动性能（原「性能」页选项，已并入开发者选项）
+const GRID_PRELOAD_DEFAULT = 900
+const GRID_PRELOAD_MAX = 3000
+const gridBufferLazy = ref(true)
+const gridPreload = ref(GRID_PRELOAD_DEFAULT)
+
 // 记录日志开关
 const loggingEnabled = ref(false)
 
@@ -50,6 +75,35 @@ onMounted(async () => {
   cacheScanBatch.value = clampNum(await window.api.getSetting('cacheScanBatch', '100'), 10, 1000, 100)
   cacheThumbBatch.value = clampNum(await window.api.getSetting('cacheThumbBatch', '100'), 10, 500, 100)
 
+  thumbWorkers.value = clampNum(
+    await window.api.getSetting('cacheThumbWorkers', String(THUMB_WORKERS_DEFAULT)),
+    THUMB_WORKERS_DEFAULT,
+    THUMB_WORKERS_MAX,
+    THUMB_WORKERS_DEFAULT
+  )
+  thumbTimeout.value = clampNum(
+    await window.api.getSetting('cacheThumbTimeout', String(THUMB_TIMEOUT_DEFAULT)),
+    THUMB_TIMEOUT_MIN,
+    THUMB_TIMEOUT_MAX,
+    THUMB_TIMEOUT_DEFAULT
+  )
+  thumbSlowMs.value = clampNum(
+    await window.api.getSetting('cacheThumbSlowMs', String(THUMB_SLOW_DEFAULT)),
+    THUMB_SLOW_MIN,
+    THUMB_SLOW_MAX,
+    THUMB_SLOW_DEFAULT
+  )
+  sequentialRead.value = (await window.api.getSetting('cacheSequential', 'true')) !== 'false'
+  useCli.value = (await window.api.getSetting('cacheUseCli', 'false')) === 'true'
+  cliExePath.value = await window.api.getSetting('cacheCliExe', '')
+  gridBufferLazy.value = (await window.api.getSetting('imageBufferLazy', 'true')) !== 'false'
+  gridPreload.value = clampNum(
+    await window.api.getSetting('imagePreload', String(GRID_PRELOAD_DEFAULT)),
+    0,
+    GRID_PRELOAD_MAX,
+    GRID_PRELOAD_DEFAULT
+  )
+
   loggingEnabled.value = (await window.api.getSetting('loggingEnabled', 'false')) === 'true'
 
   // 主窗口可能修改这些设置，保持同步
@@ -67,6 +121,14 @@ onMounted(async () => {
     else if (key === 'cacheThumbQuality') cacheThumbQuality.value = clampNum(value, 1, 100, 80)
     else if (key === 'cacheScanBatch') cacheScanBatch.value = clampNum(value, 10, 1000, 100)
     else if (key === 'cacheThumbBatch') cacheThumbBatch.value = clampNum(value, 10, 500, 100)
+    else if (key === 'cacheThumbWorkers') thumbWorkers.value = clampNum(value, THUMB_WORKERS_DEFAULT, THUMB_WORKERS_MAX, THUMB_WORKERS_DEFAULT)
+    else if (key === 'cacheThumbTimeout') thumbTimeout.value = clampNum(value, THUMB_TIMEOUT_MIN, THUMB_TIMEOUT_MAX, THUMB_TIMEOUT_DEFAULT)
+    else if (key === 'cacheThumbSlowMs') thumbSlowMs.value = clampNum(value, THUMB_SLOW_MIN, THUMB_SLOW_MAX, THUMB_SLOW_DEFAULT)
+    else if (key === 'cacheSequential') sequentialRead.value = value !== 'false'
+    else if (key === 'cacheUseCli') useCli.value = value === 'true'
+    else if (key === 'cacheCliExe') cliExePath.value = value || ''
+    else if (key === 'imageBufferLazy') gridBufferLazy.value = value !== 'false'
+    else if (key === 'imagePreload') gridPreload.value = clampNum(value, 0, GRID_PRELOAD_MAX, GRID_PRELOAD_DEFAULT)
     else if (key === 'loggingEnabled') loggingEnabled.value = value === 'true'
   })
 })
@@ -165,6 +227,55 @@ function onCacheScanBatchChange(v) {
 }
 function onCacheThumbBatchChange(v) {
   saveCacheSetting('cacheThumbBatch', v, 10, 500, 100)
+}
+function onThumbWorkersChange(v) {
+  saveCacheSetting('cacheThumbWorkers', v, THUMB_WORKERS_DEFAULT, THUMB_WORKERS_MAX, THUMB_WORKERS_DEFAULT)
+}
+function onThumbTimeoutChange(v) {
+  saveCacheSetting('cacheThumbTimeout', v, THUMB_TIMEOUT_MIN, THUMB_TIMEOUT_MAX, THUMB_TIMEOUT_DEFAULT)
+}
+function onThumbSlowChange(v) {
+  saveCacheSetting('cacheThumbSlowMs', v, THUMB_SLOW_MIN, THUMB_SLOW_MAX, THUMB_SLOW_DEFAULT)
+}
+
+async function onSequentialReadChange(v) {
+  try {
+    await window.api.setSetting('cacheSequential', v ? 'true' : 'false')
+    ElMessage.success(t('common.saved'))
+  } catch {
+    ElMessage.error(t('common.saveFailed'))
+  }
+}
+
+async function onUseCliChange(v) {
+  try {
+    await window.api.setSetting('cacheUseCli', v ? 'true' : 'false')
+    ElMessage.success(t('common.saved'))
+  } catch {
+    ElMessage.error(t('common.saveFailed'))
+  }
+}
+
+async function onCliExePathChange(v) {
+  try {
+    await window.api.setSetting('cacheCliExe', String(v || '').trim())
+    ElMessage.success(t('common.saved'))
+  } catch {
+    ElMessage.error(t('common.saveFailed'))
+  }
+}
+
+async function onGridBufferLazyChange(v) {
+  try {
+    await window.api.setSetting('imageBufferLazy', v ? 'true' : 'false')
+    ElMessage.success(t('common.saved'))
+  } catch {
+    ElMessage.error(t('common.saveFailed'))
+  }
+}
+
+function onGridPreloadChange(v) {
+  saveCacheSetting('imagePreload', v, 0, GRID_PRELOAD_MAX, GRID_PRELOAD_DEFAULT)
 }
 
 async function onLoggingChange(v) {
@@ -310,6 +421,44 @@ async function onLoggingChange(v) {
 
       <div class="dev-row cache-row">
         <div class="dev-label">
+          <div class="dev-name">{{ t('devOptions.cacheUseCli') }}</div>
+          <div class="dev-desc">{{ t('devOptions.cacheUseCliDesc') }}</div>
+        </div>
+        <el-switch v-model="useCli" :disabled="disabled" @change="onUseCliChange" />
+      </div>
+
+      <el-divider />
+
+      <div class="dev-row cache-row">
+        <div class="dev-label">
+          <div class="dev-name">{{ t('devOptions.cacheCliExe') }}</div>
+          <div class="dev-desc">{{ t('devOptions.cacheCliExeDesc') }}</div>
+        </div>
+        <el-input
+          v-model="cliExePath"
+          :disabled="disabled || !useCli"
+          placeholder="image_compresser.exe"
+          clearable
+          size="default"
+          class="cli-exe-input"
+          @change="onCliExePathChange"
+        />
+      </div>
+
+      <el-divider />
+
+      <div class="dev-row cache-row">
+        <div class="dev-label">
+          <div class="dev-name">{{ t('devOptions.cacheSequential') }}</div>
+          <div class="dev-desc">{{ t('devOptions.cacheSequentialDesc') }}</div>
+        </div>
+        <el-switch v-model="sequentialRead" :disabled="disabled" @change="onSequentialReadChange" />
+      </div>
+
+      <el-divider />
+
+      <div class="dev-row cache-row">
+        <div class="dev-label">
           <div class="dev-name">{{ t('devOptions.thumbWidth') }}</div>
           <div class="dev-desc">{{ t('devOptions.thumbWidthDesc') }}</div>
         </div>
@@ -376,6 +525,91 @@ async function onLoggingChange(v) {
           @change="onCacheThumbBatchChange"
         />
       </div>
+
+      <el-divider />
+
+      <div class="dev-row cache-row">
+        <div class="dev-label">
+          <div class="dev-name">{{ t('devOptions.thumbWorkers') }}</div>
+          <div class="dev-desc">{{ t('devOptions.thumbWorkersDesc') }}</div>
+        </div>
+        <el-input-number
+          v-model="thumbWorkers"
+          :min="THUMB_WORKERS_DEFAULT"
+          :max="THUMB_WORKERS_MAX"
+          :step="1"
+          :disabled="disabled"
+          size="default"
+          @change="onThumbWorkersChange"
+        />
+      </div>
+
+      <el-divider />
+
+      <div class="dev-row cache-row">
+        <div class="dev-label">
+          <div class="dev-name">{{ t('devOptions.thumbTimeout') }}</div>
+          <div class="dev-desc">{{ t('devOptions.thumbTimeoutDesc') }}</div>
+        </div>
+        <el-input-number
+          v-model="thumbTimeout"
+          :min="THUMB_TIMEOUT_MIN"
+          :max="THUMB_TIMEOUT_MAX"
+          :step="10000"
+          :disabled="disabled"
+          size="default"
+          @change="onThumbTimeoutChange"
+        />
+      </div>
+
+      <el-divider />
+
+      <div class="dev-row cache-row">
+        <div class="dev-label">
+          <div class="dev-name">{{ t('devOptions.thumbSlow') }}</div>
+          <div class="dev-desc">{{ t('devOptions.thumbSlowDesc') }}</div>
+        </div>
+        <el-input-number
+          v-model="thumbSlowMs"
+          :min="THUMB_SLOW_MIN"
+          :max="THUMB_SLOW_MAX"
+          :step="500"
+          :disabled="disabled"
+          size="default"
+          @change="onThumbSlowChange"
+        />
+      </div>
+    </el-card>
+
+    <el-card class="dev-card" shadow="never">
+      <template #header>{{ t('performance.scrollTitle') }}</template>
+      <div class="dev-desc-block">{{ t('performance.pageDesc') }}</div>
+
+      <div class="dev-row cache-row">
+        <div class="dev-label">
+          <div class="dev-name">{{ t('performance.bufferLazy') }}</div>
+          <div class="dev-desc">{{ t('performance.bufferLazyDesc') }}</div>
+        </div>
+        <el-switch v-model="gridBufferLazy" :disabled="disabled" @change="onGridBufferLazyChange" />
+      </div>
+
+      <el-divider />
+
+      <div class="dev-row cache-row">
+        <div class="dev-label">
+          <div class="dev-name">{{ t('performance.preload') }}</div>
+          <div class="dev-desc">{{ t('performance.preloadDesc') }}</div>
+        </div>
+        <el-input-number
+          v-model="gridPreload"
+          :min="0"
+          :max="GRID_PRELOAD_MAX"
+          :step="100"
+          :disabled="disabled"
+          size="default"
+          @change="onGridPreloadChange"
+        />
+      </div>
     </el-card>
   </div>
 </template>
@@ -393,7 +627,7 @@ async function onLoggingChange(v) {
 }
 
 .dev-card {
-  max-width: 640px;
+  max-width: 720px;
   margin-bottom: 24px;
 }
 
@@ -422,6 +656,16 @@ async function onLoggingChange(v) {
   gap: 16px;
 }
 
+/* 长文案下数字框/开关不被挤压 */
+.dev-row :deep(.el-input-number),
+.dev-row :deep(.el-switch) {
+  flex: 0 0 auto;
+}
+.dev-row :deep(.el-input-number) {
+  width: 150px;
+  min-width: 150px;
+}
+
 .cache-row {
   margin: 4px 0;
 }
@@ -445,5 +689,10 @@ async function onLoggingChange(v) {
   margin-top: 2px;
   font-size: 12px;
   color: var(--el-text-color-secondary);
+}
+
+.cli-exe-input {
+  width: 300px;
+  flex-shrink: 0;
 }
 </style>

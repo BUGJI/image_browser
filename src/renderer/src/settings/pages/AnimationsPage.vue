@@ -60,7 +60,7 @@ function onChange(key, v) {
 }
 
 .anim-card {
-  max-width: 560px;
+  max-width: 720px;
 }
 
 .anim-row {
