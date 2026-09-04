@@ -26,7 +26,11 @@ const props = defineProps({
   // 'all' | 'hover' | 'none'
   playMode: { type: String, default: 'all' },
   // 'disk' | 'realtime'
-  thumbSource: { type: String, default: 'disk' }
+  thumbSource: { type: String, default: 'disk' },
+  // 透传给根 <img> 的原生 loading 属性（网格缓冲懒加载策略）
+  nativeLoading: { type: String, default: 'eager' },
+  // 透传给根 <img> 的 fetchpriority 属性（可视区优先解码）
+  nativePriority: { type: String, default: 'auto' }
 })
 const emit = defineEmits(['load'])
 
@@ -97,6 +101,9 @@ ensurePoster()
     :src="src"
     :alt="item.name"
     draggable="false"
+    decoding="async"
+    :loading="nativeLoading"
+    :fetchpriority="nativePriority"
     @mouseenter="onEnter"
     @mouseleave="onLeave"
     @load="emit('load', $event)"

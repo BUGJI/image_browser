@@ -176,7 +176,7 @@ function displayCombo(id) {
 }
 
 .shortcuts-card {
-  max-width: 640px;
+  max-width: 720px;
 }
 
 .shortcut-row {

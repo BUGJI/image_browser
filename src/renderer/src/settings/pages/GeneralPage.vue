@@ -231,7 +231,7 @@ async function onQuickCopyTypeChange(v) {
 }
 
 .behavior-card {
-  max-width: 560px;
+  max-width: 720px;
   margin-bottom: 24px;
 }
 
@@ -273,11 +273,11 @@ async function onQuickCopyTypeChange(v) {
 }
 
 .info-table {
-  max-width: 560px;
+  max-width: 720px;
   margin-bottom: 24px;
 }
 
 .tip {
-  max-width: 560px;
+  max-width: 720px;
 }
 </style>

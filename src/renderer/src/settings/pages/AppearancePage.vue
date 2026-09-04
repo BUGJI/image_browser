@@ -74,10 +74,10 @@ async function saveTitlebar() {
 }
 
 .form {
-  max-width: 640px;
+  max-width: 720px;
 }
 
 .tip {
-  max-width: 640px;
+  max-width: 720px;
 }
 </style>

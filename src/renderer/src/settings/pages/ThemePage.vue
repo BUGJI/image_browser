@@ -75,7 +75,7 @@ async function onThemeStartupChange(v) {
 }
 
 .theme-card {
-  max-width: 640px;
+  max-width: 720px;
 }
 
 .theme-card + .theme-card {

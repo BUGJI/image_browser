@@ -83,7 +83,7 @@ async function onCheckUpdate() {
 }
 
 .update-card {
-  max-width: 560px;
+  max-width: 720px;
   margin-bottom: 24px;
 }
 
@@ -106,6 +106,6 @@ async function onCheckUpdate() {
 }
 
 .info-table {
-  max-width: 560px;
+  max-width: 720px;
 }
 </style>

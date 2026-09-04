@@ -1,10 +1,12 @@
 import { promises as fsp } from 'fs'
-import { existsSync, mkdirSync, createReadStream } from 'fs'
-import { execFile } from 'child_process'
+import { existsSync, mkdirSync, createReadStream, openSync, readSync, closeSync } from 'fs'
+import { execFile, spawn } from 'child_process'
 import { join, relative, extname, basename } from 'path'
 import { Readable } from 'stream'
 import { Worker } from 'node:worker_threads'
+import os from 'os'
 import { DatabaseSync } from 'node:sqlite'
+import { app } from 'electron'
 import { getRoot } from './roots'
 import { getSetting } from './settings'
 import { broadcast } from './windows'
@@ -54,6 +56,9 @@ const DEFAULT_THUMB_WIDTH = 512
 const DEFAULT_THUMB_QUALITY = 80
 const DEFAULT_SCAN_BATCH = 100 // 扫描批次：防止一次性消息过大/进程卡死
 const DEFAULT_THUMB_BATCH = 100
+const DEFAULT_THUMB_TIMEOUT = 120000 // 单段缩略图超时（ms）
+const DEFAULT_THUMB_SLOW_MS = 3000 // 超过此耗时的“重图”打 WARN（ms）
+const WORKER_RESTART_JOBS = 200 // worker 池：单个 worker 处理满该数后重启一次（清堆，防巨型 GC）
 
 /** 从设置表读取缓存参数（开发者选项可调），返回带默认值的对象 */
 export function getCacheConfig() {
@@ -61,11 +66,28 @@ export function getCacheConfig() {
     const n = Number(v)
     return Number.isFinite(n) && n > 0 ? n : d
   }
+  const int0 = (v, d) => {
+    const n = Number(v)
+    return Number.isInteger(n) && n >= 0 ? n : d
+  }
   return {
     thumbWidth: num(getSetting('cacheThumbWidth', null), DEFAULT_THUMB_WIDTH),
     thumbQuality: Math.min(100, Math.max(1, num(getSetting('cacheThumbQuality', null), DEFAULT_THUMB_QUALITY))),
     scanBatch: num(getSetting('cacheScanBatch', null), DEFAULT_SCAN_BATCH),
     thumbBatch: num(getSetting('cacheThumbBatch', null), DEFAULT_THUMB_BATCH),
+    // 0 = 自动按核数；>0 = 手动指定并发缩略图 worker 数（最多不超过核数）
+    thumbWorkers: int0(getSetting('cacheThumbWorkers', null), 0),
+    // 单段（一个 worker 一批）超时上限
+    thumbTimeout: num(getSetting('cacheThumbTimeout', null), DEFAULT_THUMB_TIMEOUT),
+    // 单张解码+编码超过该毫秒数时打 [WARN]，方便定位重图
+    thumbSlowMs: num(getSetting('cacheThumbSlowMs', null), DEFAULT_THUMB_SLOW_MS),
+    // true = 按扫描顺序连续取任务（同目录连续读，机械硬盘友好）；
+    // false = 跨目录打散轮流取任务（SSD/多目录更平滑）
+    cacheSequential: getSetting('cacheSequential', 'true') !== 'false',
+    // true = 用外部转换器 image_compresser.exe 生成缩略图（绕过应用内一切解码调度问题）
+    cacheUseCli: getSetting('cacheUseCli', 'false') === 'true',
+    // 外部转换器 exe 的绝对路径（留空则自动探测 dev 根目录/打包 extraResources）
+    cacheCliExe: getSetting('cacheCliExe', '') || '',
     // GIF 首帧来源：realtime = 渲染进程实时取首帧、不写磁盘缓存（节省空间，消耗性能）
     gifRealtime: getSetting('gifThumbSource', 'disk') === 'realtime'
   }
@@ -196,6 +218,27 @@ function resolveThumb(cache, root, absPath) {
   return thumb
 }
 
+/**
+ * 批量预热某个根目录的缩略图索引（选目录/搜索返回列表时调用）。
+ * 直接把本次查询到的 rows（含 DB 里的 thumb 相对路径）一次性填进内存 Map，
+ * 让后续 image:// 请求直接命中，不再逐张做 SQL + 磁盘探测。
+ * row.thumb 为 null 的行不写负缓存（保留 resolveThumb 的镜像路径兜底能力）。
+ */
+function primeThumbIndex(cache, root, rows) {
+  let index = thumbIndexByRoot.get(root.path)
+  if (!index) {
+    index = new Map()
+    thumbIndexByRoot.set(root.path, index)
+  }
+  for (const r of rows) {
+    if (index.size >= THUMB_INDEX_MAX) return
+    if (index.has(r.abs_path)) continue
+    if (r.thumb) {
+      index.set(r.abs_path, join(cache.thumbDir, r.thumb))
+    }
+  }
+}
+
 /** 维护任务会增删缩略图，任务开始/结束时清空索引强制重查 */
 function invalidateThumbIndex(rootPath) {
   thumbIndexByRoot.delete(rootPath)
@@ -219,9 +262,10 @@ let workerCounter = 0
 function spawnCacheWorker() {
   const worker = new Worker(join(__dirname, 'cache-worker.js'), {
     resourceLimits: {
-      // 大图解码需要较大堆：pngjs 解码 40Mpx RGBA ≈ 160MB，多张并发会占内存
-      maxOldGenerationSizeMb: 4096,
-      maxYoungGenerationSizeMb: 512,
+      // 大图解码需要一定堆，但上限越高、GC 单次停顿越长（pngjs/jpeg-js 会申请几十~几百 MB 大 Buffer）。
+      // 2048 是折中：容得下绝大多数图，又不会像 4096 那样拖出十几秒的 Stop-The-World。
+      maxOldGenerationSizeMb: 2048,
+      maxYoungGenerationSizeMb: 256,
       stackSizeMb: 8
     }
   })
@@ -229,6 +273,293 @@ function spawnCacheWorker() {
     console.error('[cache] worker error:', err)
   })
   return worker
+}
+
+/**
+ * 缩略图生成并发度：
+ * 默认 = 按「内存」与「核数」共同限制（每种解码都会临时占几十~几百 MB，
+ * 核多但内存小照样会抖动；一般按 ~4GB/worker 估，兼顾速度与不换页）。
+ * 开发者可传 cacheThumbWorkers 手动指定（0/空 = 自动，>0 最多取到核数）。
+ */
+function pickThumbWorkerCount(override) {
+  let cores = 4
+  try {
+    cores = typeof os.availableParallelism === 'function' ? os.availableParallelism() : os.cpus().length
+  } catch {
+    /* fallback */
+  }
+  let memGB = 16
+  try {
+    memGB = os.totalmem() / 1073741824
+  } catch {
+    /* fallback */
+  }
+  const byMem = Math.max(1, Math.floor(memGB / 4) || 1)
+  const auto = Math.max(1, Math.min(cores - 1 || 1, byMem, 6))
+  const o = Number(override)
+  if (Number.isInteger(o) && o > 0) return Math.min(o, Math.max(1, cores))
+  return auto
+}
+
+/**
+ * 同一时刻所有 worker「在解」图像的预估总像素上限（百万像素）。
+ * 解码内存 ∝ 像素（RGBA 4B/px），并发的超大图会互相挤压内存导致解码退化（实测可达百倍）；
+ * 预算也随内存自适应：内存越小，同时解码的量越少。
+ */
+function maxInflightMP() {
+  let memGB = 16
+  try {
+    memGB = os.totalmem() / 1073741824
+  } catch {
+    /* fallback */
+  }
+  return Math.min(512, Math.max(32, Math.floor((memGB - 2) * 20)))
+}
+// 预估像素 ≥ 该值视为“重图”（单飞，不进小图批次）
+const HEAVY_MP = 20
+
+/** 解析外部转换器 exe 路径：优先用设置值，否则在常见位置探测（dev 项目根/打包 extraResources） */
+function resolveCliExe(configured) {
+  if (configured && existsSync(configured)) return configured
+  const candidates = [
+    join(__dirname, '..', '..', 'image_compresser.exe'), // dev：<proj>/out/main -> <proj>/
+    join(__dirname, 'image_compresser.exe')
+  ]
+  try {
+    candidates.push(join(process.resourcesPath, 'image_compresser.exe')) // 打包：extraResources
+  } catch {
+    /* ignore */
+  }
+  return candidates.find((p) => existsSync(p)) || null
+}
+
+/**
+ * 用外部转换器（image_compresser.exe）一次生成整个根的缩略图。
+ * 它的输出镜像输入目录并命名为 `<原名含扩展名>.webp`，与我们缓存布局一致。
+ * 只在 DB 阶段维护（扫描/增删）后调用本函数，回写 thumb/宽高。
+ */
+async function runCliThumbStage({ cfg, rootPath, cache, mode, needThumb, db, stats, onProgress, exePath }) {
+  const total = needThumb.length
+  onProgress({ phase: 'thumb', done: 0, total, current: 'external converter' })
+  const overwrite = mode === 'rebuild'
+  const relOf = (job) => `${job.relPath}.webp`
+
+  // 非 rebuild 时：先把需要重生成的旧产物删掉，让工具“跳过已存在”逻辑正确增量续跑
+  if (!overwrite) {
+    for (const job of needThumb) {
+      await fsp.rm(join(cache.thumbDir, relOf(job)), { force: true }).catch(() => {})
+    }
+  }
+
+  const args = [
+    '-i', rootPath,
+    '-o', cache.thumbDir,
+    '--resize',
+    '--width', String(cfg.thumbWidth),
+    '-q', String(cfg.thumbQuality),
+    '-j', String(Math.max(0, cfg.thumbWorkers | 0)),
+    '--output-format', 'json'
+  ]
+  if (overwrite) args.push('--overwrite')
+
+  console.log(`[cache] cli thumb start: ${exePath} ${args.join(' ')}`)
+
+  const updateThumbStmt = db.prepare(
+    'UPDATE files SET thumb=?, width=?, height=?, updated_at=? WHERE id=?'
+  )
+  const relToJob = new Map() // rel -> job（只关心需要生成的那批）
+  const pending = new Set()
+  for (const job of needThumb) {
+    relToJob.set(job.relPath, job)
+    pending.add(job.relPath)
+  }
+  const relThumbOf = (rel) => `${rel}.webp`
+  let lastCurrent = ''
+  const bump = () => {
+    const doneCount = total - pending.size
+    if (doneCount % 20 === 0 || pending.size === 0) {
+      onProgress({ phase: 'thumb', done: doneCount, total, current: lastCurrent })
+    }
+  }
+  // 逐条消费工具的 NDJSON（每文件一事件）。ok:true 的 width/height 为产物(缩放后)尺寸，
+  // 网格只用比例，直接入库即可（与源图宽高比例一致）。
+  const handleCliLine = (line) => {
+    let e
+    try {
+      e = JSON.parse(line)
+    } catch {
+      return
+    }
+    if (!e || e.event !== 'file') return
+    const job = relToJob.get(e.rel)
+    if (!job || !pending.delete(e.rel)) return
+    lastCurrent = job.name || e.rel || lastCurrent
+    if (e.ok) {
+      updateThumbStmt.run(relThumbOf(e.rel), e.width || null, e.height || null, Date.now(), job.id)
+      stats.thumbs++
+    } else if (e.reason === 'exists') {
+      // 产物已存在（理论不会，删过），视为成功
+      const p = join(cache.thumbDir, relThumbOf(e.rel))
+      if (existsSync(p)) {
+        const d = probeImageSize(job.absPath)
+        updateThumbStmt.run(relThumbOf(e.rel), d ? d.w : null, d ? d.h : null, Date.now(), job.id)
+        stats.thumbs++
+      } else {
+        stats.failed++
+      }
+    } else {
+      stats.failed++
+    }
+    bump()
+  }
+
+  db.exec('BEGIN')
+  try {
+    await new Promise((resolve) => {
+      let buf = ''
+      const ch = spawn(exePath, args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
+      ch.on('error', (err) => {
+        console.error('[cache] cli spawn error:', err)
+        resolve()
+      })
+      ch.on('close', (code) => {
+        if (buf.trim()) handleCliLine(buf.trim())
+        if (code !== 0) console.warn(`[cache] cli thumb finished with exit code ${code}`)
+        resolve()
+      })
+      ch.stdout.on('data', (d) => {
+        buf += d
+        let nl
+        while ((nl = buf.indexOf('\n')) >= 0) {
+          const line = buf.slice(0, nl).trim()
+          buf = buf.slice(nl + 1)
+          if (line) handleCliLine(line)
+        }
+      })
+    })
+    bump()
+
+    // 兜底：工具没发事件但确实缺/有产物的极少数（不应发生），按存在性补账
+    for (const rel of [...pending]) {
+      const job = relToJob.get(rel)
+      if (!job) continue
+      const p = join(cache.thumbDir, relThumbOf(rel))
+      let ok = false
+      try {
+        await fsp.access(p)
+        ok = true
+      } catch {
+        ok = false
+      }
+      if (ok) {
+        const d = probeImageSize(job.absPath)
+        updateThumbStmt.run(relThumbOf(rel), d ? d.w : null, d ? d.h : null, Date.now(), job.id)
+        stats.thumbs++
+      } else {
+        stats.failed++
+      }
+      bump()
+    }
+  } finally {
+    db.exec('COMMIT')
+  }
+  console.log('[cache] cli thumb done, stats =', JSON.stringify(stats))
+}
+
+/** 只读文件头部解析图片像素，用于调度前的内存预算（读取量小、快） */
+function probeImageSize(absPath) {
+  try {
+    const fd = openSync(absPath, 'r')
+    try {
+      const head = Buffer.alloc(2048)
+      const read = readSync(fd, head, 0, head.length, 0)
+      const b = head.subarray(0, read)
+      const name = extname(absPath).toLowerCase()
+      if (name === '.png' && b.length >= 24 && b.readUInt32BE(0) === 0x89504e47) {
+        return { w: b.readUInt32BE(16), h: b.readUInt32BE(20) }
+      }
+      if ((name === '.jpg' || name === '.jpeg') && b[0] === 0xff && b[1] === 0xd8) {
+        // 扫描 SOF 段拿宽高（起始若干 KB 内一般就有）
+        let i = 2
+        while (i + 9 < b.length) {
+          if (b[i] !== 0xff) {
+            i++
+            continue
+          }
+          const marker = b[i + 1]
+          if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+            return { w: b.readUInt16BE(i + 7), h: b.readUInt16BE(i + 5) }
+          }
+          const segLen = b.readUInt16BE(i + 2)
+          if (segLen < 2) break
+          i += 2 + segLen
+        }
+        return null
+      }
+      if (name === '.webp' && b.subarray(0, 4).toString() === 'RIFF' && b.subarray(8, 12).toString() === 'WEBP') {
+        const four = b.subarray(12, 16).toString()
+        if (four === 'VP8 ' && b.length >= 30) {
+          return { w: b.readUInt16LE(26) & 0x3fff, h: b.readUInt16LE(28) & 0x3fff }
+        }
+        if (four === 'VP8L' && b.length >= 25) {
+          const bits = b.readUInt32LE(21)
+          return { w: (bits & 0x3fff) + 1, h: ((bits >> 14) & 0x3fff) + 1 }
+        }
+        if (four === 'VP8X' && b.length >= 30) {
+          return { w: 1 + b.readUIntLE(24, 3), h: 1 + b.readUIntLE(27, 3) }
+        }
+        return null
+      }
+      if (name === '.gif' && b.subarray(0, 6).toString() === 'GIF89a') {
+        return { w: b.readUInt16LE(6), h: b.readUInt16LE(8) }
+      }
+      if (name === '.bmp' && b.subarray(0, 2).toString() === 'BM' && b.length >= 26) {
+        const w = b.readInt32LE(18)
+        const h = Math.abs(b.readInt32LE(22))
+        return { w, h }
+      }
+      return null
+    } finally {
+      closeSync(fd)
+    }
+  } catch {
+    return null
+  }
+}
+
+function mpOf(size) {
+  if (!size || !size.w || !size.h) return 0
+  return (size.w * size.h) / 1e6
+}
+
+/**
+ * 缩略图任务队列构造。
+ * cacheSequential = true：保持扫描顺序（同一目录连续读取，机械硬盘友好）；
+ * = false：按目录打散后轮流取（跨文件夹交错，某目录出现重图/卡顿时，
+ *   其它目录的任务仍在推进，视觉上不易感觉卡在某个文件夹）。
+ */
+function buildThumbQueue(jobs, sequential) {
+  if (sequential || jobs.length < 2) return jobs.slice()
+  const buckets = new Map() // 目录 -> jobs（保持内部原有顺序）
+  for (const job of jobs) {
+    const dir = (job.relPath || '').replace(/[\\/]+[^\\/]*$/, '') || '/'
+    let arr = buckets.get(dir)
+    if (!arr) buckets.set(dir, (arr = []))
+    arr.push(job)
+  }
+  const lists = [...buckets.values()]
+  const out = []
+  let taken = true
+  while (taken) {
+    taken = false
+    for (let i = 0; i < lists.length; i++) {
+      if (lists[i].length) {
+        out.push(lists[i].shift())
+        taken = true
+      }
+    }
+  }
+  return out
 }
 
 /** LIKE 转义（配合 ESCAPE '\'） */
@@ -644,13 +975,26 @@ export async function runCacheTask(root, mode, { onProgress = () => {}, shouldAb
     }
     console.log('[cache] db update done, stats =', JSON.stringify(stats), 'needThumb =', needThumb.length)
 
-    // --- 2. 生成缩略图（worker 线程，分批） ---
-    if (mode !== 'clean' && needThumb.length) {
+    // --- 2. 生成缩略图：优先外部转换器（image_compresser.exe），否则走 worker 池 ---
+    const cliExe = cfg.cacheUseCli ? resolveCliExe(cfg.cacheCliExe) : null
+    if (mode !== 'clean' && needThumb.length && cliExe) {
+      await runCliThumbStage({
+        cfg,
+        rootPath: root.path,
+        cache,
+        mode,
+        needThumb,
+        db,
+        stats,
+        onProgress,
+        exePath: cliExe
+      })
+    }
+    if (mode !== 'clean' && needThumb.length && !cliExe) {
       console.log('[cache] thumb start, total =', needThumb.length, 'batch =', cfg.thumbBatch)
       const total = needThumb.length
       let done = 0
       let lastCurrent = ''
-      const BATCH = cfg.thumbBatch
 
       const updateThumbStmt = db.prepare(
         'UPDATE files SET thumb=?, width=?, height=?, updated_at=? WHERE id=?'
@@ -659,29 +1003,108 @@ export async function runCacheTask(root, mode, { onProgress = () => {}, shouldAb
       // 缩略图状态回写也包进事务，避免逐条 fsync 卡住主进程
       db.exec('BEGIN')
       try {
-        for (let i = 0; i < needThumb.length; i += BATCH) {
-          checkAbort()
-          const chunk = needThumb.slice(i, i + BATCH)
+        // 预估每张图的解码像素（用于内存预算调度），只读文件头，开销小
+        let heavyCount = 0
+        for (const job of needThumb) {
+          job.estMP = mpOf(probeImageSize(job.absPath))
+          if (job.estMP >= HEAVY_MP) heavyCount++
+        }
+        console.log(`[cache] thumb mp-probe done, heavy(>=${HEAVY_MP}MP)=${heavyCount}`)
 
-          // 每批独立 worker：崩溃只影响本批，重建后继续，保证任务跑完并返回成功/失败数
-          const batchWorker = spawnCacheWorker()
-          const batchStartDone = done
+        // 任务队列：开关打开 = 保持扫描顺序（连续读，机械硬盘友好）；关闭 = 跨目录打散
+        const queue = buildThumbQueue(needThumb, cfg.cacheSequential)
 
-          await new Promise((resolve) => {
-            let settled = false
-            const settle = (failedExtra = 0) => {
-              if (settled) return
-              settled = true
-              clearTimeout(batchTimer)
-              batchWorker.removeAllListeners()
-              batchWorker.terminate().catch(() => {})
-              if (failedExtra > 0) {
-                stats.failed += failedExtra
-                done += failedExtra
-              }
-              resolve()
+        const W = Math.max(
+          1,
+          Math.min(pickThumbWorkerCount(cfg.thumbWorkers), needThumb.length, 8)
+        )
+
+        let cursor = 0
+        let inflightMP = 0
+        const inflightGroups = new Set() // 每个元素是一个“已派发待完成”的批（数组）
+        const waiters = []
+        let stopped = false
+
+        const wakeWaiters = () => {
+          const list = waiters.splice(0)
+          for (const r of list) r()
+        }
+        const releaseGroup = (group) => {
+          if (!inflightGroups.delete(group)) return
+          let mp = 0
+          for (const j of group) mp += j.estMP || 0
+          inflightMP -= mp
+          wakeWaiters()
+        }
+
+        // 一批任务的选取：小图尽量凑满 cfg.thumbBatch 张（且批内总像素有限制）；
+        // 预估 ≥ HEAVY_MP 的超大图“单飞”，避免拖住同批其它小图。
+        const buildGroup = () => {
+          if (stopped || cursor >= queue.length) return null
+          const first = queue[cursor]
+          cursor++
+          if ((first.estMP || 0) >= HEAVY_MP) return [first]
+          const group = [first]
+          let mp = first.estMP || 0
+          while (group.length < cfg.thumbBatch && cursor < queue.length) {
+            const c = queue[cursor]
+            if ((c.estMP || 0) >= HEAVY_MP) break
+            if (mp + (c.estMP || 0) > maxInflightMP()) break
+            group.push(c)
+            mp += c.estMP || 0
+            cursor++
+          }
+          return group
+        }
+
+        // 取下一批可派发任务：超出「同时解码像素」预算就等待（超大图自动降并发）
+        const nextGroup = async () => {
+          while (true) {
+            if (stopped || cursor >= queue.length) return null
+            const g = buildGroup()
+            if (!g) return null
+            let mp = 0
+            for (const j of g) mp += j.estMP || 0
+            if (inflightGroups.size === 0 || inflightMP + mp <= maxInflightMP()) {
+              inflightGroups.add(g)
+              inflightMP += mp
+              return g
             }
+            cursor -= g.length // 放回，等内存释放后重取
+            await new Promise((res) => waiters.push(res))
+          }
+        }
 
+        // 让一个 worker 处理一批任务；返回 'ok' | 'crash' | 'timeout'
+        const runOne = (wk, group) =>
+          new Promise((resolve) => {
+            let groupDone = 0 // 本批已完成数（超时只丢剩余）
+            let finished = false
+            let timer = null
+            const cleanup = () => {
+              clearTimeout(timer)
+              wk.removeListener('message', onMsg)
+              wk.removeListener('error', onErr)
+              wk.removeListener('exit', onExit)
+            }
+            const finish = (mode) => {
+              if (finished) return
+              finished = true
+              cleanup()
+              resolve(mode)
+            }
+            const maybeProgress = () => {
+              if (done % 5 === 0 || done === total) {
+                onProgress({ phase: 'thumb', done, total, current: lastCurrent })
+              }
+            }
+            const countFailures = (extra) => {
+              if (extra > 0) {
+                stats.failed += extra
+                done += extra
+                maybeProgress()
+              }
+            }
             const onMsg = (m) => {
               if (m.type === 'log') {
                 handleWorkerLog(m)
@@ -691,52 +1114,98 @@ export async function runCacheTask(root, mode, { onProgress = () => {}, shouldAb
                 updateThumbStmt.run(m.relThumb, m.width, m.height, Date.now(), m.id)
                 stats.thumbs++
                 done++
+                groupDone++
                 lastCurrent = m.name || lastCurrent
+                maybeProgress()
               } else if (m.type === 'thumb-fail') {
                 stats.failed++
                 done++
+                groupDone++
                 lastCurrent = m.name || lastCurrent
+                maybeProgress()
               } else if (m.type === 'thumb-done-all') {
-                settle()
-                return
+                finish('ok')
               } else if (m.type === 'error') {
-                settle(chunk.length - (done - batchStartDone))
-                return
-              }
-              if (done % 5 === 0 || done === total) {
-                onProgress({ phase: 'thumb', done, total, current: lastCurrent })
+                countFailures(group.length - groupDone)
+                finish('crash')
               }
             }
             const onErr = () => {
-              settle(chunk.length - (done - batchStartDone))
+              countFailures(group.length - groupDone)
+              finish('crash')
             }
             const onExit = () => {
-              settle(chunk.length - (done - batchStartDone))
+              countFailures(group.length - groupDone)
+              finish('crash')
             }
-            // 批次超时保护：worker 卡死（未崩溃也未返回）则跳过本批剩余
-            const batchTimer = setTimeout(() => {
-              const remaining = chunk.length - (done - batchStartDone)
+            // 单批超时保护：worker 卡死（未崩溃也未返回）则只丢该批剩余
+            timer = setTimeout(() => {
+              const remaining = group.length - groupDone
               if (remaining > 0) {
-                console.error(`[cache] thumb batch timeout, skipping ${remaining} jobs`)
-                settle(remaining)
-              } else {
-                settle()
+                console.error(`[cache] thumb batch timeout after ${cfg.thumbTimeout}ms, skipping ${remaining} jobs`)
               }
-            }, 120000)
-
-            batchWorker.on('message', onMsg)
-            batchWorker.on('error', onErr)
-            batchWorker.on('exit', onExit)
-            batchWorker.postMessage({
+              countFailures(remaining)
+              finish('timeout')
+            }, cfg.thumbTimeout)
+            wk.on('message', onMsg)
+            wk.on('error', onErr)
+            wk.on('exit', onExit)
+            wk.postMessage({
               type: 'thumb',
-              jobs: chunk,
+              jobs: group,
               thumbDir,
               thumbWidth: cfg.thumbWidth,
-              thumbQuality: cfg.thumbQuality
+              thumbQuality: cfg.thumbQuality,
+              thumbSlowMs: cfg.thumbSlowMs
             })
           })
-          checkAbort()
+
+        const runSlot = async () => {
+          let wk = spawnCacheWorker()
+          let sinceSpawn = 0 // 当前 worker 已处理的图数量（用于周期重启，防堆膨胀 GC）
+          try {
+            while (true) {
+              const group = await nextGroup()
+              if (!group) break
+              const mode = await runOne(wk, group)
+              releaseGroup(group)
+              sinceSpawn += group.length
+              if (mode === 'crash' || mode === 'timeout') {
+                // 该 worker 状态未知（崩溃/卡死），换一个新的继续队列
+                try {
+                  wk.terminate().catch(() => {})
+                } catch {
+                  /* ignore */
+                }
+                wk = spawnCacheWorker()
+                sinceSpawn = 0
+              } else if (sinceSpawn >= WORKER_RESTART_JOBS) {
+                // 周期性重启：清空累积的老生代，避免巨型 STW GC 把任务记成几十秒
+                try {
+                  wk.terminate().catch(() => {})
+                } catch {
+                  /* ignore */
+                }
+                wk = spawnCacheWorker()
+                sinceSpawn = 0
+              }
+              if (aborted || shouldAbort?.()) {
+                stopped = true
+                wakeWaiters()
+              }
+            }
+          } finally {
+            try {
+              wk.terminate().catch(() => {})
+            } catch {
+              /* ignore */
+            }
+          }
         }
+
+        const slotCount = Math.max(1, Math.min(W, queue.length))
+        await Promise.all(Array.from({ length: slotCount }, () => runSlot()))
+        checkAbort()
       } finally {
         db.exec('COMMIT')
       }
@@ -901,6 +1370,7 @@ export async function handleImagesList(rootId, folderAbsPath, searchQuery) {
            ORDER BY folder, name COLLATE NOCASE`
         )
         .all(pattern)
+      primeThumbIndex(cache, root, rows)
     } else {
       rows = await searchImagesQuick(root.path, wildcardToRegex(searchQuery))
     }
@@ -934,6 +1404,7 @@ export async function handleImagesList(rootId, folderAbsPath, searchQuery) {
         .all(rel, esc + '/%')
     }
     if (rows.length) {
+      primeThumbIndex(cache, root, rows)
       return rows.map((r) => ({
         absPath: r.abs_path,
         name: r.name,
@@ -981,12 +1452,23 @@ export function registerImageProtocol({ protocol }) {
         }
       }
 
-      // 单次 stat 同时完成存在性检查与取大小（避免原来的 existsSync + stat 两次 syscall）
+      // 单次 stat 同时完成存在性检查与取大小（避免原来的 existsSync + stat 两次 syscall）。
+      // 命中缩略图但文件缺失（如被手动删除）时回退原图一次，避免 404 破图。
       let st
       try {
         st = await fsp.stat(file)
       } catch {
-        return new Response('not found', { status: 404 })
+        if (thumbServed && file !== absPath) {
+          file = absPath
+          thumbServed = false
+          try {
+            st = await fsp.stat(file)
+          } catch {
+            return new Response('not found', { status: 404 })
+          }
+        } else {
+          return new Response('not found', { status: 404 })
+        }
       }
       const mime = MIME_BY_EXT[extname(file).toLowerCase()] || 'application/octet-stream'
       // 原图请求不缓存；缩略图请求（?size=thumb）若回退到原图（缩略图尚未生成）

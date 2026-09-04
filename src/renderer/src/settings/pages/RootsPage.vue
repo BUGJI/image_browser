@@ -530,7 +530,7 @@ onMounted(async () => {
 
 /* 动图（GIF）设置 */
 .gif-block {
-  max-width: 560px;
+  max-width: 720px;
 }
 
 .gif-label {

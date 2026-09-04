@@ -13,6 +13,9 @@ files:
 asarUnpack:
   - resources/**
   - out/main/cache-worker.js
+extraResources:
+  - from: image_compresser.exe
+    to: image_compresser.exe
 win:
   executableName: image-browser
 nsis:

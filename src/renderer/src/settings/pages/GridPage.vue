@@ -110,7 +110,7 @@ function onFavModeChange(v) {
   display: flex;
   align-items: center;
   gap: 24px;
-  max-width: 640px;
+  max-width: 720px;
   padding: 14px 16px;
   border: 1px solid var(--el-border-color-lighter);
   border-radius: 8px;

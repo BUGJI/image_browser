@@ -82,6 +82,9 @@ const itemNameMode = ref('hover')
 const itemExtMode = ref('none')
 // 卡片左上角收藏按钮显示方式：none / hover / always（默认不显示）
 const itemFavMode = ref('none')
+// 性能（设置 - 性能）：滚动预载距离 + 缓冲区懒加载（可视区外的图接近视口再解码）
+const imagePreload = ref(900)
+const imageBufferLazy = ref(true)
 function toggleQuickCopy() {
   quickCopyEnabled.value = !quickCopyEnabled.value
   try {
@@ -355,6 +358,11 @@ onMounted(async () => {
   itemFavMode.value = ['none', 'hover', 'always'].includes(ifm) ? ifm : 'none'
   showFavorites.value = (await window.api.getSetting('showFavorites', 'false')) === 'true'
 
+  // 性能（设置 - 性能）：滚动预载距离 + 缓冲区懒加载
+  const pp = parseFloat(await window.api.getSetting('imagePreload', '900'))
+  imagePreload.value = Number.isFinite(pp) && pp >= 0 ? pp : 900
+  imageBufferLazy.value = (await window.api.getSetting('imageBufferLazy', 'true')) !== 'false'
+
   // 缩放滑块最大值（开发者选项可配置，默认 2）
   const zm = parseFloat(await window.api.getSetting('zoomMax', '2'))
   zoomMax.value = Number.isFinite(zm) ? Math.max(1, zm) : 2
@@ -411,6 +419,13 @@ onMounted(async () => {
     }
     if (key === 'showFavorites') {
       showFavorites.value = value === 'true'
+    }
+    if (key === 'imagePreload') {
+      const pp = parseFloat(value)
+      if (Number.isFinite(pp) && pp >= 0) imagePreload.value = pp
+    }
+    if (key === 'imageBufferLazy') {
+      imageBufferLazy.value = value !== 'false'
     }
     themeStore.onSettingsChanged({ key, value })
     localeStore.onSettingsChanged({ key, value })
@@ -666,6 +681,8 @@ onBeforeUnmount(() => {
                   :name-mode="itemNameMode"
                   :ext-mode="itemExtMode"
                   :fav-mode="itemFavMode"
+                  :preload="imagePreload"
+                  :buffer-lazy="imageBufferLazy"
                 />
               </div>
               <div v-else class="welcome">

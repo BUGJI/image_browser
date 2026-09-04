@@ -50,29 +50,39 @@ function relSlash(rootPath, target) {
   return relative(rootPath, target).split(/[\\/]+/).join('/')
 }
 
+/** 消息宿主：当前由主进程以 worker_threads 调用（parentPort）；同时兼容 utilityProcess/fork 通道以便复用 */
+const HOST_CHANNEL =
+  parentPort ||
+  (typeof process !== 'undefined' && process.parentPort ? process.parentPort : null) ||
+  (typeof process !== 'undefined' && process.send ? process : null)
+
 function post(msg) {
-  parentPort?.postMessage(msg)
+  if (parentPort) parentPort.postMessage(msg)
+  else if (typeof process !== 'undefined' && process.parentPort && process.parentPort.postMessage) process.parentPort.postMessage(msg)
+  else if (process.send) process.send(msg)
 }
 
-// 转发 console 日志给主进程（开发者选项「记录日志」开启时落盘）
+// 转发 console 日志给宿主（记录日志开启时落盘；子进程模式下 stdout 本身可见，可不传）
 for (const method of ['debug', 'log', 'info', 'warn', 'error']) {
   const original = console[method]
   if (typeof original !== 'function') continue
   const level = method === 'debug' ? 'DEBUG' : method === 'warn' ? 'WARN' : method === 'error' ? 'ERROR' : 'INFO'
   console[method] = function (...args) {
     try {
-      parentPort?.postMessage({
-        type: 'log',
-        level,
-        args: args.map((a) => {
-          if (a instanceof Error) return a.stack || String(a)
-          try {
-            return typeof a === 'string' ? a : JSON.stringify(a)
-          } catch {
-            return String(a)
-          }
+      if (parentPort) {
+        parentPort.postMessage({
+          type: 'log',
+          level,
+          args: args.map((a) => {
+            if (a instanceof Error) return a.stack || String(a)
+            try {
+              return typeof a === 'string' ? a : JSON.stringify(a)
+            } catch {
+              return String(a)
+            }
+          })
         })
-      })
+      }
     } catch {
       /* ignore */
     }
@@ -143,10 +153,8 @@ async function ensureWebP() {
   }
 }
 
-/** 解码 jpg/png/webp/gif 为 RGBA；不支持的格式返回 null（bmp/tiff 暂无解码器） */
-async function decodeImage(absPath) {
-  const ext = extname(absPath).toLowerCase()
-  const buf = await fsp.readFile(absPath)
+/** 解码 buf 为 RGBA；不支持的格式返回 null（bmp/tiff 暂无解码器） */
+function decodeImage(buf, ext) {
   if (ext === '.png') {
     const png = PNG.sync.read(buf)
     return { width: png.width, height: png.height, data: png.data }
@@ -156,8 +164,7 @@ async function decodeImage(absPath) {
     return { width: jpeg.width, height: jpeg.height, data: jpeg.data }
   }
   if (ext === '.webp') {
-    const img = await WebP.decode(buf)
-    return { width: img.width, height: img.height, data: img.data }
+    return null // WebP 解码需要 await，走下方异步分支
   }
   if (ext === '.gif') {
     // 只解第一帧作为静态缩略图（gif 原生会在 <img> 里自动播放，磁盘缓存只用首帧）
@@ -168,6 +175,14 @@ async function decodeImage(absPath) {
     return { width, height, data }
   }
   return null
+}
+
+async function decodeImageAsync(buf, ext) {
+  if (ext === '.webp') {
+    const img = await WebP.decode(buf)
+    return { width: img.width, height: img.height, data: img.data }
+  }
+  return decodeImage(buf, ext)
 }
 
 
@@ -201,14 +216,32 @@ function resizeRGBA(src, sw, sh, dw, dh) {
   return out
 }
 
+// 最近一次缩略图任务的各阶段耗时（单 worker 顺序处理，安全）；供慢图日志输出定位
+let lastSteps = null
+
 /**
  * 生成 webp 缩略图（镜像目录），返回 { width, height }；失败返回 null。
  * relThumb：相对 thumbDir 的路径，如 `相册/风景/photo.jpg.webp`
  */
 async function makeThumb(absPath, thumbDir, relThumb, { thumbWidth = DEFAULT_THUMB_WIDTH, thumbQuality = DEFAULT_THUMB_QUALITY } = {}) {
+  const phases = { read: 0, decode: 0, encode: 0, write: 0 }
+  lastSteps = phases
+
+  let buf
+  try {
+    const t0 = Date.now()
+    buf = await fsp.readFile(absPath)
+    phases.read = Date.now() - t0
+  } catch {
+    return null
+  }
+
+  const ext = extname(absPath).toLowerCase()
   let img
   try {
-    img = await decodeImage(absPath)
+    const t0 = Date.now()
+    img = await decodeImageAsync(buf, ext)
+    phases.decode = Date.now() - t0
   } catch {
     return null
   }
@@ -228,10 +261,14 @@ async function makeThumb(absPath, thumbDir, relThumb, { thumbWidth = DEFAULT_THU
       h = dh
     }
     await ensureWebP()
+    const t0 = Date.now()
     const webpBuf = await WebP.encode({ data, width: w, height: h }, { quality: thumbQuality })
+    phases.encode = Date.now() - t0
     const outPath = join(thumbDir, relThumb)
+    const t1 = Date.now()
     await fsp.mkdir(dirname(outPath), { recursive: true })
     await fsp.writeFile(outPath, webpBuf)
+    phases.write = Date.now() - t1
     return orig
   } catch {
     return null
@@ -240,20 +277,36 @@ async function makeThumb(absPath, thumbDir, relThumb, { thumbWidth = DEFAULT_THU
 
 // ---------------------------------------------------------------- 消息分发
 
-parentPort?.on('message', async (msg) => {
+if (HOST_CHANNEL) {
+  HOST_CHANNEL.on('message', async (msg) => {
   try {
     if (msg.type === 'scan') {
       const total = await scanImages(msg.rootPath, msg.scanBatch)
       post({ type: 'scan-done', total })
     } else if (msg.type === 'thumb') {
-      const { jobs, thumbDir, thumbWidth, thumbQuality } = msg
+      const { jobs, thumbDir, thumbWidth, thumbQuality, thumbSlowMs } = msg
       let done = 0
       for (const job of jobs) {
         if (aborted) throw new Error('scan aborted')
         // 镜像目录：<相对目录>/<文件名>.<原扩展名>.webp
         const relThumb = `${job.relPath}.webp`
+        const jobStart = Date.now()
         const result = await makeThumb(job.absPath, thumbDir, relThumb, { thumbWidth, thumbQuality })
+        const jobCost = Date.now() - jobStart
         done++
+        // 超时重图：打 WARN，附各阶段耗时（读盘/解码/编码/写盘）与内存占用，方便定位卡在哪一步
+        if (thumbSlowMs && jobCost >= thumbSlowMs) {
+          const s = lastSteps
+          let mem = ''
+          try {
+            const m = process.memoryUsage()
+            mem = ` heap=${(m.heapUsed / 1048576).toFixed(0)}MB rss=${(m.rss / 1048576).toFixed(0)}MB`
+          } catch {
+            /* ignore */
+          }
+          const ph = s ? ` [read=${s.read}ms dec=${s.decode}ms enc=${s.encode}ms write=${s.write}ms]` : ''
+          console.warn(`slow thumb ${jobCost}ms >= ${thumbSlowMs}ms${ph}${mem}  ${job.absPath}`)
+        }
         if (done % 100 === 0) {
           console.log(`worker thumb progress ${done}/${jobs.length} last=${job.name}`)
         }
@@ -278,3 +331,5 @@ parentPort?.on('message', async (msg) => {
     post({ type: 'error', message: String(err?.message || err) })
   }
 })
+}
+
