@@ -12,6 +12,8 @@ const devEnabled = ref(false)
 const showTest = ref(false)
 // 瀑布流缩放滑块最大值
 const zoomMax = ref(2)
+// 超长图高度限制（默认开）
+const imageTallCap = ref(true)
 const ZOOM_MAX_MIN = 1
 const ZOOM_MAX_MAX = 100
 
@@ -65,6 +67,7 @@ onMounted(async () => {
   showTest.value = (await window.api.getSetting('showTest', 'false')) === 'true'
   const zm = parseFloat(await window.api.getSetting('zoomMax', '2'))
   zoomMax.value = Number.isFinite(zm) ? clampZoomMax(zm) : 2
+  imageTallCap.value = (await window.api.getSetting('imageTallCap', 'true')) !== 'false'
 
   lightZoomMin.value = clampNum(await window.api.getSetting('lightboxZoomMin', '0.5'), LIGHT_ZOOM_MIN_BOUND, LIGHT_ZOOM_MAX_BOUND, 0.5)
   lightZoomMax.value = clampNum(await window.api.getSetting('lightboxZoomMax', '8'), LIGHT_ZOOM_MIN_BOUND, LIGHT_ZOOM_MAX_BOUND, 8)
@@ -114,6 +117,7 @@ onMounted(async () => {
       const zm = parseFloat(value)
       if (Number.isFinite(zm)) zoomMax.value = clampZoomMax(zm)
     }
+    else if (key === 'imageTallCap') imageTallCap.value = value !== 'false'
     else if (key === 'lightboxZoomMin') lightZoomMin.value = clampNum(value, LIGHT_ZOOM_MIN_BOUND, LIGHT_ZOOM_MAX_BOUND, 0.5)
     else if (key === 'lightboxZoomMax') lightZoomMax.value = clampNum(value, LIGHT_ZOOM_MIN_BOUND, LIGHT_ZOOM_MAX_BOUND, 8)
     else if (key === 'lightboxZoomStep') lightZoomStep.value = clampNum(value, 1.01, 2, 1.2)
@@ -177,9 +181,14 @@ async function onShowTestChange(v) {
 }
 
 async function onZoomMaxChange(v) {
+  await window.api.setSetting('zoomMax', String(clampZoomMax(v)))
+  ElMessage.success(t('devOptions.zoomMaxSaved', { n: clampZoomMax(v) }))
+}
+
+async function onImageTallCapChange(v) {
   try {
-    await window.api.setSetting('zoomMax', String(clampZoomMax(v)))
-    ElMessage.success(t('devOptions.zoomMaxSaved', { n: clampZoomMax(v) }))
+    await window.api.setSetting('imageTallCap', v ? 'true' : 'false')
+    ElMessage.success(t('common.saved'))
   } catch {
     ElMessage.error(t('common.saveFailed'))
   }
@@ -352,6 +361,16 @@ async function onLoggingChange(v) {
           size="default"
           @change="onZoomMaxChange"
         />
+      </div>
+
+      <el-divider />
+
+      <div class="dev-row">
+        <div class="dev-label">
+          <div class="dev-name">{{ t('devOptions.imageTallCap') }}</div>
+          <div class="dev-desc">{{ t('devOptions.imageTallCapDesc') }}</div>
+        </div>
+        <el-switch v-model="imageTallCap" :disabled="disabled" @change="onImageTallCapChange" />
       </div>
     </el-card>
 

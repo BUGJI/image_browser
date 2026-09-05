@@ -42,7 +42,8 @@ export default {
     selectRoot: '选择根目录',
     noRoots: '未添加目录',
     settings: '设置',
-    favorites: '我的收藏'
+    favorites: '我的收藏',
+    pageDesc: '主界面左侧目录树的显示设置。'
   },
   app: {
     cacheMaintenance: '缓存维护',
@@ -109,6 +110,7 @@ export default {
     roots: '根目录',
     appearance: '外观',
     titlebar: '顶栏样式',
+    sidebar: '侧栏',
     theme: '主题设置',
     animations: '动画',
     devOptions: '开发者选项',
@@ -171,16 +173,16 @@ export default {
     moveUp: '上移',
     moveDown: '下移',
     reordered: '排序已保存',
-    maintainTools: '维护工具',
+    maintainTools: '性能优化',
     taskRunning: '任务运行中',
     maintainDesc:
-      '对选中的根目录建立独立缓存，在大量图片浏览情况下可以提升速度。更新缓存=增量扫描；重建缓存=清空后全量重建；扫描缓存=把缓存文件夹里已生成的缩略图计入索引；清理无用缓存=删除失效记录与孤立缩略图。',
-    selectMaintainRoot: '选择要维护的根目录',
+      '为图片生成/复用 WebP 缩略图缓存，浏览时只加载小图，解码与内存占用大幅降低、滚动更顺滑。建议先点「增量加速」，通常几秒完成；换过压缩设置后可用「整库重建」。',
+    selectMaintainRoot: '选择要优化的根目录',
     selectRootFirst: '先选择一个根目录',
-    updateCache: '更新缓存',
-    rebuildCache: '重建缓存',
-    scanCache: '扫描缓存',
-    cleanCache: '清理无用缓存',
+    updateCache: '增量加速',
+    rebuildCache: '整库重建',
+    scanCache: '复用已有缓存',
+    cleanCache: '清理过期缓存',
     deleteConfirm: '确定删除根目录「{name}」吗？\n仅移除注册记录，不会删除磁盘上的文件。',
     deleteRootTitle: '删除根目录',
     deleted: '已删除',
@@ -230,6 +232,10 @@ export default {
     restartNow: '立即重启',
     restartLater: '稍后手动重启',
     savedRestartLater: '已保存，重启后生效',
+    sidebarTitle: '侧栏',
+    sidebarShowAllRoots: '目录树顶层显示全部根目录',
+    sidebarShowAllRootsDesc:
+      '开：隐藏底部“根目录”下拉框，改为在目录树顶层直接列出所有已注册根目录，点击某个根即可切换；关：保持当前根下拉框切换。',
     noChange: '顶栏样式未变化',
     tip: '自定义顶栏为默认样式；切换为系统顶栏后，窗口将使用系统原生标题栏。'
   },
@@ -345,9 +351,12 @@ export default {
     logging: '记录日志',
     loggingDesc:
       '捕获所有日志，自动写入 userData/logs/app-YYYYMMDD.log',
-    zoomTitle: '瀑布流缩放',
+    zoomTitle: '瀑布流',
     zoomMax: '缩放滑块最大值',
     zoomMaxDesc: '主界面缩放滑块的最大值（{min} ~ {max}）',
+    imageTallCap: '超长图高度限制',
+    imageTallCapDesc:
+      '开：缩略图卡片比例限制为不超过 1:5（宽:高），更长的图等比缩放到该比例内整图显示（不会撑爆一大块区域）；关：保持原比例显示。',
     lightZoomTitle: '灯箱缩放',
     lightZoomDesc: '以下参数下次打开灯箱时生效。',
     lightZoomMin: '最小缩放倍数',

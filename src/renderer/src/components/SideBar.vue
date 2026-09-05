@@ -16,6 +16,10 @@ const props = defineProps({
 const emit = defineEmits(['show-favorites'])
 const FAV_KEY = '__favorites__'
 
+// 目录树展示模式：false=仅当前根；true=顶层列出全部已注册根目录（隐藏底部下拉框）
+const allRoots = ref(false)
+let offSettingsChanged = null
+
 // 目录树数据（只含文件夹，来自主进程扫描）
 const treeData = ref([])
 const scanning = ref(false)
@@ -79,8 +83,88 @@ async function scanTree() {
   }
 }
 
-// 切换根目录 → 重新扫描
-watch(() => rootsStore.currentRootId, scanTree, { immediate: true })
+// “全部根目录”模式：顶层列出每个已注册根目录；
+// 仅当前根加载并展示其完整目录树（点击其它根即切换并重建，逻辑与普通模式一致）
+async function buildAllRoots() {
+  scanning.value = true
+  const seq = ++scanSeq
+  const curId = rootsStore.currentRootId
+  const rows = []
+  for (const root of rootsStore.roots) {
+    let children = []
+    if (root.id === curId) {
+      try {
+        const tree = await window.api.scanTree(root.path)
+        if (seq === scanSeq) children = tree && tree.children ? tree.children : []
+      } catch {
+        children = []
+      }
+    }
+    rows.push({
+      name: displayName(root),
+      path: root.path,
+      rootId: root.id,
+      isRoot: true,
+      children
+    })
+  }
+  if (seq === scanSeq) {
+    treeData.value = rows
+    scanning.value = false
+    const cur = rootsStore.currentRoot
+    if (cur) expandPath(cur.path)
+  }
+}
+
+// 展开指定路径节点（路径在树中即可命中）
+function expandPath(path) {
+  nextTick(() => {
+    try {
+      treeRef.value?.getNode(path)?.expand()
+    } catch {
+      /* ignore */
+    }
+  })
+}
+
+// 切换根目录：全部根模式重建顶层并自动展开当前根；普通模式按根重扫
+watch(
+  () => rootsStore.currentRootId,
+  () => {
+    if (!allRoots.value) {
+      scanTree()
+    } else {
+      buildAllRoots()
+      treeKey.value++
+      const p = rootsStore.currentRoot?.path
+      if (p) expandPath(p)
+    }
+  },
+  { immediate: true }
+)
+
+// 模式切换
+watch(allRoots, (on) => {
+  treeKey.value++
+  if (on) {
+    buildAllRoots()
+    const p = rootsStore.currentRoot?.path
+    if (p) expandPath(p)
+  } else {
+    scanTree()
+  }
+})
+
+// 根目录增删/改名（仅全部根模式需要重建顶层列表）
+watch(
+  () => rootsStore.roots.map((r) => `${r.id}|${r.path}|${r.alias || ''}`).join('##'),
+  () => {
+    if (allRoots.value) {
+      buildAllRoots()
+      treeKey.value++
+    }
+  }
+)
 
 // 搜索过滤：保留名称匹配的节点 + 其祖先链
 const filteredTree = computed(() => {
@@ -111,7 +195,7 @@ const displayedTree = computed(() => {
   return [favNode.value, ...filteredTree.value]
 })
 
-// 搜索时展开过滤后所有节点（含父链）；无搜索时用持久化的展开状态
+// 搜索时展开过滤后所有节点（含父链）；无搜索时：全部根模式自动展开当前根，单根模式用持久化展开
 const expandedKeys = computed(() => {
   if (searchText.value.trim()) {
     const keys = []
@@ -124,12 +208,16 @@ const expandedKeys = computed(() => {
     collect(filteredTree.value)
     return keys
   }
+  if (allRoots.value) {
+    const p = rootsStore.currentRoot?.path
+    return p ? [p] : []
+  }
   return persistedExpanded.value
 })
 
-// 展开/折叠时同步持久化（仅非搜索状态记录，避免搜索展开污染）
+// 展开/折叠时同步持久化（仅单根模式且非搜索状态记录，避免搜索/多根模式污染）
 function handleNodeExpand(data) {
-  if (searchText.value.trim()) return
+  if (allRoots.value || searchText.value.trim()) return
   if (!persistedExpanded.value.includes(data.path)) {
     persistedExpanded.value = [...persistedExpanded.value, data.path]
     saveExpanded(persistedExpanded.value)
@@ -137,7 +225,7 @@ function handleNodeExpand(data) {
 }
 
 function handleNodeCollapse(data) {
-  if (searchText.value.trim()) return
+  if (allRoots.value || searchText.value.trim()) return
   persistedExpanded.value = persistedExpanded.value.filter((p) => p !== data.path)
   saveExpanded(persistedExpanded.value)
 }
@@ -173,6 +261,15 @@ function handleNodeClick(data) {
     emit('show-favorites')
     return
   }
+  if (data.isRoot) {
+    // 全部根模式：点击顶层根 = 切到该根并浏览其整棵根目录
+    if (data.rootId !== rootsStore.currentRootId) {
+      rootsStore.setCurrent(data.rootId)
+    }
+    rootsStore.selectFolder({ name: data.name, path: data.path })
+    expandPath(data.path)
+    return
+  }
   rootsStore.selectFolder({ name: data.name, path: data.path })
 }
 
@@ -187,21 +284,28 @@ function openSettings() {
 
 onMounted(async () => {
   await rootsStore.refresh()
+  allRoots.value = (await window.api.getSetting('sidebarShowAllRoots', 'false')) === 'true'
   offRootsChanged = window.api.onRootsChanged(() => {
     rootsStore.refresh()
+  })
+  offSettingsChanged = window.api.onSettingsChanged(({ key, value }) => {
+    if (key === 'sidebarShowAllRoots') {
+      allRoots.value = value === 'true'
+    }
   })
 })
 
 onBeforeUnmount(() => {
   offRootsChanged?.()
+  offSettingsChanged?.()
 })
 </script>
 
 <template>
   <aside class="sidebar">
     <div class="sidebar-content">
-      <!-- 有根目录：我的收藏 + 搜索框 + 目录树 -->
-      <template v-if="rootsStore.currentRoot">
+      <!-- 有可浏览内容：我的收藏 + 搜索框 + 目录树（普通=当前根；全部根=所有根置顶） -->
+      <template v-if="allRoots ? rootsStore.roots.length > 0 : !!rootsStore.currentRoot">
         <div class="dir-search">
           <el-input
             v-model="searchText"
@@ -263,6 +367,7 @@ onBeforeUnmount(() => {
 
     <div class="sidebar-footer">
       <el-tooltip
+        v-if="!allRoots"
         :disabled="rootsStore.currentRootId != null"
         :content="t('sidebar.noRootsTooltip')"
         placement="top"

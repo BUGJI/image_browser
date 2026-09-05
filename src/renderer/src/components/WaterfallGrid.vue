@@ -48,7 +48,9 @@ const props = defineProps({
   preload: { type: Number, default: 900 },
   // 缓冲（视口外预载区）图片是否用浏览器原生懒加载：开=接近视口才解码（省无效加载/解码阵雨），
   // 关=缓冲区内全部立即加载（旧行为，更激进预取、更耗 CPU/IO）
-  bufferLazy: { type: Boolean, default: true }
+  bufferLazy: { type: Boolean, default: true },
+  // 超长图高度限制（设置-开发者选项-瀑布流）：开 = 卡片比例不超过 1:5，更长的整图等比适配显示
+  capTall: { type: Boolean, default: true }
 })
 
 const gifStore = useGifStore()
@@ -57,6 +59,7 @@ const favoritesStore = useFavoritesStore()
 const GAP = 10
 const COL_BASE_WIDTH = 200
 const FALLBACK_RATIO = 0.75
+const MAX_TILE_RATIO = 5 // 超长图高度限制：宽:高 不超过 1:5
 
 // 内存维度缓存：`rootId\u0000absPath -> {w,h}`。跨文件夹导航/滚动复用，
 // 让没有缓存索引（未跑维护）的图片也能用上一次加载到的真实比例，减少占位跳动。
@@ -122,6 +125,20 @@ function ratioOf(item) {
   return null
 }
 
+/** 布局用高度比例：开启高度限制时把超 1:5 的截到 1:5 */
+function effectiveRatio(item) {
+  const raw = ratioOf(item) ?? avgRatio
+  if (props.capTall && raw > MAX_TILE_RATIO) return MAX_TILE_RATIO
+  return raw
+}
+
+/** 该卡片的原图是否超高（用于给 <img> 切换 contain，保证超长图整图可见） */
+function isTallCapped(item) {
+  if (!props.capTall) return false
+  const r = ratioOf(item)
+  return r != null && r > MAX_TILE_RATIO + 1e-6
+}
+
 /** 用本列表已知图片比例算均值，作为未知占位比例 */
 function recomputeAvg() {
   let sum = 0
@@ -153,7 +170,7 @@ function doFullLayout() {
   recomputeAvg()
   const colBottom = new Array(curCols).fill(0)
   for (const item of items.value) {
-    const h = itemW * (ratioOf(item) ?? avgRatio)
+    const h = itemW * effectiveRatio(item)
     let col = 0
     let minH = Infinity
     for (let i = 0; i < curCols; i++) {
@@ -181,7 +198,7 @@ function doIncrementalLayout() {
   recomputeAvg()
   const colBottom = new Array(curCols).fill(0)
   for (const it of items.value) {
-    const h = itemW * (ratioOf(it) ?? avgRatio)
+    const h = itemW * effectiveRatio(it)
     it.y = colBottom[it.col]
     it.h = h
     colBottom[it.col] = it.y + h + GAP
@@ -282,6 +299,16 @@ watch(
 // 缩放变化 → 全量重建布局（rAF 合并，避免滑块连发时逐 tick 全表重算）
 watch(() => props.zoom, scheduleFullLayout)
 
+// 超长图限制开关变化：即时按新比例刷新（保留列分配，增量重排即可）
+watch(
+  () => props.capTall,
+  () => {
+    if (!items.value.length) return
+    doIncrementalLayout()
+    layoutVersion.value++
+  }
+)
+
 // 缓存维护完成后 → 重新加载（此时 hasThumb 更新，改用缩略图 URL）
 watch(
   () => props.refreshTick,
@@ -376,7 +403,9 @@ function onImgLoad(item, e) {
     item.width = img.naturalWidth
     item.height = img.naturalHeight
     // 比例与占位一致（如缓存索引已带尺寸）就不必重排；确有出入才排队批量提交
-    const newH = itemW ? itemW * (img.naturalHeight / img.naturalWidth) : 0
+    const naturalRatio = img.naturalHeight / img.naturalWidth
+    const cappedRatio = props.capTall && naturalRatio > MAX_TILE_RATIO ? MAX_TILE_RATIO : naturalRatio
+    const newH = itemW ? itemW * cappedRatio : 0
     if (Math.abs(newH - prevH) > 0.5) {
       scheduleLayoutCommit()
     }
@@ -494,6 +523,7 @@ async function copyViaCanvas(e) {
           :thumb-source="gifStore.thumbSource"
           :native-loading="loadMode(item)"
           :native-priority="priorityMode(item)"
+          :class="{ 'fit-contain': isTallCapped(item) }"
           @load="onImgLoad(item, $event)"
         />
         <img
@@ -502,6 +532,7 @@ async function copyViaCanvas(e) {
           :alt="item.name"
           draggable="false"
           decoding="async"
+          :class="{ 'fit-contain': isTallCapped(item) }"
           :loading="loadMode(item)"
           :fetchpriority="priorityMode(item)"
           @load="onImgLoad(item, $event)"
@@ -591,6 +622,11 @@ async function copyViaCanvas(e) {
   display: block;
   transition: transform 0.25s ease;
   background: var(--panel-bg);
+}
+
+/* 超长图高度限制开启时：整图等比显示（不被裁剪），卡片比例已封顶 1:5 */
+.waterfall-item img.fit-contain {
+  object-fit: contain;
 }
 
 .waterfall-hover {

@@ -42,7 +42,8 @@ export default {
     selectRoot: 'Select root',
     noRoots: 'No roots added',
     settings: 'Settings',
-    favorites: 'My favorites'
+    favorites: 'My favorites',
+    pageDesc: 'Display settings for the folder tree on the left of the main window.'
   },
   app: {
     cacheMaintenance: 'Cache maintenance',
@@ -109,6 +110,7 @@ export default {
     roots: 'Roots',
     appearance: 'Appearance',
     titlebar: 'Title bar style',
+    sidebar: 'Sidebar',
     theme: 'Theme setting',
     animations: 'Animations',
     devOptions: 'Developer options',
@@ -174,16 +176,16 @@ export default {
     moveUp: 'Move up',
     moveDown: 'Move down',
     reordered: 'Order saved',
-    maintainTools: 'Maintenance tools',
+    maintainTools: 'Performance tools',
     taskRunning: 'Task running',
     maintainDesc:
-      'Builds an independent cache for the selected root (.image_browser_cache: image index + webp thumbs). Update cache = incremental scan; rebuild cache = clear and rebuild everything; scan cache = register thumbnails already generated in the cache folder into the index; clean cache = remove stale records and orphan thumbs.',
-    selectMaintainRoot: 'Select a root to maintain',
+      'Generate/reuse WebP thumbnail caches so browsing only loads small images — far lower decoding and memory usage, smoother scrolling. Start with "Incremental boost" (usually seconds); use "Full rebuild" after changing compression settings.',
+    selectMaintainRoot: 'Select a root to optimize',
     selectRootFirst: 'Select a root first',
-    updateCache: 'Update cache',
-    rebuildCache: 'Rebuild cache',
-    scanCache: 'Scan cache',
-    cleanCache: 'Clean cache',
+    updateCache: 'Incremental boost',
+    rebuildCache: 'Full rebuild',
+    scanCache: 'Reuse existing cache',
+    cleanCache: 'Clear stale cache',
     deleteConfirm:
       'Delete root "{name}"?\nOnly the registration record is removed; files on disk are not deleted.',
     deleteRootTitle: 'Delete root',
@@ -234,6 +236,10 @@ export default {
     restartNow: 'Restart now',
     restartLater: 'Restart later',
     savedRestartLater: 'Saved, will take effect after restart',
+    sidebarTitle: 'Sidebar',
+    sidebarShowAllRoots: 'Show all roots at the top of the folder tree',
+    sidebarShowAllRootsDesc:
+      'On: the root dropdown at the bottom is hidden; every registered root appears as a top-level tree node and you switch roots by clicking one. Off: keep the bottom root dropdown.',
     noChange: 'Title bar style unchanged',
     tip: 'Custom title bar is the default. After switching to the system title bar, the window uses the native system title bar.'
   },
@@ -350,9 +356,12 @@ export default {
     logging: 'Logging',
     loggingDesc:
       'Capture all main/renderer/worker logs (DEBUG / INFO / WARNING / ERROR), written to userData/logs/app-YYYYMMDD.log',
-    zoomTitle: 'Waterfall zoom',
+    zoomTitle: 'Waterfall',
     zoomMax: 'Slider max value',
     zoomMaxDesc: 'Maximum value of the zoom slider on main screen ({min} ~ {max})',
+    imageTallCap: 'Limit extra-tall images',
+    imageTallCapDesc:
+      'On: card aspect is capped at 1:5 (w:h); taller images are scaled to fit within that ratio and shown whole (they no longer take over a huge area). Off: keep the original ratio.',
     lightZoomTitle: 'Lightbox zoom',
     lightZoomDesc: 'These take effect the next time the lightbox opens.',
     lightZoomMin: 'Min zoom',

@@ -85,6 +85,8 @@ const itemFavMode = ref('none')
 // 性能（设置 - 性能）：滚动预载距离 + 缓冲区懒加载（可视区外的图接近视口再解码）
 const imagePreload = ref(900)
 const imageBufferLazy = ref(true)
+// 超长图高度限制（设置-开发者选项-瀑布流）：默认开，卡片宽高比不超过 1:5
+const imageTallCap = ref(true)
 function toggleQuickCopy() {
   quickCopyEnabled.value = !quickCopyEnabled.value
   try {
@@ -362,6 +364,7 @@ onMounted(async () => {
   const pp = parseFloat(await window.api.getSetting('imagePreload', '900'))
   imagePreload.value = Number.isFinite(pp) && pp >= 0 ? pp : 900
   imageBufferLazy.value = (await window.api.getSetting('imageBufferLazy', 'true')) !== 'false'
+  imageTallCap.value = (await window.api.getSetting('imageTallCap', 'true')) !== 'false'
 
   // 缩放滑块最大值（开发者选项可配置，默认 2）
   const zm = parseFloat(await window.api.getSetting('zoomMax', '2'))
@@ -426,6 +429,9 @@ onMounted(async () => {
     }
     if (key === 'imageBufferLazy') {
       imageBufferLazy.value = value !== 'false'
+    }
+    if (key === 'imageTallCap') {
+      imageTallCap.value = value !== 'false'
     }
     themeStore.onSettingsChanged({ key, value })
     localeStore.onSettingsChanged({ key, value })
@@ -683,6 +689,7 @@ onBeforeUnmount(() => {
                   :fav-mode="itemFavMode"
                   :preload="imagePreload"
                   :buffer-lazy="imageBufferLazy"
+                  :cap-tall="imageTallCap"
                 />
               </div>
               <div v-else class="welcome">

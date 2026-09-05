@@ -9,6 +9,7 @@ import GeneralPage from './pages/GeneralPage.vue'
 import RootsPage from './pages/RootsPage.vue'
 import AppearancePage from './pages/AppearancePage.vue'
 import ThemePage from './pages/ThemePage.vue'
+import SidebarPage from './pages/SidebarPage.vue'
 import AnimationsPage from './pages/AnimationsPage.vue'
 import AiSearchPage from './pages/AiSearchPage.vue'
 import AboutPage from './pages/AboutPage.vue'
@@ -56,6 +57,7 @@ const treeData = computed(() => {
       icon: 'Brush',
       children: [
         { id: 'titlebar', label: t('settings.titlebar') },
+        { id: 'sidebar', label: t('settings.sidebar') },
         { id: 'theme', label: t('settings.theme') },
         { id: 'animations', label: t('settings.animations') },
         { id: 'card', label: t('settings.cardPage') }
@@ -75,6 +77,7 @@ const pageMap = {
   general: GeneralPage,
   roots: RootsPage,
   titlebar: AppearancePage,
+  sidebar: SidebarPage,
   theme: ThemePage,
   animations: AnimationsPage,
   test: TestPage,
