@@ -7,17 +7,13 @@ const { t } = useI18n()
 
 // 目录树顶层显示全部根目录（隐藏底部下拉框）
 const showAllRoots = ref(false)
-// 左侧目录树顶部显示「我的收藏」入口
-const showFavorites = ref(false)
 
 let offSettingsChanged = null
 
 onMounted(async () => {
   showAllRoots.value = (await window.api.getSetting('sidebarShowAllRoots', 'false')) === 'true'
-  showFavorites.value = (await window.api.getSetting('showFavorites', 'false')) === 'true'
   offSettingsChanged = window.api.onSettingsChanged(({ key, value }) => {
     if (key === 'sidebarShowAllRoots') showAllRoots.value = value === 'true'
-    else if (key === 'showFavorites') showFavorites.value = value === 'true'
   })
 })
 
@@ -47,16 +43,6 @@ async function save(key, value) {
           <div class="side-desc">{{ t('appearance.sidebarShowAllRootsDesc') }}</div>
         </div>
         <el-switch v-model="showAllRoots" @change="(v) => save('sidebarShowAllRoots', v)" />
-      </div>
-
-      <el-divider />
-
-      <div class="side-row">
-        <div class="side-label">
-          <div class="side-name">{{ t('roots.showFavorites') }}</div>
-          <div class="side-desc">{{ t('roots.showFavoritesDesc') }}</div>
-        </div>
-        <el-switch v-model="showFavorites" @change="(v) => save('showFavorites', v)" />
       </div>
     </el-card>
   </div>

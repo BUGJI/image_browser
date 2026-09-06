@@ -103,6 +103,27 @@ const api = {
   // 收藏/取消收藏：传入 { absPath, name }；返回 { added }
   favToggle: (rootId, item) => ipcRenderer.invoke('favorites:toggle', rootId, item),
 
+  // --- 图片标签（按根目录）---
+  // 全部标签（含命中图片数）：[{ id, name, count }]
+  tagsList: (rootId) => ipcRenderer.invoke('tags:list', rootId),
+  // 某标签下的图片列表：[{ absPath, name }]
+  tagsImages: (rootId, tagId) => ipcRenderer.invoke('tags:images', rootId, tagId),
+  // 某张图片当前带的标签：[{ id, name }]
+  tagsGet: (rootId, absPath) => ipcRenderer.invoke('tags:get', rootId, absPath),
+  // 整体覆盖设置某张图片的标签：传入 { absPath, name } + 标签名数组；返回更新后标签列表
+  tagsSet: (rootId, item, tagNames) => ipcRenderer.invoke('tags:set', rootId, item, tagNames),
+  // 新建/重命名/删除/合并标签；均返回该根目录更新后的标签列表
+  tagsAdd: (rootId, name) => ipcRenderer.invoke('tags:add', rootId, name),
+  tagsRename: (rootId, tagId, name) => ipcRenderer.invoke('tags:rename', rootId, tagId, name),
+  tagsDelete: (rootId, tagId) => ipcRenderer.invoke('tags:delete', rootId, tagId),
+  tagsMerge: (rootId, fromIds, toId) => ipcRenderer.invoke('tags:merge', rootId, fromIds, toId),
+  // 标签增删改后广播：{ rootId }；返回取消订阅函数
+  onTagsChanged: (cb) => {
+    const listener = (_e, payload) => cb(payload)
+    ipcRenderer.on('tags:changed', listener)
+    return () => ipcRenderer.removeListener('tags:changed', listener)
+  },
+
   // --- 缓存维护（每根目录独立缓存）---
   // mode: 'update' | 'rebuild' | 'clean'
   cacheRun: (rootId, mode) => ipcRenderer.invoke('cache:run', rootId, mode),

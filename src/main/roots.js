@@ -1,6 +1,7 @@
 import { statSync } from 'fs'
 import { getDb, transaction } from './db'
 import { getSetting, setSetting } from './settings'
+import { removeTagsOfRoot } from './tags'
 
 /**
  * 根目录注册管理：roots 表（路径唯一 + 可选别名 + 手动排序）
@@ -101,6 +102,7 @@ export function updateRoot(id, path, alias = '') {
 export function removeRoot(id) {
   getDb().prepare('DELETE FROM roots WHERE id = ?').run(id)
   getDb().prepare('DELETE FROM favorites WHERE root_id = ?').run(id)
+  removeTagsOfRoot(id)
   // 删除的是当前选中时清空
   if (getSetting('currentRootId', '') === String(id)) {
     setSetting('currentRootId', '')

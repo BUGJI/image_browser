@@ -2,13 +2,15 @@
 import { ref, watch, onMounted, onBeforeUnmount, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
-import { Close, ArrowLeft, ArrowRight, CopyDocument, Files, Star, StarFilled } from '@element-plus/icons-vue'
+import { Close, ArrowLeft, ArrowRight, CopyDocument, Files, Star, StarFilled, CollectionTag } from '@element-plus/icons-vue'
 import { buildImageUrl } from '../utils/image-url'
 import { loadShortcuts, eventMatches } from '../utils/shortcuts'
 import { useFavoritesStore } from '../stores/favorites'
+import { useTagsStore } from '../stores/tags'
 
 const { t } = useI18n()
 const favoritesStore = useFavoritesStore()
+const tagsStore = useTagsStore()
 
 /**
  * 灯箱：查看原图 + 键盘导航（←/→/Esc）
@@ -33,6 +35,12 @@ const copied = ref('') // '' | 'file' | 'image'
 const shortcuts = ref({ copyFile: 'Ctrl+C', copyImage: 'Ctrl+Shift+C' })
 // 灯箱滚轮行为：zoom = 缩放图片；navigate = 切换图片（设置 - 快捷键）
 const wheelAction = ref('zoom')
+
+// 扩展功能开关：收藏夹 / 标签（功能总开关 × 灯箱按钮显示开关）
+const favoritesEnabled = ref(true)
+const favLightboxBtn = ref(true)
+const tagsEnabled = ref(true)
+const tagsLightboxBtn = ref(true)
 
 // 图片缩放/平移视图（以中心为缩放锚点）；限制来自「设置 - 开发者选项」
 const zoomCfg = ref({ min: 1, max: 8, step: 1.2 })
@@ -223,10 +231,60 @@ async function toggleFavCurrent() {
   }
 }
 
+// ---------- 标签：给当前图片打/改标签（多选 + 可新建） ----------
+const tagPopOpen = ref(false)
+const tagBusy = ref(false)
+const selTagNames = ref([])
+const tagOptions = computed(() => tagsStore.tags)
+
+async function ensureTagsLoaded() {
+  if (tagsStore.rootId === props.rootId && tagsStore.loaded) return
+  await tagsStore.load({ id: props.rootId })
+}
+
+// 打开编辑面板时，读取该图片当前已打的标签
+async function onTagPopShow() {
+  const item = current.value
+  if (!item?.absPath || !window.api?.tagsGet) {
+    selTagNames.value = []
+    return
+  }
+  tagBusy.value = true
+  try {
+    await ensureTagsLoaded()
+    const list = (await window.api.tagsGet(props.rootId, item.absPath)) || []
+    selTagNames.value = list.map((x) => x.name)
+  } catch {
+    selTagNames.value = []
+  } finally {
+    tagBusy.value = false
+  }
+}
+
+// 多选结果变化即保存（整体覆盖；含新建标签）
+async function onTagNamesChange(names) {
+  const item = current.value
+  if (!item?.absPath || !window.api?.tagsSet) return
+  if (tagBusy.value) return
+  try {
+    await tagsStore.setImageTags(
+      { id: props.rootId },
+      { absPath: item.absPath, name: item.name || '' },
+      names || []
+    )
+  } catch (err) {
+    ElMessage.error(String(err?.message || t('common.operationFailed')))
+  }
+}
+
 onMounted(async () => {
   shortcuts.value = await loadShortcuts()
   const wa = await window.api?.getSetting('lightboxWheelAction', 'zoom')
   wheelAction.value = ['zoom', 'navigate'].includes(wa) ? wa : 'zoom'
+  favoritesEnabled.value = (await window.api?.getSetting('favoritesEnabled', 'true')) !== 'false'
+  favLightboxBtn.value = (await window.api?.getSetting('favoritesLightboxBtn', 'true')) !== 'false'
+  tagsEnabled.value = (await window.api?.getSetting('tagsEnabled', 'true')) !== 'false'
+  tagsLightboxBtn.value = (await window.api?.getSetting('tagsLightboxBtn', 'true')) !== 'false'
   // 读取开发者选项里的灯箱缩放限制
   const parseNum = async (key, fb) => {
     const n = parseFloat((await window.api?.getSetting(key, String(fb))) || '')
@@ -257,7 +315,53 @@ onBeforeUnmount(() => {
           <span class="lightbox-name">{{ current?.name || '' }}</span>
         </span>
         <div class="lightbox-toolbar-right">
+          <el-popover
+            v-if="tagsEnabled && tagsLightboxBtn"
+            v-model:visible="tagPopOpen"
+            placement="bottom-end"
+            :width="280"
+            trigger="click"
+            popper-class="lightbox-tag-popper"
+            @show="onTagPopShow"
+          >
+            <template #reference>
+              <button
+                class="lb-btn"
+                :class="{ 'lb-btn-tag-active': selTagNames.length }"
+                :title="t('lightbox.tagImage')"
+              >
+                <el-icon :size="16"><CollectionTag /></el-icon>
+              </button>
+            </template>
+            <div class="lightbox-tag-editor">
+              <div class="lightbox-tag-title">{{ t('lightbox.tagImage') }}</div>
+              <el-select
+                v-model="selTagNames"
+                multiple
+                filterable
+                allow-create
+                :reserve-keyword="false"
+                :default-first-option="false"
+                collapse-tags
+                :max-collapse-tags="2"
+                :placeholder="t('lightbox.tagSelectPlaceholder')"
+                :disabled="tagBusy"
+                class="lightbox-tag-select"
+                @change="onTagNamesChange"
+              >
+                <el-option
+                  v-for="opt in tagOptions"
+                  :key="opt.id"
+                  :label="opt.name"
+                  :value="opt.name"
+                />
+              </el-select>
+              <p class="lightbox-tag-tip">{{ t('lightbox.tagSelectTip') }}</p>
+            </div>
+          </el-popover>
+
           <el-tooltip
+            v-if="favoritesEnabled && favLightboxBtn"
             :content="
               favoritesStore.isFav(current?.absPath)
                 ? t('lightbox.favRemove')
@@ -358,6 +462,10 @@ onBeforeUnmount(() => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  /* 自绘顶栏窗口顶部是 -webkit-app-region: drag 的拖拽区（原生 caption），
+     会抢走灯箱顶栏按钮的点击/右键。整屏覆盖层声明 no-drag 即可把这部分
+     从拖拽区中挖出来，灯箱内全部可正常交互。 */
+  -webkit-app-region: no-drag;
 }
 
 .lightbox-toolbar {
@@ -423,6 +531,11 @@ onBeforeUnmount(() => {
 .lb-btn-fav.is-fav {
   color: #ffd04b;
   background: rgba(255, 208, 75, 0.18);
+}
+
+.lb-btn-tag-active {
+  color: #409eff;
+  background: rgba(64, 158, 255, 0.18);
 }
 
 .lb-nav {
@@ -549,5 +662,33 @@ onBeforeUnmount(() => {
 .hint-sep {
   font-style: normal;
   color: rgba(255, 255, 255, 0.3);
+}
+</style>
+
+<style>
+/* 灯箱标签编辑面板（el-popover 挂 body 下，需全局样式） */
+.lightbox-tag-popper {
+  padding: 6px;
+}
+
+.lightbox-tag-editor {
+  min-height: 90px;
+}
+
+.lightbox-tag-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.lightbox-tag-select {
+  width: 100%;
+}
+
+.lightbox-tag-tip {
+  margin: 8px 0 2px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.5;
 }
 </style>

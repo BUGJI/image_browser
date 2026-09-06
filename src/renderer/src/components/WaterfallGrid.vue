@@ -42,6 +42,8 @@ const props = defineProps({
   favMode: { type: String, default: 'none' },
   // 收藏列表（“我的收藏”视图）：非 null 时直接渲染这些图片
   favItems: { type: Array, default: null },
+  // 某标签下的图片列表（“标签”视图）：非 null 时直接渲染这些图片
+  tagItems: { type: Array, default: null },
   // 覆盖空态文案（如“我的收藏”为空时的提示）
   emptyText: { type: String, default: '' },
   // 虚拟化在视口前后各多渲染的距离（px，设置-性能 可调）：越大提前预载越多
@@ -262,6 +264,13 @@ async function load() {
     applyInitialLayout()
     return
   }
+  if (Array.isArray(props.tagItems)) {
+    items.value = initItems(props.tagItems)
+    totalHeight.value = 0
+    await nextTick()
+    applyInitialLayout()
+    return
+  }
   if (Array.isArray(props.aiResults)) {
     items.value = initItems(props.aiResults)
     totalHeight.value = 0
@@ -291,7 +300,7 @@ async function load() {
 }
 
 watch(
-  () => [props.rootId, props.folderPath, props.searchQuery, props.aiResults, props.favItems],
+  () => [props.rootId, props.folderPath, props.searchQuery, props.aiResults, props.favItems, props.tagItems],
   load,
   { immediate: true }
 )

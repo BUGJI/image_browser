@@ -9,7 +9,7 @@ import SideBar from './components/SideBar.vue'
 import NotificationHost from './components/NotificationHost.vue'
 import WaterfallGrid from './components/WaterfallGrid.vue'
 import CloseAskDialog from './components/CloseAskDialog.vue'
-import { Picture, Search, Loading, StarFilled } from '@element-plus/icons-vue'
+import { Picture, Search, Loading, StarFilled, CollectionTag } from '@element-plus/icons-vue'
 import { useRootsStore } from './stores/roots'
 import { useThemeStore } from './stores/theme'
 import { useNotificationsStore } from './stores/notifications'
@@ -18,6 +18,7 @@ import { useAnimationsStore } from './stores/animations'
 import { aiSearch } from './utils/ai-search'
 import { useGifStore } from './stores/gif'
 import { useFavoritesStore } from './stores/favorites'
+import { useTagsStore } from './stores/tags'
 
 const { t } = useI18n()
 const localeStore = useLocaleStore()
@@ -162,37 +163,77 @@ const notificationsStore = useNotificationsStore()
 const animationsStore = useAnimationsStore()
 const gifStore = useGifStore()
 const favoritesStore = useFavoritesStore()
+const tagsStore = useTagsStore()
 
 // 「我的收藏」视图（仅当前根目录）
-const showFavorites = ref(false) // 设置 - 根目录：是否显示入口
+const showFavorites = ref(false) // 设置 - 扩展功能-收藏夹：是否显示入口
+const favoritesEnabled = ref(true) // 扩展功能总开关（收藏夹）
+const tagsEnabled = ref(true) // 扩展功能总开关（标签）
 const favActive = ref(false) // 是否正在浏览“我的收藏”
 const favItems = computed(() =>
   favActive.value && favoritesStore.rootId === rootsStore.currentRootId ? favoritesStore.list : null
+)
+
+// 「标签」视图（仅当前根目录）：选中某标签后浏览其下图片
+const tagActive = ref(false) // 是否正在浏览某个标签
+const activeTagInfo = computed(() => tagsStore.findTag(tagsStore.activeTagId))
+const tagItems = computed(() =>
+  tagActive.value && tagsStore.rootId === rootsStore.currentRootId && tagsStore.activeTagId != null
+    ? tagsStore.tagItems
+    : null
 )
 
 function enterFavorites() {
   const root = rootsStore.currentRoot
   if (!root) return
   favActive.value = true
+  tagActive.value = false
+  tagsStore.leaveTag()
   rootsStore.selectFolder(null)
   clearSearch()
   if (favoritesStore.rootId !== root.id) {
     favoritesStore.load(root)
   }
 }
-// 选中普通文件夹 / 切换根目录时退出收藏视图
+
+function enterTag(tag) {
+  const root = rootsStore.currentRoot
+  if (!root || !tag?.id) return
+  favActive.value = false
+  tagActive.value = true
+  rootsStore.selectFolder(null)
+  clearSearch()
+  tagsStore.enterTag(root, { id: tag.id, name: tag.name })
+}
+// 选中普通文件夹 / 切换根目录时退出收藏、标签视图
 watch(
   () => rootsStore.selectedFolder,
   (v) => {
-    if (v) favActive.value = false
+    if (v) {
+      favActive.value = false
+      tagActive.value = false
+      tagsStore.leaveTag()
+    }
   }
 )
 watch(
   () => rootsStore.currentRootId,
   (rid) => {
     favActive.value = false
+    tagActive.value = false
+    tagsStore.leaveTag()
     const root = rootsStore.roots.find((r) => r.id === rid)
     favoritesStore.load(root)
+  }
+)
+// 标签在别处（设置页/另一张图）被删除时，自动退出标签视图
+watch(
+  [() => tagsStore.activeTagId, () => tagsStore.tags],
+  ([id]) => {
+    if (id != null && tagActive.value && !tagsStore.findTag(id)) {
+      tagActive.value = false
+      tagsStore.leaveTag()
+    }
   }
 )
 
@@ -339,8 +380,8 @@ onMounted(async () => {
   const mode = await window.api.getSetting('titlebar', 'custom')
   useCustomTitlebar.value = mode === 'custom'
 
-  // AI 搜索：主开关启用后显示工具栏开关
-  aiSearchEnabled.value = (await window.api.getSetting('aiSearchEnabled', 'false')) === 'true'
+  // AI 搜索正在开发中：主界面不再读取开关，固定关闭
+  aiSearchEnabled.value = false
 
   // 快速复制：类型取自「设置 - 常规」，开关状态本地记忆
   const qcType = await window.api.getSetting('quickCopyType', 'file')
@@ -359,6 +400,8 @@ onMounted(async () => {
   const ifm = await window.api.getSetting('itemFavMode', 'none')
   itemFavMode.value = ['none', 'hover', 'always'].includes(ifm) ? ifm : 'none'
   showFavorites.value = (await window.api.getSetting('showFavorites', 'false')) === 'true'
+  favoritesEnabled.value = (await window.api.getSetting('favoritesEnabled', 'true')) !== 'false'
+  tagsEnabled.value = (await window.api.getSetting('tagsEnabled', 'true')) !== 'false'
 
   // 性能（设置 - 性能）：滚动预载距离 + 缓冲区懒加载
   const pp = parseFloat(await window.api.getSetting('imagePreload', '900'))
@@ -395,8 +438,9 @@ onMounted(async () => {
       useCustomTitlebar.value = value === 'custom'
     }
     if (key === 'aiSearchEnabled') {
-      aiSearchEnabled.value = value === 'true'
-      if (!aiSearchEnabled.value) aiSearchActive.value = false
+      // AI 搜索开发中：忽略外部改动，保持关闭
+      aiSearchEnabled.value = false
+      aiSearchActive.value = false
     }
     if (key === 'zoomMax') {
       const zm = parseFloat(value)
@@ -422,6 +466,17 @@ onMounted(async () => {
     }
     if (key === 'showFavorites') {
       showFavorites.value = value === 'true'
+    }
+    if (key === 'favoritesEnabled') {
+      favoritesEnabled.value = value !== 'false'
+      if (!favoritesEnabled.value) favActive.value = false
+    }
+    if (key === 'tagsEnabled') {
+      tagsEnabled.value = value !== 'false'
+      if (!tagsEnabled.value) {
+        tagActive.value = false
+        tagsStore.leaveTag()
+      }
     }
     if (key === 'imagePreload') {
       const pp = parseFloat(value)
@@ -464,9 +519,13 @@ onBeforeUnmount(() => {
 
       <div class="app-body">
         <SideBar
-          :show-favorites="showFavorites"
+          :show-favorites="showFavorites && favoritesEnabled"
+          :tags-enabled="tagsEnabled"
           :fav-active="favActive"
+          :tag-active="tagActive"
+          :active-tag-id="tagsStore.activeTagId"
           @show-favorites="enterFavorites"
+          @select-tag="enterTag"
         />
 
         <main class="app-content">
@@ -646,7 +705,7 @@ onBeforeUnmount(() => {
               </div>
             </div>
             <div class="root-body">
-              <template v-if="rootsStore.selectedFolder && !isSearching && !favActive">
+              <template v-if="rootsStore.selectedFolder && !isSearching && !favActive && !tagActive">
                 <div class="folder-banner">
                   <el-icon :size="18" class="folder-banner-icon"><Folder /></el-icon>
                   <div class="folder-banner-text">
@@ -669,8 +728,24 @@ onBeforeUnmount(() => {
                   </div>
                 </div>
               </template>
+              <template v-else-if="tagActive">
+                <div class="folder-banner">
+                  <el-icon :size="18" class="folder-banner-icon tag-banner-icon">
+                    <CollectionTag />
+                  </el-icon>
+                  <div class="folder-banner-text">
+                    <h3 class="folder-banner-name">
+                      {{ activeTagInfo?.name || '' }}
+                    </h3>
+                    <p class="folder-banner-path">
+                      {{ t('app.favBannerRoot', { name: rootDisplayName }) }} ·
+                      {{ t('app.favCount', { n: tagItems?.length ?? 0 }) }}
+                    </p>
+                  </div>
+                </div>
+              </template>
               <div
-                v-if="rootsStore.selectedFolder || isSearching || favActive"
+                v-if="rootsStore.selectedFolder || isSearching || favActive || tagActive"
                 class="folder-body"
               >
                 <WaterfallGrid
@@ -681,7 +756,16 @@ onBeforeUnmount(() => {
                   :search-query="searchQuery"
                   :ai-results="aiResults"
                   :fav-items="favItems"
-                  :empty-text="favActive ? t('app.favEmpty') : ''"
+                  :tag-items="tagItems"
+                  :empty-text="
+                    favActive
+                      ? t('app.favEmpty')
+                      : tagActive
+                        ? activeTagInfo?.name
+                          ? t('app.tagEmpty', { name: activeTagInfo.name })
+                          : t('app.tagEmptyGeneric')
+                        : ''
+                  "
                   :quick-copy="quickCopyEnabled"
                   :quick-copy-type="quickCopyType"
                   :name-mode="itemNameMode"
@@ -960,6 +1044,10 @@ onBeforeUnmount(() => {
 .folder-banner-icon {
   color: #f7ba2a;
   flex-shrink: 0;
+}
+
+.tag-banner-icon {
+  color: #409eff;
 }
 
 .folder-banner-text {
