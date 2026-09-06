@@ -31,6 +31,17 @@ import {
   listFavorites,
   toggleFavorite
 } from './favorites'
+import {
+  initTagsTable,
+  listTags,
+  getImageTags,
+  setImageTags,
+  addTag,
+  renameTag,
+  deleteTag,
+  mergeTags,
+  listTagImages
+} from './tags'
 import { scanDirTree, ScanAbortedError } from './fs-scan.mjs'
 import {
   registerCacheIpc,
@@ -160,6 +171,37 @@ function registerIpc() {
   // --- 图片收藏（按根目录独立） ---
   ipcMain.handle('favorites:list', (_e, rootId) => listFavorites(rootId))
   ipcMain.handle('favorites:toggle', (_e, rootId, item) => toggleFavorite(rootId, item))
+
+  // --- 图片标签（按根目录独立） ---
+  // 写操作统一广播 tags:changed { rootId }，主/设置窗口据此刷新计数与列表
+  ipcMain.handle('tags:list', (_e, rootId) => listTags(rootId))
+  ipcMain.handle('tags:images', (_e, rootId, tagId) => listTagImages(rootId, tagId))
+  ipcMain.handle('tags:get', (_e, rootId, absPath) => getImageTags(rootId, absPath))
+  ipcMain.handle('tags:set', (_e, rootId, item, tagNames) => {
+    const tags = setImageTags(rootId, item, tagNames)
+    broadcast('tags:changed', { rootId })
+    return tags
+  })
+  ipcMain.handle('tags:add', (_e, rootId, name) => {
+    const tags = addTag(rootId, name)
+    broadcast('tags:changed', { rootId })
+    return tags
+  })
+  ipcMain.handle('tags:rename', (_e, rootId, tagId, name) => {
+    const tags = renameTag(rootId, tagId, name)
+    broadcast('tags:changed', { rootId })
+    return tags
+  })
+  ipcMain.handle('tags:delete', (_e, rootId, tagId) => {
+    const tags = deleteTag(rootId, tagId)
+    broadcast('tags:changed', { rootId })
+    return tags
+  })
+  ipcMain.handle('tags:merge', (_e, rootId, fromIds, toId) => {
+    const tags = mergeTags(rootId, fromIds, toId)
+    broadcast('tags:changed', { rootId })
+    return tags
+  })
 
   // 当前选中根目录（持久化到 settings 表）
   ipcMain.handle('roots:get-current', () => {
@@ -339,11 +381,12 @@ function startApp() {
       optimizer.watchWindowShortcuts(window)
     })
 
-    // 初始化 SQLite + 设置表 + 根目录表 + 收藏表
+    // 初始化 SQLite + 设置表 + 根目录表 + 收藏表 + 标签表
     initDb()
     initSettingsTable()
     initRootsTable()
     initFavoritesTable()
+    initTagsTable()
 
     // 日志模块（开发者选项「记录日志」开关；替换 console + 注册 IPC + 监听渲染进程 console）
     initLogger()

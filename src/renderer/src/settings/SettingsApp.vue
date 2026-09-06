@@ -7,8 +7,11 @@ import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import SidebarTree from './SidebarTree.vue'
 import GeneralPage from './pages/GeneralPage.vue'
 import RootsPage from './pages/RootsPage.vue'
+import FavoritesPage from './pages/FavoritesPage.vue'
+import TagsPage from './pages/TagsPage.vue'
 import AppearancePage from './pages/AppearancePage.vue'
 import ThemePage from './pages/ThemePage.vue'
+import SidebarPage from './pages/SidebarPage.vue'
 import AnimationsPage from './pages/AnimationsPage.vue'
 import AiSearchPage from './pages/AiSearchPage.vue'
 import AboutPage from './pages/AboutPage.vue'
@@ -56,13 +59,24 @@ const treeData = computed(() => {
       icon: 'Brush',
       children: [
         { id: 'titlebar', label: t('settings.titlebar') },
+        { id: 'sidebar', label: t('settings.sidebar') },
         { id: 'theme', label: t('settings.theme') },
         { id: 'animations', label: t('settings.animations') },
         { id: 'card', label: t('settings.cardPage') }
       ]
     },
-    { id: 'dev-options', label: t('settings.devOptions'), icon: 'Monitor' },
-    { id: 'shortcuts', label: t('settings.shortcuts'), icon: 'Key' }
+    { id: 'shortcuts', label: t('settings.shortcuts'), icon: 'Key' },
+    {
+      id: 'extensions',
+      label: t('settings.extensions'),
+      icon: 'MagicStick',
+      children: [
+        { id: 'favorites', label: t('settings.favorites') },
+        { id: 'tags', label: t('settings.tags') },
+        { id: 'ai-search', label: t('settings.aiSearch') }
+      ]
+    },
+    { id: 'dev-options', label: t('settings.devOptions'), icon: 'Monitor' }
   ]
   if (showTest.value) {
     nodes.push({ id: 'test', label: t('settings.test'), icon: 'Aim' })
@@ -74,14 +88,17 @@ const treeData = computed(() => {
 const pageMap = {
   general: GeneralPage,
   roots: RootsPage,
+  'ai-search': AiSearchPage,
+  favorites: FavoritesPage,
+  tags: TagsPage,
   titlebar: AppearancePage,
+  sidebar: SidebarPage,
   theme: ThemePage,
   animations: AnimationsPage,
   test: TestPage,
   'dev-options': DevOptionsPage,
   card: GridPage,
   shortcuts: ShortcutsPage,
-  'ai-search': AiSearchPage,
   about: AboutPage
 }
 

@@ -148,7 +148,8 @@ function onAiProgress(p) {
 }
 
 onMounted(async () => {
-  enabled.value = (await window.api.getSetting('aiSearchEnabled', 'false')) === 'true'
+  // AI 搜索正在开发中：总开关暂不可用，始终为关闭态
+  enabled.value = false
   baseUrl.value = (await window.api.getSetting('aiBaseUrl', '')) || DEFAULT_BASE_URL
   apiKey.value = await window.api.getSetting('aiApiKey', '')
   model.value = (await window.api.getSetting('aiModel', '')) || DEFAULT_MODEL
@@ -159,7 +160,8 @@ onMounted(async () => {
 
   // 主窗口或本窗口可能修改这些设置，保持同步
   offSettingsChanged = window.api.onSettingsChanged(({ key, value }) => {
-    if (key === 'aiSearchEnabled') enabled.value = value === 'true'
+    // AI 搜索开关处于禁用态：忽略任何外部改动，保持关闭
+    if (key === 'aiSearchEnabled') enabled.value = false
     else if (key === 'aiBaseUrl') baseUrl.value = value || DEFAULT_BASE_URL
     else if (key === 'aiApiKey') apiKey.value = value
     else if (key === 'aiModel') model.value = value || DEFAULT_MODEL
@@ -177,15 +179,6 @@ onBeforeUnmount(() => {
   offSettingsChanged?.()
   offAiProgress?.()
 })
-
-async function onEnabledChange(v) {
-  try {
-    await window.api.setSetting('aiSearchEnabled', v ? 'true' : 'false')
-    ElMessage.success(v ? t('aiSearch.enabled') : t('aiSearch.disabled'))
-  } catch {
-    ElMessage.error(t('common.saveFailed'))
-  }
-}
 
 async function saveSetting(key, raw, fallback) {
   const v = (raw || '').trim() || fallback
@@ -239,7 +232,7 @@ function onTopKChange() {
           <div class="master-name">{{ t('aiSearch.enableMaster') }}</div>
           <div class="master-desc">{{ t('aiSearch.masterDesc') }}</div>
         </div>
-        <el-switch v-model="enabled" @change="onEnabledChange" />
+        <el-switch v-model="enabled" disabled />
       </div>
     </el-card>
 
