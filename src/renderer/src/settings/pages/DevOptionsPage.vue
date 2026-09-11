@@ -10,6 +10,8 @@ const devEnabled = ref(false)
 // 网页开发者工具按钮触发（每次点击等效于关闭再打开）
 // 设置 - 测试 栏目显隐（默认隐藏）
 const showTest = ref(false)
+// 显示隐藏功能（默认关闭）：开启后显示 AI 搜索等隐藏栏目
+const showHidden = ref(false)
 // 瀑布流缩放滑块最大值
 const zoomMax = ref(2)
 // 超长图高度限制（默认开）
@@ -65,6 +67,7 @@ const disabled = computed(() => !devEnabled.value)
 onMounted(async () => {
   devEnabled.value = (await window.api.getSetting('devOptions', 'false')) === 'true'
   showTest.value = (await window.api.getSetting('showTest', 'false')) === 'true'
+  showHidden.value = (await window.api.getSetting('showHidden', 'false')) === 'true'
   const zm = parseFloat(await window.api.getSetting('zoomMax', '2'))
   zoomMax.value = Number.isFinite(zm) ? clampZoomMax(zm) : 2
   imageTallCap.value = (await window.api.getSetting('imageTallCap', 'true')) !== 'false'
@@ -113,6 +116,7 @@ onMounted(async () => {
   offSettingsChanged = window.api.onSettingsChanged(({ key, value }) => {
     if (key === 'devOptions') devEnabled.value = value === 'true'
     else if (key === 'showTest') showTest.value = value === 'true'
+    else if (key === 'showHidden') showHidden.value = value === 'true'
     else if (key === 'zoomMax') {
       const zm = parseFloat(value)
       if (Number.isFinite(zm)) zoomMax.value = clampZoomMax(zm)
@@ -175,6 +179,15 @@ async function onRestartDevtools() {
 async function onShowTestChange(v) {
   try {
     await window.api.setSetting('showTest', v ? 'true' : 'false')
+  } catch {
+    ElMessage.error(t('common.saveFailed'))
+  }
+}
+
+async function onShowHiddenChange(v) {
+  try {
+    await window.api.setSetting('showHidden', v ? 'true' : 'false')
+    ElMessage.success(t('common.saved'))
   } catch {
     ElMessage.error(t('common.saveFailed'))
   }
@@ -333,6 +346,16 @@ async function onLoggingChange(v) {
           <div class="dev-desc">{{ t('devOptions.showTestDesc') }}</div>
         </div>
         <el-switch v-model="showTest" :disabled="disabled" @change="onShowTestChange" />
+      </div>
+
+      <el-divider />
+
+      <div class="dev-row">
+        <div class="dev-label">
+          <div class="dev-name">{{ t('devOptions.showHidden') }}</div>
+          <div class="dev-desc">{{ t('devOptions.showHiddenDesc') }}</div>
+        </div>
+        <el-switch v-model="showHidden" :disabled="disabled" @change="onShowHiddenChange" />
       </div>
 
       <el-divider />

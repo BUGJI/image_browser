@@ -370,7 +370,6 @@ async function saveEnabled(v) {
           {{ t('ocrSearch.runtimeRemove') }}
         </el-button>
       </div>
-      <p class="addon-cmd">{{ t('ocrSearch.installCmd') }}</p>
     </el-card>
 
     <!-- 文字索引维护工具 -->
@@ -491,15 +490,6 @@ async function saveEnabled(v) {
 
 .addon-actions {
   margin-bottom: 10px;
-}
-
-.addon-cmd {
-  margin: 0;
-  font-family: monospace;
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
-  user-select: all;
-  word-break: break-all;
 }
 
 .maintain-head {

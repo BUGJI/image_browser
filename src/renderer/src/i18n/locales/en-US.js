@@ -79,7 +79,7 @@ export default {
     aiSearchFailed: 'AI search failed: {error}',
     ocrSearchToggle: 'In-image text search',
     ocrNoRoot: 'Select a root first',
-    ocrUninstalled: "OCR dependency not installed; run `npm install {'@'}repeato/ocr sharp` first",
+    ocrUninstalled: 'In-image text component not installed',
     ocrNoCache: 'This root has no cache yet; run "Roots → Update cache" first',
     ocrNoIndex: 'No text index for this root yet; run "Settings → In-image text search → Maintenance tools → Update" first',
     ocrSearchFailed: 'In-image text search failed: {error}'
@@ -314,6 +314,8 @@ export default {
     extRowDesc: 'Image format shown at the top-right of a card (e.g. png / jpg)',
     favRow: 'Favorite button',
     favRowDesc: 'Favorite button at the top-left of a card (feature pending)',
+    textRow: 'In-image text badge',
+    textRowDesc: 'The "In-image text" badge at the bottom-left of a card (shown only when matched by text search)',
     optNone: 'Hidden',
     optHover: 'On hover',
     optAlways: 'Always'
@@ -406,9 +408,8 @@ export default {
     masterDesc: 'When on, the search box also matches text inside images (build the text index first)',
     installed: 'OCR runtime is installed; in-image text index works normally.',
     notInstalled: 'OCR runtime not installed; indexing is unavailable.',
-    installCmd: "Offline install: download the runtime package and use \"Import locally\" (or npm install {'@'}repeato/ocr sharp and rebuild the app)",
     runtimeTitle: 'Runtime component',
-    runtimeDesc: 'ONNX Runtime + image processing libraries (~60–100MB). Too large to bundle, so it is downloaded or imported on demand.',
+    runtimeDesc: 'The runtime needed for in-image text recognition. It is fairly large (~60–100MB) and is not bundled with the app, so download or import it here on demand.',
     runtimeInstalledTag: 'Installed',
     runtimeMissingTag: 'Not installed',
     runtimeUnsupportedTag: 'Unsupported',
@@ -454,6 +455,8 @@ export default {
     reopen: 'Reopen',
     showTest: 'Show Test section',
     showTestDesc: 'For features test',
+    showHidden: 'Show hidden features',
+    showHiddenDesc: 'Reveal entries hidden by default (e.g. AI search)',
     logging: 'Logging',
     loggingDesc:
       'Capture all main/renderer/worker logs (DEBUG / INFO / WARNING / ERROR), written to userData/logs/app-YYYYMMDD.log',

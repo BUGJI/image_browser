@@ -79,7 +79,7 @@ export default {
     aiSearchFailed: 'AI 搜索失败：{error}',
     ocrSearchToggle: '图内文字搜索',
     ocrNoRoot: '请先选择一个根目录',
-    ocrUninstalled: "未安装 OCR 依赖，请先运行 `npm install {'@'}repeato/ocr sharp`",
+    ocrUninstalled: '未安装图内文字识别组件',
     ocrNoCache: '该根目录尚未建立缓存，请先运行「根目录 → 更新缓存」',
     ocrNoIndex: '该根目录尚未建立文字索引，请先在「设置 → 图内文字搜索 → 维护工具」中运行更新',
     ocrSearchFailed: '图内文字搜索失败：{error}'
@@ -310,6 +310,8 @@ export default {
     extRowDesc: '卡片右上角显示的图片格式（如 png / jpg）',
     favRow: '收藏按钮',
     favRowDesc: '卡片左上角的收藏按钮（功能待接入）',
+    textRow: '图内文字角标',
+    textRowDesc: '卡片左下角「图内文字」命中的角标（仅在文字搜索命中时出现）',
     optNone: '不显示',
     optHover: '悬停显示',
     optAlways: '一直显示'
@@ -401,9 +403,8 @@ export default {
     masterDesc: '启用后，搜索框会同时检索文件名与图片内的文字（需先建立文字索引）',
     installed: 'OCR 运行时组件已安装，可正常建立图内文字索引。',
     notInstalled: '未安装 OCR 运行时组件，索引功能不可用。',
-    installCmd: "离线安装：下载运行时组件包后点「本地导入」（或 npm install {'@'}repeato/ocr sharp，需重新构建应用）",
     runtimeTitle: '运行时组件',
-    runtimeDesc: 'ONNX Runtime + 图像处理库（约 60–100MB），体积较大，不随安装包附带，按需下载或导入。',
+    runtimeDesc: '图内文字识别所需的运行组件，体积较大（约 60–100MB），不随应用附带，可在此按需下载或导入。',
     runtimeInstalledTag: '已安装',
     runtimeMissingTag: '未安装',
     runtimeUnsupportedTag: '不支持',
@@ -449,6 +450,8 @@ export default {
     reopen: '重新打开',
     showTest: '显示测试页',
     showTestDesc: '用于调试一些新的功能',
+    showHidden: '显示隐藏功能',
+    showHiddenDesc: '开启后显示默认隐藏的功能入口（如 AI 搜索）',
     logging: '记录日志',
     loggingDesc:
       '捕获所有日志，自动写入 userData/logs/app-YYYYMMDD.log',
