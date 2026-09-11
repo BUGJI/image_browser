@@ -37,6 +37,10 @@ image_browser/
 │   │   ├── settings.js           # app 级设置表读写（key-value，SQLite）
 │   │   ├── roots.js              # 根目录注册管理（校验 / 别名 / 排序 / 去重）
 │   │   ├── fs-scan.mjs           # 目录树扫描（迭代式、进度回调、可中止）
+│   │   ├── ai.js                 # AI 语义搜索（向量索引维护 + 搜索）
+│   │   ├── ocr.js                # OCR 图内文字搜索（索引维护 + 运行时管理 IPC）
+│   │   ├── ocr-worker.mjs        # OCR Worker：@repeato/ocr（PaddleOCR + ONNX）识别
+│   │   ├── ocr-addon.js          # OCR 运行时组件（onnxruntime+sharp）下载/导入/删除
 │   │   ├── cache.js              # 缓存引擎调度 + image:// 图片协议
 │   │   ├── cache-worker.mjs      # 缓存 Worker：扫描 / 解码 / 缩放 / webp 编码
 │   │   ├── tray.js               # 系统托盘 + 关闭行为策略（ask/tray/quit）
@@ -92,6 +96,8 @@ image_browser/
 | 目录扫描 | `selectDirectory()`、`scanTree()`、`scanAbort()`、`onScanProgress()` |
 | 缓存维护 | `cacheRun(rootId, mode)`、`cacheAbort()`、`cacheStatus()`、`onCacheProgress()` |
 | 图片浏览 | `imagesList()`、`copyImageDataUrl()`、`copyImagePath()` |
+| AI 语义搜索 | `aiIndex(rootId, mode)`、`aiAbort()`、`aiStatus()`、`aiSearch(rootId, query)`、`aiTestConnection()`、`aiTestCaption()`、`aiTestEmbed()`、`onAiProgress()` |
+| OCR 图内文字搜索 | `ocrCheck()`、`ocrIndex(rootId, mode)`、`ocrAbort()`、`ocrStatus()`、`ocrSearch(rootId, query)`、`onOcrProgress()` |
 
 **添加新 IPC 的路径**：`src/main/index.js` 用 `ipcMain.handle` 注册 → `src/preload/index.js` 在 `api` 中封装 → 渲染进程 `window.api.xxx()` 调用。跨窗口广播使用 `windows.js` 的 `broadcast(channel, payload)`。
 
@@ -153,6 +159,19 @@ image_browser/
 - `orig`：始终返回原图（灯箱用）。
 - 返回体为 fs 流，带正确 MIME 与 `Cache-Control`；原图 / 缩略图未就绪的回退响应不加缓存。
 - 渲染端 canvas 读取像素（复制等）需要跨域许可，响应带 `Access-Control-Allow-Origin: *` 与 `Cross-Origin-Resource-Policy`。
+
+## OCR 图内文字搜索
+
+用 PaddleOCR 识别图片内的文字并建立索引，搜索框回车时与文件名**合并检索**（无需主界面开关）。
+
+- **搜索（合并）**：`handleImagesList` 在 `searchQuery` 非空时，除文件名匹配外，若设置 `ocrEnabled=true` 且该根目录有 `ocr_text` 索引，则把 `ocr_text.text` 命中一并合并。按 `abs_path` 去重，权重排序：文件名完全 100 > 前缀 80 > 子串 60 > 图内文字 40（`match:'text'` 的卡片显示「图内文字」角标）。
+- **索引**：`ocr.js` 维护扫 `cache.db` 的 `files`，对每张图 OCR 识别文字存入 `ocr_text` 表（`abs_path` 唯一 + `text` + `src_mtime`），按 mtime 增量；`update / rebuild / clean` 三模式。
+- **Worker**：推理在 `ocr-worker.mjs` 执行；模型在 worker 内懒加载并整批复用，结束发 `release`（`Ocr.releaseAll()`）再 terminate。
+- **组件分层（体积控制）**：
+  - 模型与 `@repeato/ocr` JS **随包内置**（asarUnpack `node_modules/@repeato/**`）；
+  - `onnxruntime-node` + `sharp` 体积巨大，**不打进安装包**（`electron-builder.yml` 的 `files` 排除），改由 `ocr-addon.js` 在「设置 → 图内文字搜索 → 运行时组件」按需**下载 / 本地导入 / 删除**，解压到 `userData/ocr-addon/node_modules`；
+  - worker 启动时通过 `env.NODE_PATH` 指向该目录解析原生依赖；开发环境下 `node_modules` 直接可用则无需 addon。
+  - 组件包由 `scripts/build-ocr-addon.mjs`（`npm run build:ocr-addon`）生成，作为 GitHub Releases 附件发布，tag 与 `ocr-addon.js` 的 `ADDON_TAG` 对应。
 
 ## 多语言与主题
 

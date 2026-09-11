@@ -568,6 +568,72 @@ function likeEscape(s) {
 }
 
 /**
+ * OCR 图内文字命中：仅当设置里启用图内文字搜索、且该根目录已建立 ocr_text 索引时生效。
+ * 返回与 files 一致的行（附加 text_hit 标记）。任何异常/缺表都静默退化为空。
+ */
+function ocrTextMatches(cache, query) {
+  try {
+    if (getSetting('ocrEnabled', 'false') !== 'true') return []
+    const q = (query || '').trim()
+    if (!q) return []
+    const has = cache.db
+      .prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'ocr_text'")
+      .get()
+    if (!has) return []
+    const cnt = cache.db.prepare('SELECT COUNT(*) AS c FROM ocr_text').get()
+    if (!cnt || !cnt.c) return []
+    const pattern = '%' + likeEscape(q) + '%'
+    return cache.db
+      .prepare(
+        `SELECT f.abs_path, f.name, f.folder, f.width, f.height, f.thumb, 1 AS text_hit
+         FROM ocr_text o JOIN files f ON f.abs_path = o.abs_path
+         WHERE o.text LIKE ? ESCAPE '\\' COLLATE NOCASE`
+      )
+      .all(pattern)
+  } catch {
+    return []
+  }
+}
+
+/** 文件名匹配权重：完全 100 > 前缀 80 > 子串 60；通配符模式统一 60 */
+function nameMatchScore(name, query, anchored) {
+  if (anchored) return 60
+  const n = (name || '').toLowerCase()
+  const q = (query || '').toLowerCase()
+  if (!q) return 0
+  if (n === q) return 100
+  if (n.startsWith(q)) return 80
+  if (n.includes(q)) return 60
+  return 0
+}
+
+/**
+ * 合并「文件名命中」与「图内文字命中」：按 abs_path 去重，权重降序，同权重按目录/文件名。
+ * match: 'name' = 文件名命中（含两者都命中）；'text' = 仅图内文字命中。
+ */
+function mergeSearchResults(nameRows, textRows, query, anchored) {
+  const map = new Map()
+  for (const r of nameRows) {
+    map.set(r.abs_path, { row: r, score: nameMatchScore(r.name, query, anchored), match: 'name' })
+  }
+  for (const r of textRows) {
+    const cur = map.get(r.abs_path)
+    if (cur) {
+      // 文件名已命中，保持文件名权重与标记
+      if (cur.score < 40) cur.score = 40
+    } else {
+      map.set(r.abs_path, { row: r, score: 40, match: 'text' })
+    }
+  }
+  return [...map.values()].sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score
+    const f = String(a.row.folder || '').localeCompare(String(b.row.folder || ''), 'zh')
+    if (f !== 0) return f
+    return String(a.row.name).localeCompare(String(b.row.name), 'zh')
+  })
+}
+
+/**
  * 从 WebP 文件头读取宽高（只读前 30 字节，不整图解码）。
  * 返回 { w, h }；解析失败返回 null。
  */
@@ -1358,29 +1424,39 @@ export async function handleImagesList(rootId, folderAbsPath, searchQuery) {
   const cache = openRootCache(root.path, { create: false })
   const matcher = buildNameMatcher(searchQuery)
 
-  // --- 搜索模式：跨整个根目录按文件名匹配 ---
+  // --- 搜索模式：跨整个根目录按文件名 +（可选）图内文字匹配 ---
   if (matcher) {
-    let rows = []
     if (cache) {
       const pattern = (matcher.anchored ? '' : '%') + matcher.like + (matcher.anchored ? '' : '%')
-      rows = cache.db
+      const nameRows = cache.db
         .prepare(
           `SELECT abs_path, name, width, height, thumb, folder FROM files
            WHERE name LIKE ? ESCAPE '\\' COLLATE NOCASE
            ORDER BY folder, name COLLATE NOCASE`
         )
         .all(pattern)
-      primeThumbIndex(cache, root, rows)
-    } else {
-      rows = await searchImagesQuick(root.path, wildcardToRegex(searchQuery))
+      const textRows = ocrTextMatches(cache, searchQuery)
+      const merged = mergeSearchResults(nameRows, textRows, (searchQuery || '').trim(), matcher.anchored)
+      primeThumbIndex(cache, root, merged.map((m) => m.row))
+      return merged.map((m) => ({
+        absPath: m.row.abs_path,
+        name: m.row.name,
+        folder: m.row.folder || '',
+        width: m.row.width,
+        height: m.row.height,
+        hasThumb: !!m.row.thumb,
+        match: m.match
+      }))
     }
+    const rows = await searchImagesQuick(root.path, wildcardToRegex(searchQuery))
     return rows.map((r) => ({
-      absPath: r.abs_path,
+      absPath: r.absPath,
       name: r.name,
       folder: r.folder || '',
       width: r.width,
       height: r.height,
-      hasThumb: !!r.thumb
+      hasThumb: !!r.hasThumb,
+      match: 'name'
     }))
   }
 

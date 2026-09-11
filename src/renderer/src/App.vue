@@ -112,6 +112,8 @@ const AI_ERROR_KEYS = {
   AI_NO_INDEX: 'app.aiNoIndex'
 }
 
+// 图内文字搜索：不再需要主界面开关。设置里启用后，搜索框回车时由主进程
+// （images:list）自动把文件名命中与图内文字命中合并返回，这里无需感知。
 async function applySearch() {
   const q = searchInput.value.trim()
   if (aiSearchActive.value) {
@@ -442,6 +444,7 @@ onMounted(async () => {
       aiSearchEnabled.value = false
       aiSearchActive.value = false
     }
+
     if (key === 'zoomMax') {
       const zm = parseFloat(value)
       if (Number.isFinite(zm)) {

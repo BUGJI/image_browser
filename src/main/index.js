@@ -49,6 +49,7 @@ import {
   handleImagesList
 } from './cache'
 import { registerAiIpc } from './ai'
+import { registerOcrIpc } from './ocr'
 import { initLogger } from './logger'
 import { checkForUpdates, getEffectiveVersion } from './updater'
 import { readClipboardImageBuffer } from './image-decode'
@@ -270,6 +271,9 @@ function registerIpc() {
 
   // --- AI 语义搜索（向量索引维护 + 搜索）---
   registerAiIpc({ ipcMain })
+
+  // --- OCR 图内文字搜索（PaddleOCR，可选依赖）---
+  registerOcrIpc({ ipcMain })
 
   // 图片列表：优先缓存索引，无缓存回退即时扫描；searchQuery 非空时跨根目录搜索
   ipcMain.handle('images:list', (_e, rootId, folderPath, searchQuery) =>

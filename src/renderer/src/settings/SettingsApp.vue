@@ -14,6 +14,7 @@ import ThemePage from './pages/ThemePage.vue'
 import SidebarPage from './pages/SidebarPage.vue'
 import AnimationsPage from './pages/AnimationsPage.vue'
 import AiSearchPage from './pages/AiSearchPage.vue'
+import OcrSearchPage from './pages/OcrSearchPage.vue'
 import AboutPage from './pages/AboutPage.vue'
 import TestPage from './pages/TestPage.vue'
 import DevOptionsPage from './pages/DevOptionsPage.vue'
@@ -73,7 +74,8 @@ const treeData = computed(() => {
       children: [
         { id: 'favorites', label: t('settings.favorites') },
         { id: 'tags', label: t('settings.tags') },
-        { id: 'ai-search', label: t('settings.aiSearch') }
+        { id: 'ai-search', label: t('settings.aiSearch') },
+        { id: 'ocr-search', label: t('settings.ocrSearch') }
       ]
     },
     { id: 'dev-options', label: t('settings.devOptions'), icon: 'Monitor' }
@@ -89,6 +91,7 @@ const pageMap = {
   general: GeneralPage,
   roots: RootsPage,
   'ai-search': AiSearchPage,
+  'ocr-search': OcrSearchPage,
   favorites: FavoritesPage,
   tags: TagsPage,
   titlebar: AppearancePage,

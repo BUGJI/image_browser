@@ -278,6 +278,7 @@ async function load() {
     applyInitialLayout()
     return
   }
+
   if (!isSearching.value && !props.folderPath) {
     items.value = []
     totalHeight.value = 0
@@ -559,6 +560,9 @@ async function copyViaCanvas(e) {
           </el-icon>
         </button>
         <span v-if="extOf(item)" class="waterfall-badge">{{ extOf(item) }}</span>
+        <span v-if="item.match === 'text'" class="waterfall-text-badge">
+          {{ t('waterfall.textMatch') }}
+        </span>
         <div class="waterfall-hover">
           <span class="waterfall-name">{{ item.name }}</span>
         </div>
@@ -690,6 +694,20 @@ async function copyViaCanvas(e) {
 
 .wf-ext-none .waterfall-badge {
   display: none;
+}
+
+/* 图内文字命中角标：常显于图片左下角，提示“该图因图内文字被搜到” */
+.waterfall-text-badge {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  padding: 1px 6px;
+  font-size: 11px;
+  line-height: 16px;
+  border-radius: 4px;
+  background: rgba(64, 120, 255, 0.82);
+  color: #fff;
+  pointer-events: none;
 }
 
 .waterfall-fav {

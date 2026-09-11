@@ -161,6 +161,31 @@ const api = {
     ipcRenderer.on('ai:progress', listener)
     return () => ipcRenderer.removeListener('ai:progress', listener)
   },
+  // --- OCR 图内文字搜索（PaddleOCR，可选依赖）---
+  // 检测 OCR 依赖是否已安装 + 当前任务状态：{ available, running, rootId }
+  ocrCheck: () => ipcRenderer.invoke('ocr:check'),
+  // 文字索引维护：mode: 'update' | 'rebuild' | 'clean'
+  ocrIndex: (rootId, mode) => ipcRenderer.invoke('ocr:index', rootId, mode),
+  ocrAbort: () => ipcRenderer.invoke('ocr:abort'),
+  ocrStatus: () => ipcRenderer.invoke('ocr:status'),
+  // OCR 索引维护进度事件：{ rootId, rootPath, phase, done/total/current, done/aborted/error }
+  onOcrProgress: (cb) => {
+    const listener = (_e, payload) => cb(payload)
+    ipcRenderer.on('ocr:progress', listener)
+    return () => ipcRenderer.removeListener('ocr:progress', listener)
+  },
+  // --- OCR 运行时组件（onnxruntime + sharp）管理 ---
+  ocrAddonStatus: () => ipcRenderer.invoke('ocr:addon-status'),
+  ocrAddonDownload: (url) => ipcRenderer.invoke('ocr:addon-download', url),
+  ocrAddonImport: () => ipcRenderer.invoke('ocr:addon-import'),
+  ocrAddonRemove: () => ipcRenderer.invoke('ocr:addon-remove'),
+  // 组件下载/安装进度：{ phase: 'download'|'extract'|'apply'|'done'|'error', received, total, message }
+  onOcrAddonProgress: (cb) => {
+    const listener = (_e, payload) => cb(payload)
+    ipcRenderer.on('ocr:addon-progress', listener)
+    return () => ipcRenderer.removeListener('ocr:addon-progress', listener)
+  },
+
   // 复制图片（dataURL → 系统剪贴板）
   copyImageDataUrl: (dataUrl) => ipcRenderer.invoke('clipboard:write-image', dataUrl),
   // 复制图片（直接读文件 → 系统剪贴板）

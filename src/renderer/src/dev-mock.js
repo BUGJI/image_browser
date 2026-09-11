@@ -81,6 +81,11 @@ export function ensureDevMock() {
   // 模拟缓存任务进度
   let mockCacheAbort = false
   let mockCacheCb = null
+  // 模拟 OCR 任务进度
+  let mockOcrCb = null
+  // 模拟 OCR 运行时组件状态
+  let mockOcrAddonInstalled = false
+  let mockOcrAddonCb = null
   // 模拟关闭询问（windowClose 触发）
   let mockAskCloseCb = null
   const delay = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -292,6 +297,62 @@ export function ensureDevMock() {
       }
       return list.filter((it) => re.test(it.name))
     },
-    copyImageDataUrl: async () => true
+    copyImageDataUrl: async () => true,
+
+    // --- OCR 图内文字搜索 mock（仅调试用）---
+    ocrCheck: async () => ({ available: true, running: false, rootId: null }),
+    ocrIndex: async (rootId, mode) => {
+      setTimeout(() => {
+        mockOcrCb?.({
+          rootId,
+          rootPath: 'D:/图片素材库',
+          done: true,
+          stats: { mode, count: 40, removed: 0, failed: 0 }
+        })
+      }, 800)
+      return { started: true }
+    },
+    ocrAbort: async () => true,
+    ocrStatus: async () => ({ running: false, rootId: null }),
+    onOcrProgress: (cb) => {
+      mockOcrCb = cb
+      return () => {
+        if (mockOcrCb === cb) mockOcrCb = null
+      }
+    },
+    // OCR 运行时组件管理 mock
+    ocrAddonStatus: async () => ({
+      installed: mockOcrAddonInstalled,
+      supported: true,
+      platform: 'win32-x64',
+      installing: false,
+      dir: 'D:/userData/ocr-addon',
+      downloadUrl: 'https://github.com/BUGJI/image_browser/releases/download/ocr-runtime/mock.zip',
+      sizeBytes: mockOcrAddonInstalled ? 80000000 : 0
+    }),
+    ocrAddonDownload: async () => {
+      mockOcrAddonCb?.({ phase: 'download', received: 40, total: 100 })
+      await delay(300)
+      mockOcrAddonCb?.({ phase: 'extract' })
+      await delay(300)
+      mockOcrAddonInstalled = true
+      mockOcrAddonCb?.({ phase: 'done' })
+      return { ok: true }
+    },
+    ocrAddonImport: async () => {
+      mockOcrAddonInstalled = true
+      mockOcrAddonCb?.({ phase: 'done' })
+      return { ok: true, canceled: false }
+    },
+    ocrAddonRemove: async () => {
+      mockOcrAddonInstalled = false
+      return { ok: true }
+    },
+    onOcrAddonProgress: (cb) => {
+      mockOcrAddonCb = cb
+      return () => {
+        if (mockOcrAddonCb === cb) mockOcrAddonCb = null
+      }
+    }
   }
 }
