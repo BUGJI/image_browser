@@ -309,7 +309,7 @@ export default {
     extRow: '格式角标',
     extRowDesc: '卡片右上角显示的图片格式（如 png / jpg）',
     favRow: '收藏按钮',
-    favRowDesc: '卡片左上角的收藏按钮（功能待接入）',
+    favRowDesc: '卡片左上角的收藏按钮',
     textRow: '图内文字角标',
     textRowDesc: '卡片左下角「图内文字」命中的角标（仅在文字搜索命中时出现）',
     optNone: '不显示',

@@ -313,7 +313,7 @@ export default {
     extRow: 'Format badge',
     extRowDesc: 'Image format shown at the top-right of a card (e.g. png / jpg)',
     favRow: 'Favorite button',
-    favRowDesc: 'Favorite button at the top-left of a card (feature pending)',
+    favRowDesc: 'Favorite button at the top-left of a card',
     textRow: 'In-image text badge',
     textRowDesc: 'The "In-image text" badge at the bottom-left of a card (shown only when matched by text search)',
     optNone: 'Hidden',

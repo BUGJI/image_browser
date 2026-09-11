@@ -40,8 +40,8 @@ const props = defineProps({
   extMode: { type: String, default: 'none' },
   // 左上角收藏按钮显示方式：none / hover / always
   favMode: { type: String, default: 'none' },
-  // 左下角「图内文字」角标显示方式：none / hover / always
-  textMatchMode: { type: String, default: 'hover' },
+  // 左下角「图内文字」角标显示方式：none / hover / always（默认不显示）
+  textMatchMode: { type: String, default: 'none' },
   // 收藏列表（“我的收藏”视图）：非 null 时直接渲染这些图片
   favItems: { type: Array, default: null },
   // 某标签下的图片列表（“标签”视图）：非 null 时直接渲染这些图片

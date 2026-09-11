@@ -83,8 +83,8 @@ const itemNameMode = ref('hover')
 const itemExtMode = ref('none')
 // 卡片左上角收藏按钮显示方式：none / hover / always（默认不显示）
 const itemFavMode = ref('none')
-// 卡片左下角「图内文字」角标显示方式：none / hover / always（默认悬停显示）
-const itemTextMatchMode = ref('hover')
+// 卡片左下角「图内文字」角标显示方式：none / hover / always（默认不显示）
+const itemTextMatchMode = ref('none')
 // 性能（设置 - 性能）：滚动预载距离 + 缓冲区懒加载（可视区外的图接近视口再解码）
 const imagePreload = ref(900)
 const imageBufferLazy = ref(true)
@@ -403,8 +403,8 @@ onMounted(async () => {
   itemExtMode.value = ['none', 'hover', 'always'].includes(iem) ? iem : 'none'
   const ifm = await window.api.getSetting('itemFavMode', 'none')
   itemFavMode.value = ['none', 'hover', 'always'].includes(ifm) ? ifm : 'none'
-  const itm = await window.api.getSetting('itemTextMatchMode', 'hover')
-  itemTextMatchMode.value = ['none', 'hover', 'always'].includes(itm) ? itm : 'hover'
+  const itm = await window.api.getSetting('itemTextMatchMode', 'none')
+  itemTextMatchMode.value = ['none', 'hover', 'always'].includes(itm) ? itm : 'none'
   showFavorites.value = (await window.api.getSetting('showFavorites', 'false')) === 'true'
   favoritesEnabled.value = (await window.api.getSetting('favoritesEnabled', 'true')) !== 'false'
   tagsEnabled.value = (await window.api.getSetting('tagsEnabled', 'true')) !== 'false'
@@ -472,7 +472,7 @@ onMounted(async () => {
       itemFavMode.value = ['none', 'hover', 'always'].includes(value) ? value : 'none'
     }
     if (key === 'itemTextMatchMode') {
-      itemTextMatchMode.value = ['none', 'hover', 'always'].includes(value) ? value : 'hover'
+      itemTextMatchMode.value = ['none', 'hover', 'always'].includes(value) ? value : 'none'
     }
     if (key === 'showFavorites') {
       showFavorites.value = value === 'true'

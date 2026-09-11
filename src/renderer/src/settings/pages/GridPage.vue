@@ -14,8 +14,8 @@ const nameMode = ref('hover')
 const extMode = ref('none')
 // 左上角收藏按钮显示方式（默认不显示）
 const favMode = ref('none')
-// 左下角「图内文字」角标显示方式（默认悬停显示）
-const textMatchMode = ref('hover')
+// 左下角「图内文字」角标显示方式（默认不显示）
+const textMatchMode = ref('none')
 const OPTIONS = [
   { value: 'none', label: () => t('grid.optNone') },
   { value: 'hover', label: () => t('grid.optHover') },
@@ -29,8 +29,8 @@ onMounted(async () => {
   extMode.value = MODES.includes(em) ? em : 'none'
   const fm = await window.api.getSetting('itemFavMode', 'none')
   favMode.value = MODES.includes(fm) ? fm : 'none'
-  const tm = await window.api.getSetting('itemTextMatchMode', 'hover')
-  textMatchMode.value = MODES.includes(tm) ? tm : 'hover'
+  const tm = await window.api.getSetting('itemTextMatchMode', 'none')
+  textMatchMode.value = MODES.includes(tm) ? tm : 'none'
 })
 
 async function saveMode(key, v) {
