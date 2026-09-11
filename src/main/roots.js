@@ -75,7 +75,10 @@ export function reorderRoots(ids) {
 }
 
 export function getRoot(id) {
-  return getDb().prepare('SELECT * FROM roots WHERE id = ?').get(id)
+  // node:sqlite 对参数类型严格：null/undefined 无法绑定，直接按「找不到」处理
+  const n = Number(id)
+  if (!Number.isFinite(n) || n <= 0) return undefined
+  return getDb().prepare('SELECT * FROM roots WHERE id = ?').get(n)
 }
 
 export function addRoot(path, alias = '') {

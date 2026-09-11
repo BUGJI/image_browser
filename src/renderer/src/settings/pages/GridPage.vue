@@ -14,6 +14,8 @@ const nameMode = ref('hover')
 const extMode = ref('none')
 // 左上角收藏按钮显示方式（默认不显示）
 const favMode = ref('none')
+// 左下角「图内文字」角标显示方式（默认不显示）
+const textMatchMode = ref('none')
 const OPTIONS = [
   { value: 'none', label: () => t('grid.optNone') },
   { value: 'hover', label: () => t('grid.optHover') },
@@ -27,6 +29,8 @@ onMounted(async () => {
   extMode.value = MODES.includes(em) ? em : 'none'
   const fm = await window.api.getSetting('itemFavMode', 'none')
   favMode.value = MODES.includes(fm) ? fm : 'none'
+  const tm = await window.api.getSetting('itemTextMatchMode', 'none')
+  textMatchMode.value = MODES.includes(tm) ? tm : 'none'
 })
 
 async function saveMode(key, v) {
@@ -49,6 +53,11 @@ function onExtModeChange(v) {
 function onFavModeChange(v) {
   saveMode('itemFavMode', v)
 }
+
+function onTextMatchModeChange(v) {
+  saveMode('itemTextMatchMode', v)
+}
+
 </script>
 
 <template>
@@ -86,6 +95,18 @@ function onFavModeChange(v) {
         <div class="setting-desc">{{ t('grid.favRowDesc') }}</div>
       </div>
       <el-radio-group v-model="favMode" @change="onFavModeChange">
+        <el-radio-button v-for="o in OPTIONS" :key="o.value" :value="o.value">
+          {{ o.label() }}
+        </el-radio-button>
+      </el-radio-group>
+    </div>
+
+    <div class="setting-row">
+      <div class="setting-label">
+        <div class="setting-name">{{ t('grid.textRow') }}</div>
+        <div class="setting-desc">{{ t('grid.textRowDesc') }}</div>
+      </div>
+      <el-radio-group v-model="textMatchMode" @change="onTextMatchModeChange">
         <el-radio-button v-for="o in OPTIONS" :key="o.value" :value="o.value">
           {{ o.label() }}
         </el-radio-button>

@@ -40,6 +40,8 @@ const props = defineProps({
   extMode: { type: String, default: 'none' },
   // 左上角收藏按钮显示方式：none / hover / always
   favMode: { type: String, default: 'none' },
+  // 左下角「图内文字」角标显示方式：none / hover / always（默认不显示）
+  textMatchMode: { type: String, default: 'none' },
   // 收藏列表（“我的收藏”视图）：非 null 时直接渲染这些图片
   favItems: { type: Array, default: null },
   // 某标签下的图片列表（“标签”视图）：非 null 时直接渲染这些图片
@@ -278,6 +280,7 @@ async function load() {
     applyInitialLayout()
     return
   }
+
   if (!isSearching.value && !props.folderPath) {
     items.value = []
     totalHeight.value = 0
@@ -515,7 +518,9 @@ async function copyViaCanvas(e) {
           'wf-ext-none': props.extMode === 'none',
           'wf-ext-always': props.extMode === 'always',
           'wf-fav-none': props.favMode === 'none',
-          'wf-fav-always': props.favMode === 'always'
+          'wf-fav-always': props.favMode === 'always',
+          'wf-text-none': props.textMatchMode === 'none',
+          'wf-text-always': props.textMatchMode === 'always'
         }"
         :style="{
           transform: `translate(${item.x}px, ${item.y}px)`,
@@ -559,6 +564,9 @@ async function copyViaCanvas(e) {
           </el-icon>
         </button>
         <span v-if="extOf(item)" class="waterfall-badge">{{ extOf(item) }}</span>
+        <span v-if="item.match === 'text'" class="waterfall-text-badge">
+          {{ t('waterfall.textMatch') }}
+        </span>
         <div class="waterfall-hover">
           <span class="waterfall-name">{{ item.name }}</span>
         </div>
@@ -689,6 +697,34 @@ async function copyViaCanvas(e) {
 }
 
 .wf-ext-none .waterfall-badge {
+  display: none;
+}
+
+/* 图内文字命中角标：左下角，提示“该图因图内文字被搜到” */
+.waterfall-text-badge {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  padding: 1px 6px;
+  font-size: 11px;
+  line-height: 16px;
+  border-radius: 4px;
+  background: rgba(64, 120, 255, 0.82);
+  color: #fff;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.18s ease;
+}
+
+.waterfall-item:hover .waterfall-text-badge {
+  opacity: 1;
+}
+
+.wf-text-always .waterfall-text-badge {
+  opacity: 1;
+}
+
+.wf-text-none .waterfall-text-badge {
   display: none;
 }
 

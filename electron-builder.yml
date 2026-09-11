@@ -10,9 +10,17 @@ files:
   - '!{.eslintignore,.eslintrc.cjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+  # OCR 运行时（onnxruntime + sharp）体积过大，不打进安装包，由「设置-模型管理」按需下载/导入
+  - '!node_modules/onnxruntime-node/**'
+  - '!node_modules/onnxruntime-web/**'
+  - '!node_modules/sharp/**'
+  - '!node_modules/@img/**'
 asarUnpack:
   - resources/**
   - out/main/cache-worker.js
+  - out/main/ocr-worker.js
+  # @repeato/ocr（含模型）随包内置，模型文件需从 asar 解包以便 fs 读取
+  - node_modules/@repeato/**
 extraResources:
   - from: image_compresser.exe
     to: image_compresser.exe

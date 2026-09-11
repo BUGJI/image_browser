@@ -433,4 +433,9 @@ onBeforeUnmount(() => {
   font-size: 12px;
   line-height: 1.6;
 }
+
+/* 去掉 Element Plus 默认 .el-table__empty-text 的 width:50% 限制，空态文案按内容完整显示 */
+.page :deep(.el-table__empty-text) {
+  width: auto;
+}
 </style>

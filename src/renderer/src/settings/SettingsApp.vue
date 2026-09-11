@@ -14,6 +14,7 @@ import ThemePage from './pages/ThemePage.vue'
 import SidebarPage from './pages/SidebarPage.vue'
 import AnimationsPage from './pages/AnimationsPage.vue'
 import AiSearchPage from './pages/AiSearchPage.vue'
+import OcrSearchPage from './pages/OcrSearchPage.vue'
 import AboutPage from './pages/AboutPage.vue'
 import TestPage from './pages/TestPage.vue'
 import DevOptionsPage from './pages/DevOptionsPage.vue'
@@ -38,6 +39,8 @@ let offSettingsChanged = null
 
 // 「测试」栏目是否显示（开发者选项控制，默认隐藏）
 const showTest = ref(false)
+// 隐藏功能是否显示（开发者选项控制，默认隐藏；如 AI 搜索）
+const showHidden = ref(false)
 
 // 窗口标题随语言联动
 watch(
@@ -73,7 +76,9 @@ const treeData = computed(() => {
       children: [
         { id: 'favorites', label: t('settings.favorites') },
         { id: 'tags', label: t('settings.tags') },
-        { id: 'ai-search', label: t('settings.aiSearch') }
+        // AI 搜索默认隐藏，开发者选项开启「显示隐藏功能」后出现
+        ...(showHidden.value ? [{ id: 'ai-search', label: t('settings.aiSearch') }] : []),
+        { id: 'ocr-search', label: t('settings.ocrSearch') }
       ]
     },
     { id: 'dev-options', label: t('settings.devOptions'), icon: 'Monitor' }
@@ -89,6 +94,7 @@ const pageMap = {
   general: GeneralPage,
   roots: RootsPage,
   'ai-search': AiSearchPage,
+  'ocr-search': OcrSearchPage,
   favorites: FavoritesPage,
   tags: TagsPage,
   titlebar: AppearancePage,
@@ -118,6 +124,7 @@ onMounted(async () => {
   localeStore.load()
   await gifStore.load()
   showTest.value = (await window.api.getSetting('showTest', 'false')) === 'true'
+  showHidden.value = (await window.api.getSetting('showHidden', 'false')) === 'true'
   offSettingsChanged = window.api.onSettingsChanged((payload) => {
     themeStore.onSettingsChanged(payload)
     localeStore.onSettingsChanged(payload)
@@ -125,6 +132,13 @@ onMounted(async () => {
     gifStore.onSettingsChanged(payload)
     if (payload?.key === 'showTest') {
       showTest.value = payload.value === 'true'
+    }
+    if (payload?.key === 'showHidden') {
+      showHidden.value = payload.value === 'true'
+      // 关闭隐藏功能时，若正停在已隐藏的栏目上，退回常规页
+      if (!showHidden.value && currentKey.value === 'ai-search') {
+        currentKey.value = 'general'
+      }
     }
   })
 })

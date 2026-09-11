@@ -83,6 +83,8 @@ const itemNameMode = ref('hover')
 const itemExtMode = ref('none')
 // 卡片左上角收藏按钮显示方式：none / hover / always（默认不显示）
 const itemFavMode = ref('none')
+// 卡片左下角「图内文字」角标显示方式：none / hover / always（默认不显示）
+const itemTextMatchMode = ref('none')
 // 性能（设置 - 性能）：滚动预载距离 + 缓冲区懒加载（可视区外的图接近视口再解码）
 const imagePreload = ref(900)
 const imageBufferLazy = ref(true)
@@ -112,6 +114,8 @@ const AI_ERROR_KEYS = {
   AI_NO_INDEX: 'app.aiNoIndex'
 }
 
+// 图内文字搜索：不再需要主界面开关。设置里启用后，搜索框回车时由主进程
+// （images:list）自动把文件名命中与图内文字命中合并返回，这里无需感知。
 async function applySearch() {
   const q = searchInput.value.trim()
   if (aiSearchActive.value) {
@@ -399,6 +403,8 @@ onMounted(async () => {
   itemExtMode.value = ['none', 'hover', 'always'].includes(iem) ? iem : 'none'
   const ifm = await window.api.getSetting('itemFavMode', 'none')
   itemFavMode.value = ['none', 'hover', 'always'].includes(ifm) ? ifm : 'none'
+  const itm = await window.api.getSetting('itemTextMatchMode', 'none')
+  itemTextMatchMode.value = ['none', 'hover', 'always'].includes(itm) ? itm : 'none'
   showFavorites.value = (await window.api.getSetting('showFavorites', 'false')) === 'true'
   favoritesEnabled.value = (await window.api.getSetting('favoritesEnabled', 'true')) !== 'false'
   tagsEnabled.value = (await window.api.getSetting('tagsEnabled', 'true')) !== 'false'
@@ -442,6 +448,7 @@ onMounted(async () => {
       aiSearchEnabled.value = false
       aiSearchActive.value = false
     }
+
     if (key === 'zoomMax') {
       const zm = parseFloat(value)
       if (Number.isFinite(zm)) {
@@ -463,6 +470,9 @@ onMounted(async () => {
     }
     if (key === 'itemFavMode') {
       itemFavMode.value = ['none', 'hover', 'always'].includes(value) ? value : 'none'
+    }
+    if (key === 'itemTextMatchMode') {
+      itemTextMatchMode.value = ['none', 'hover', 'always'].includes(value) ? value : 'none'
     }
     if (key === 'showFavorites') {
       showFavorites.value = value === 'true'
@@ -771,6 +781,7 @@ onBeforeUnmount(() => {
                   :name-mode="itemNameMode"
                   :ext-mode="itemExtMode"
                   :fav-mode="itemFavMode"
+                  :text-match-mode="itemTextMatchMode"
                   :preload="imagePreload"
                   :buffer-lazy="imageBufferLazy"
                   :cap-tall="imageTallCap"
