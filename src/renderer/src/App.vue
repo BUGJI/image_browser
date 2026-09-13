@@ -88,7 +88,7 @@ const itemTextMatchMode = ref('none')
 // 性能（设置 - 性能）：滚动预载距离 + 缓冲区懒加载（可视区外的图接近视口再解码）
 const imagePreload = ref(900)
 const imageBufferLazy = ref(true)
-// 超长图高度限制（设置-开发者选项-瀑布流）：默认开，卡片宽高比不超过 1:5
+// 卡片比例限制（设置-开发者选项-瀑布流）：默认开，卡片宽高比限制在 1:5 ~ 2:1
 const imageTallCap = ref(true)
 function toggleQuickCopy() {
   quickCopyEnabled.value = !quickCopyEnabled.value

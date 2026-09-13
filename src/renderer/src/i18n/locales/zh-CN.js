@@ -458,9 +458,9 @@ export default {
     zoomTitle: '瀑布流',
     zoomMax: '缩放滑块最大值',
     zoomMaxDesc: '主界面缩放滑块的最大值（{min} ~ {max}）',
-    imageTallCap: '超长图高度限制',
+    imageTallCap: '卡片比例限制',
     imageTallCapDesc:
-      '开：缩略图卡片比例限制为不超过 1:5（宽:高），更长的图等比缩放到该比例内整图显示（不会撑爆一大块区域）；关：保持原比例显示。',
+      '开：缩略图卡片宽高比限制在 1:5 ~ 2:1（宽:高）之间，更长的图封顶 1:5、更宽的图封底 2:1，超出的等比缩放整图显示（不会撑爆区域或压成细条）；关：保持原比例显示。',
     lightZoomTitle: '灯箱缩放',
     lightZoomDesc: '以下参数下次打开灯箱时生效。',
     lightZoomMin: '最小缩放倍数',

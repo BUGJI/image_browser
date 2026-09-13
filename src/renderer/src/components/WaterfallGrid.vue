@@ -53,7 +53,8 @@ const props = defineProps({
   // 缓冲（视口外预载区）图片是否用浏览器原生懒加载：开=接近视口才解码（省无效加载/解码阵雨），
   // 关=缓冲区内全部立即加载（旧行为，更激进预取、更耗 CPU/IO）
   bufferLazy: { type: Boolean, default: true },
-  // 超长图高度限制（设置-开发者选项-瀑布流）：开 = 卡片比例不超过 1:5，更长的整图等比适配显示
+  // 卡片比例限制（设置-开发者选项-瀑布流）：开 = 宽高比限制在 1:5 ~ 2:1（宽:高），
+  // 更长的图封顶 1:5、更宽的图封底 2:1，超出的整图等比适配显示
   capTall: { type: Boolean, default: true }
 })
 
@@ -63,7 +64,8 @@ const favoritesStore = useFavoritesStore()
 const GAP = 10
 const COL_BASE_WIDTH = 200
 const FALLBACK_RATIO = 0.75
-const MAX_TILE_RATIO = 5 // 超长图高度限制：宽:高 不超过 1:5
+const MAX_TILE_RATIO = 5 // 卡片比例上限：宽:高 不超过 1:5（高图）
+const MIN_TILE_RATIO = 0.5 // 卡片比例下限：宽:高 不小于 2:1（宽图）
 
 // 内存维度缓存：`rootId\u0000absPath -> {w,h}`。跨文件夹导航/滚动复用，
 // 让没有缓存索引（未跑维护）的图片也能用上一次加载到的真实比例，减少占位跳动。
@@ -129,18 +131,22 @@ function ratioOf(item) {
   return null
 }
 
-/** 布局用高度比例：开启高度限制时把超 1:5 的截到 1:5 */
+/** 布局用高度比例：开启比例限制时把超 1:5 的高图截到 1:5，把宽于 2:1 的宽图抬到 2:1 下限 */
 function effectiveRatio(item) {
   const raw = ratioOf(item) ?? avgRatio
-  if (props.capTall && raw > MAX_TILE_RATIO) return MAX_TILE_RATIO
+  if (props.capTall) {
+    if (raw > MAX_TILE_RATIO) return MAX_TILE_RATIO
+    if (raw < MIN_TILE_RATIO) return MIN_TILE_RATIO
+  }
   return raw
 }
 
-/** 该卡片的原图是否超高（用于给 <img> 切换 contain，保证超长图整图可见） */
-function isTallCapped(item) {
+/** 该卡片的原图比例是否被限制（用于给 <img> 切换 contain，保证整图可见不被裁剪） */
+function isRatioCapped(item) {
   if (!props.capTall) return false
   const r = ratioOf(item)
-  return r != null && r > MAX_TILE_RATIO + 1e-6
+  if (r == null) return false
+  return r > MAX_TILE_RATIO + 1e-6 || r < MIN_TILE_RATIO - 1e-6
 }
 
 /** 用本列表已知图片比例算均值，作为未知占位比例 */
@@ -311,7 +317,7 @@ watch(
 // 缩放变化 → 全量重建布局（rAF 合并，避免滑块连发时逐 tick 全表重算）
 watch(() => props.zoom, scheduleFullLayout)
 
-// 超长图限制开关变化：即时按新比例刷新（保留列分配，增量重排即可）
+// 卡片比例限制开关变化：即时按新比例刷新（保留列分配，增量重排即可）
 watch(
   () => props.capTall,
   () => {
@@ -416,7 +422,11 @@ function onImgLoad(item, e) {
     item.height = img.naturalHeight
     // 比例与占位一致（如缓存索引已带尺寸）就不必重排；确有出入才排队批量提交
     const naturalRatio = img.naturalHeight / img.naturalWidth
-    const cappedRatio = props.capTall && naturalRatio > MAX_TILE_RATIO ? MAX_TILE_RATIO : naturalRatio
+    let cappedRatio = naturalRatio
+    if (props.capTall) {
+      if (naturalRatio > MAX_TILE_RATIO) cappedRatio = MAX_TILE_RATIO
+      else if (naturalRatio < MIN_TILE_RATIO) cappedRatio = MIN_TILE_RATIO
+    }
     const newH = itemW ? itemW * cappedRatio : 0
     if (Math.abs(newH - prevH) > 0.5) {
       scheduleLayoutCommit()
@@ -537,7 +547,7 @@ async function copyViaCanvas(e) {
           :thumb-source="gifStore.thumbSource"
           :native-loading="loadMode(item)"
           :native-priority="priorityMode(item)"
-          :class="{ 'fit-contain': isTallCapped(item) }"
+          :class="{ 'fit-contain': isRatioCapped(item) }"
           @load="onImgLoad(item, $event)"
         />
         <img
@@ -546,7 +556,7 @@ async function copyViaCanvas(e) {
           :alt="item.name"
           draggable="false"
           decoding="async"
-          :class="{ 'fit-contain': isTallCapped(item) }"
+          :class="{ 'fit-contain': isRatioCapped(item) }"
           :loading="loadMode(item)"
           :fetchpriority="priorityMode(item)"
           @load="onImgLoad(item, $event)"
@@ -641,7 +651,7 @@ async function copyViaCanvas(e) {
   background: var(--panel-bg);
 }
 
-/* 超长图高度限制开启时：整图等比显示（不被裁剪），卡片比例已封顶 1:5 */
+/* 比例限制开启时：整图等比显示（不被裁剪），卡片比例已限制在 1:5 ~ 2:1 */
 .waterfall-item img.fit-contain {
   object-fit: contain;
 }

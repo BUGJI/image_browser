@@ -463,9 +463,9 @@ export default {
     zoomTitle: 'Waterfall',
     zoomMax: 'Slider max value',
     zoomMaxDesc: 'Maximum value of the zoom slider on main screen ({min} ~ {max})',
-    imageTallCap: 'Limit extra-tall images',
+    imageTallCap: 'Limit card aspect ratio',
     imageTallCapDesc:
-      'On: card aspect is capped at 1:5 (w:h); taller images are scaled to fit within that ratio and shown whole (they no longer take over a huge area). Off: keep the original ratio.',
+      'On: card aspect is capped between 1:5 and 2:1 (w:h); taller images are capped at 1:5 and wider images at 2:1, scaled to fit and shown whole (no huge blocks or thin strips). Off: keep the original ratio.',
     lightZoomTitle: 'Lightbox zoom',
     lightZoomDesc: 'These take effect the next time the lightbox opens.',
     lightZoomMin: 'Min zoom',
