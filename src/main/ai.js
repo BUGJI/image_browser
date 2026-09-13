@@ -180,7 +180,7 @@ export async function runAiIndexTask(root, mode, { onProgress = () => {}, should
   const cfg = getAiConfig()
   if (!cfg.apiKey) throw new Error('请先配置 API 密钥')
 
-  const cache = openRootCache(root.path, { create: true })
+  const cache = openRootCache(root, { create: true })
   const { db } = cache
   ensureAiTable(db)
 
@@ -292,7 +292,7 @@ export async function handleAiSearch(rootId, query) {
     throw err
   }
 
-  const cache = openRootCache(root.path, { create: false })
+  const cache = openRootCache(root, { create: false })
   if (!cache) {
     const err = new Error('该根目录尚未建立缓存')
     err.code = 'AI_NO_CACHE'

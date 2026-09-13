@@ -1,10 +1,10 @@
-import { promises as fsp } from 'fs'
-import { extname } from 'path'
 import { nativeImage } from 'electron'
 import { PNG } from 'pngjs'
 import { decode as decodeJpeg } from 'jpeg-js'
 import omggif from 'omggif'
 import WebP from 'webp-wasm'
+import { getProvider } from './storage/index.js'
+import { extName } from './storage/path-utils.js'
 
 /**
  * 主进程图片解码（复制到剪贴板用）
@@ -23,7 +23,7 @@ async function ensureWebP() {
 }
 
 async function decodeToRGBA(absPath, buf) {
-  const ext = extname(absPath).toLowerCase()
+  const ext = extName(absPath)
   if (ext === '.png') {
     const png = PNG.sync.read(buf)
     return { width: png.width, height: png.height, data: png.data }
@@ -51,10 +51,10 @@ async function decodeToRGBA(absPath, buf) {
  * 原生可解码的格式直接返回原始文件内容；否则转码为 PNG。
  * 无法读取或解码时返回 null。
  */
-export async function readClipboardImageBuffer(absPath) {
+export async function readClipboardImageBuffer(absPath, provider = getProvider('local')) {
   let buf
   try {
-    buf = await fsp.readFile(absPath)
+    buf = await provider.readFile(absPath)
   } catch {
     return null
   }

@@ -1,14 +1,28 @@
 import { promises as fsp } from 'fs'
-import { existsSync, mkdirSync, createReadStream, openSync, readSync, closeSync } from 'fs'
+import {
+  existsSync,
+  mkdirSync,
+  createReadStream,
+  createWriteStream,
+  openSync,
+  readSync,
+  closeSync
+} from 'fs'
 import { execFile, spawn } from 'child_process'
-import { join, relative, extname, basename } from 'path'
+import { join, relative, extname, dirname } from 'path'
 import { Readable } from 'stream'
+import { pipeline } from 'stream/promises'
 import { Worker } from 'node:worker_threads'
+import { createHash } from 'node:crypto'
 import os from 'os'
 import { DatabaseSync } from 'node:sqlite'
 import { app } from 'electron'
 import { getRoot } from './roots'
 import { getSetting } from './settings'
+import { getProvider, isRemoteRoot } from './storage'
+import { resolveCacheDir, isInRootCache } from './storage/cache-location'
+import { setCacheCloser, ensureRemoteCache, ensureRemoteThumb } from './storage/cache-sync'
+import { baseName, extName, joinPath, relFromRoot, absFromRel } from './storage/path-utils'
 import { broadcast } from './windows'
 import { handleWorkerLog } from './logger'
 import { ScanAbortedError } from './fs-scan.mjs'
@@ -127,18 +141,24 @@ const THUMB_INDEX_MAX = 30000
 
 /**
  * 打开（或读取）某个根目录的缓存。create=false 且目录不存在时返回 null。
+ * 参数可为根对象（推荐，远程根据此决定缓存位置）或旧的本地路径字符串。
  */
-export function openRootCache(rootPath, { create = false } = {}) {
-  const hit = cacheConnections.get(rootPath)
+export function openRootCache(rootOrPath, { create = false } = {}) {
+  const root =
+    typeof rootOrPath === 'string'
+      ? { path: rootOrPath, type: 'local', writable: 1, id: null }
+      : rootOrPath
+  const key = root.path
+  const hit = cacheConnections.get(key)
   if (hit && existsSync(hit.cacheDir)) return hit
 
-  const cacheDir = join(rootPath, CACHE_DIR_NAME)
+  const cacheDir = resolveCacheDir(root)
   if (!existsSync(cacheDir)) {
     if (!create) return null
     mkdirSync(cacheDir, { recursive: true })
   }
-  // 确保缓存目录为隐藏（新建或已有都尝试，attrib 幂等）
-  makeDirHidden(cacheDir)
+  // 仅当缓存位于源根目录内时才设为隐藏（attrib 幂等）
+  if (isInRootCache(root)) makeDirHidden(cacheDir)
   const thumbDir = join(cacheDir, THUMB_DIR_NAME)
   if (!existsSync(thumbDir)) mkdirSync(thumbDir, { recursive: true })
 
@@ -165,10 +185,18 @@ export function openRootCache(rootPath, { create = false } = {}) {
       updated_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_files_folder ON files(folder);
+    CREATE TABLE IF NOT EXISTS folders (
+      rel_path    TEXT PRIMARY KEY,   -- 相对根目录（/ 分隔，'' = 根）
+      src_sha     TEXT,               -- 该目录直接子项（图片 + 子目录名）指纹
+      cache_sha   TEXT,               -- 该目录直接子缩略图指纹
+      file_count  INTEGER NOT NULL DEFAULT 0,
+      thumb_count INTEGER NOT NULL DEFAULT 0,
+      updated_at  INTEGER NOT NULL
+    );
   `)
 
-  const conn = { db, cacheDir, thumbDir, rootPath }
-  cacheConnections.set(rootPath, conn)
+  const conn = { db, cacheDir, thumbDir, rootPath: key, root }
+  cacheConnections.set(key, conn)
   return conn
 }
 
@@ -184,6 +212,9 @@ function closeRootCache(rootPath) {
   }
   thumbIndexByRoot.delete(rootPath)
 }
+
+// 供 cache-sync 在替换本地工作库前关闭连接（避免循环依赖）
+setCacheCloser(closeRootCache)
 
 /**
  * 解析缩略图路径，结果缓存于内存（含 null 负缓存）。
@@ -205,7 +236,7 @@ function resolveThumb(cache, root, absPath) {
   }
   // 兼容/推导：镜像路径 image_cache/<rel_path>.webp
   if (!thumb) {
-    const rel = relative(root.path, absPath).split(/[\\/]+/).join('/')
+    const rel = relFromRoot(root.path, absPath)
     const p = join(cache.thumbDir, rel + '.webp')
     if (existsSync(p)) thumb = p
   }
@@ -253,6 +284,105 @@ function metaSet(db, key, value) {
   db.prepare(
     'INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
   ).run(key, String(value))
+}
+
+// ---------------------------------------------------------------- 文件夹 SHA
+
+function sha256(text) {
+  return createHash('sha256').update(text).digest('hex')
+}
+
+/**
+ * 重算并写入 folders 表 + 整根汇总 SHA（meta）。
+ *
+ * - src_sha：该目录「直接子文件（name+size+mtime） + 直接子目录名」排序后哈希；
+ *            源侧增删改（含仅增删子目录）都会变化。
+ * - cache_sha：该目录「直接子缩略图（相对路径 + 文件大小）」排序后哈希；
+ *              用于判断缩略图缓存本体是否一致。
+ * - meta.root_src_sha / root_cache_sha：所有目录 (rel_path, 对应 sha) 排序汇总。
+ *
+ * 只在维护任务结束时调用；O(文件数)，可接受。
+ */
+export async function rebuildFolderShas(db, thumbDir) {
+  const rows = db.prepare('SELECT folder, name, size, mtime, thumb FROM files').all()
+  const groupByFolder = new Map() // folder -> files[]
+  const folderSet = new Set([''])
+  for (const r of rows) {
+    const f = r.folder || ''
+    folderSet.add(f)
+    let arr = groupByFolder.get(f)
+    if (!arr) groupByFolder.set(f, (arr = []))
+    arr.push(r)
+  }
+
+  // 由目录列表推导「直接子目录名」：parent -> Set(childName)
+  const subdirs = new Map()
+  for (const f of folderSet) {
+    if (!f) continue
+    const i = f.lastIndexOf('/')
+    const parent = i >= 0 ? f.slice(0, i) : ''
+    const child = i >= 0 ? f.slice(i + 1) : f
+    let set = subdirs.get(parent)
+    if (!set) subdirs.set(parent, (set = new Set()))
+    set.add(child)
+  }
+
+  // 缩略图文件大小：一次读取
+  const thumbSize = new Map()
+  for (const r of rows) {
+    if (!r.thumb || thumbSize.has(r.thumb)) continue
+    try {
+      const st = await fsp.stat(join(thumbDir, r.thumb))
+      thumbSize.set(r.thumb, st.size)
+    } catch {
+      thumbSize.set(r.thumb, -1)
+    }
+  }
+
+  const upsert = db.prepare(
+    `INSERT INTO folders (rel_path, src_sha, cache_sha, file_count, thumb_count, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(rel_path) DO UPDATE SET
+       src_sha = excluded.src_sha,
+       cache_sha = excluded.cache_sha,
+       file_count = excluded.file_count,
+       thumb_count = excluded.thumb_count,
+       updated_at = excluded.updated_at`
+  )
+  const delFolder = db.prepare('DELETE FROM folders WHERE rel_path = ?')
+  const known = new Set(db.prepare('SELECT rel_path FROM folders').all().map((r) => r.rel_path))
+  const nowMs = Date.now()
+
+  const folderShas = []
+  db.exec('BEGIN')
+  try {
+    for (const folder of folderSet) {
+      const files = groupByFolder.get(folder) || []
+      const sub = [...(subdirs.get(folder) || [])]
+      const srcLines = [
+        ...files.map((r) => `F\u0000${r.name}\u0000${r.size}\u0000${r.mtime}`),
+        ...sub.map((d) => `D\u0000${d}`)
+      ].sort()
+      const cacheLines = files
+        .filter((r) => r.thumb && thumbSize.get(r.thumb) >= 0)
+        .map((r) => `T\u0000${r.thumb}\u0000${thumbSize.get(r.thumb)}`)
+        .sort()
+      const srcSha = sha256(srcLines.join('\n'))
+      const cacheSha = sha256(cacheLines.join('\n'))
+      upsert.run(folder, srcSha, cacheSha, files.length, cacheLines.length, nowMs)
+      known.delete(folder)
+      folderShas.push({ rel: folder, srcSha, cacheSha })
+    }
+    for (const stale of known) delFolder.run(stale)
+  } finally {
+    db.exec('COMMIT')
+  }
+
+  const sorted = folderShas.sort((a, b) => a.rel.localeCompare(b.rel))
+  metaSet(db, 'root_src_sha', sha256(sorted.map((f) => `${f.rel}\u0000${f.srcSha}`).join('\n')))
+  metaSet(db, 'root_cache_sha', sha256(sorted.map((f) => `${f.rel}\u0000${f.cacheSha}`).join('\n')))
+  metaSet(db, 'folder_count', folderShas.length)
+  return folderShas.length
 }
 
 // ---------------------------------------------------------------- Worker
@@ -677,36 +807,76 @@ function isSkipDir(name) {
 }
 
 /** 不建缓存时快速递归列出目录图片（含子文件夹，不带尺寸） */
-export async function listFolderQuick(folderAbsPath) {
+export async function listFolderQuick(folderAbsPath, provider = getProvider('local')) {
   const out = []
   const stack = [folderAbsPath]
   while (stack.length) {
     const dir = stack.pop()
     let entries
     try {
-      entries = await fsp.readdir(dir, { withFileTypes: true })
+      entries = await provider.list(dir)
     } catch {
       continue
     }
     for (const entry of entries) {
       const name = entry.name
-      const absPath = join(dir, name)
-      if (entry.isDirectory()) {
+      const absPath = joinPath(dir, name)
+      if (entry.isDir) {
         if (!isSkipDir(name)) stack.push(absPath)
         continue
       }
-      if (!entry.isFile()) continue
-      if (!IMAGE_EXTS.has(extname(name).toLowerCase())) continue
-      let st
-      try {
-        st = await fsp.stat(absPath)
-      } catch {
-        continue
-      }
+      if (!entry.isFile) continue
+      if (!IMAGE_EXTS.has(extName(name))) continue
+      const st = await provider.stat(absPath)
+      if (!st || !st.isFile) continue
       out.push({ absPath, name, width: null, height: null, hasThumb: false, size: st.size })
     }
   }
   out.sort((a, b) => a.name.localeCompare(b.name, 'zh'))
+  return out
+}
+
+/**
+ * 远程根（或任意 Provider）递归扫描图片：在主进程内经 provider.list/stat 完成。
+ * 本地根仍走 Worker 扫描（避免阻塞主进程），此函数仅供远程根使用。
+ */
+async function scanImagesViaProvider(root, provider, scanBatch, onProgress, shouldAbort) {
+  const out = []
+  const stack = [root.path]
+  while (stack.length) {
+    if (shouldAbort?.()) throw new ScanAbortedError()
+    const dir = stack.pop()
+    let entries
+    try {
+      entries = await provider.list(dir)
+    } catch {
+      continue
+    }
+    for (const entry of entries) {
+      const name = entry.name
+      if (name === CACHE_DIR_NAME) continue
+      const abs = joinPath(dir, name)
+      if (entry.isDir) {
+        if (!isSkipDir(name)) stack.push(abs)
+        continue
+      }
+      if (!entry.isFile) continue
+      if (!IMAGE_EXTS.has(extName(name))) continue
+      const st = await provider.stat(abs)
+      if (!st || !st.isFile) continue
+      out.push({
+        absPath: abs,
+        relPath: relFromRoot(root.path, abs),
+        folder: relFromRoot(root.path, dir),
+        name,
+        size: st.size,
+        mtime: Math.floor(st.mtimeMs)
+      })
+      if (scanBatch && out.length % scanBatch === 0) {
+        onProgress({ phase: 'scan', scanned: out.length })
+      }
+    }
+  }
   return out
 }
 
@@ -747,33 +917,29 @@ function wildcardToRegex(pattern) {
 }
 
 /** 无缓存时按文件名模式快速递归搜索根目录图片 */
-async function searchImagesQuick(rootPath, re) {
+async function searchImagesQuick(rootPath, re, provider = getProvider('local')) {
   const out = []
   const stack = [rootPath]
   while (stack.length) {
     const dir = stack.pop()
     let entries
     try {
-      entries = await fsp.readdir(dir, { withFileTypes: true })
+      entries = await provider.list(dir)
     } catch {
       continue
     }
     for (const entry of entries) {
       const name = entry.name
-      const absPath = join(dir, name)
-      if (entry.isDirectory()) {
+      const absPath = joinPath(dir, name)
+      if (entry.isDir) {
         if (!isSkipDir(name)) stack.push(absPath)
         continue
       }
-      if (!entry.isFile()) continue
-      if (!IMAGE_EXTS.has(extname(name).toLowerCase())) continue
+      if (!entry.isFile) continue
+      if (!IMAGE_EXTS.has(extName(name))) continue
       if (!re.test(name)) continue
-      let st
-      try {
-        st = await fsp.stat(absPath)
-      } catch {
-        continue
-      }
+      const st = await provider.stat(absPath)
+      if (!st || !st.isFile) continue
       out.push({ absPath, name, width: null, height: null, hasThumb: false, size: st.size })
     }
   }
@@ -788,7 +954,7 @@ async function searchImagesQuick(rootPath, re) {
  * 把它们镜像回源图路径并计入 files 索引，让「已经处理过的图片」直接复用，
  * 而无需重新生成。孤儿缩略图（源图已不存在）一并清理。
  */
-async function scanCacheIntoIndex({ db, thumbDir, root, onProgress, shouldAbort }) {
+async function scanCacheIntoIndex({ db, thumbDir, root, provider, onProgress, shouldAbort }) {
   const stats = { mode: 'scan-cache', added: 0, updated: 0, removed: 0, thumbs: 0, failed: 0, cleanedThumbs: 0 }
   const nowMs = Date.now()
 
@@ -834,15 +1000,10 @@ async function scanCacheIntoIndex({ db, thumbDir, root, onProgress, shouldAbort 
       const relThumb = relative(thumbDir, thumbAbs).split(/[\\/]+/).join('/')
       // 镜像路径还原源图相对路径：去掉末尾 .webp
       const srcRel = relThumb.slice(0, -'.webp'.length)
-      const srcAbs = join(root.path, ...srcRel.split('/'))
+      const srcAbs = absFromRel(root.path, srcRel)
 
-      let st = null
-      try {
-        st = await fsp.stat(srcAbs)
-      } catch {
-        st = null
-      }
-      if (!st || !st.isFile()) {
+      const st = await provider.stat(srcAbs)
+      if (!st || !st.isFile) {
         // 源图已不存在 → 孤儿缩略图，删除并移除对应索引
         await fsp.rm(thumbAbs, { force: true })
         stats.cleanedThumbs++
@@ -860,7 +1021,7 @@ async function scanCacheIntoIndex({ db, thumbDir, root, onProgress, shouldAbort 
 
       if (!row) {
         insertStmt.run(
-          srcAbs, srcRel, basename(srcAbs), folder, st.size, Math.floor(st.mtimeMs),
+          srcAbs, srcRel, baseName(srcAbs), folder, st.size, Math.floor(st.mtimeMs),
           dim?.w ?? null, dim?.h ?? null, relThumb, nowMs, nowMs
         )
         dbByAbs.set(srcAbs, { abs_path: srcAbs, thumb: relThumb })
@@ -896,13 +1057,23 @@ async function scanCacheIntoIndex({ db, thumbDir, root, onProgress, shouldAbort 
 export async function runCacheTask(root, mode, { onProgress = () => {}, shouldAbort } = {}) {
   const cfg = getCacheConfig()
   console.log('[cache] task start', { mode, root: root.path, cfg })
-  const cache = openRootCache(root.path, { create: true })
+  const provider = getProvider(root)
+  // 远程根：维护前先同步远程缓存库到本地工作库
+  if (isRemoteRoot(root)) {
+    try {
+      await ensureRemoteCache(root)
+    } catch (err) {
+      console.warn('[cache] ensureRemoteCache failed:', err?.message || err)
+    }
+  }
+  const cache = openRootCache(root, { create: true })
   const { db, thumbDir } = cache
   const stats = { mode, added: 0, updated: 0, removed: 0, thumbs: 0, failed: 0, cleanedThumbs: 0 }
 
   // --- scan-cache：扫描缓存文件夹，把已生成的缩略图计入索引（无需 worker） ---
   if (mode === 'scan-cache') {
-    const scanStats = await scanCacheIntoIndex({ db, thumbDir, root, onProgress, shouldAbort })
+    const scanStats = await scanCacheIntoIndex({ db, thumbDir, root, provider, onProgress, shouldAbort })
+    await rebuildFolderShas(db, thumbDir)
     metaSet(db, 'last_task', mode)
     metaSet(db, 'last_task_at', new Date().toISOString())
     onProgress({ phase: 'done' })
@@ -932,10 +1103,14 @@ export async function runCacheTask(root, mode, { onProgress = () => {}, shouldAb
     if (aborted || shouldAbort?.()) throw new ScanAbortedError()
   }
 
+  let stagingRoot = null
+
   try {
-    // --- 1. 扫描磁盘（worker 线程） ---
+    // --- 1. 扫描磁盘：本地走 Worker，远程走 Provider（主进程内） ---
     onProgress({ phase: 'scan', scanned: 0 })
-    const files = await new Promise((resolve, reject) => {
+    const files = isRemoteRoot(root)
+      ? await scanImagesViaProvider(root, provider, cfg.scanBatch, onProgress, shouldAbort)
+      : await new Promise((resolve, reject) => {
       const all = []
       const onMsg = (m) => {
         if (m.type === 'log') {
@@ -1042,7 +1217,8 @@ export async function runCacheTask(root, mode, { onProgress = () => {}, shouldAb
     console.log('[cache] db update done, stats =', JSON.stringify(stats), 'needThumb =', needThumb.length)
 
     // --- 2. 生成缩略图：优先外部转换器（image_compresser.exe），否则走 worker 池 ---
-    const cliExe = cfg.cacheUseCli ? resolveCliExe(cfg.cacheCliExe) : null
+    // 外部转换器仅支持本地目录，远程根强制走内置 Worker
+    const cliExe = cfg.cacheUseCli && !isRemoteRoot(root) ? resolveCliExe(cfg.cacheCliExe) : null
     if (mode !== 'clean' && needThumb.length && cliExe) {
       await runCliThumbStage({
         cfg,
@@ -1058,6 +1234,21 @@ export async function runCacheTask(root, mode, { onProgress = () => {}, shouldAb
     }
     if (mode !== 'clean' && needThumb.length && !cliExe) {
       console.log('[cache] thumb start, total =', needThumb.length, 'batch =', cfg.thumbBatch)
+      // 远程根：先把源图流式下载到本地临时区，供 Worker 解码（Worker 只读本地文件）
+      if (isRemoteRoot(root)) {
+        stagingRoot = join(cache.cacheDir, '.staging')
+        await fsp.rm(stagingRoot, { recursive: true, force: true })
+        await fsp.mkdir(stagingRoot, { recursive: true })
+        onProgress({ phase: 'thumb', done: 0, total: needThumb.length, current: '下载远程原图' })
+        for (const job of needThumb) {
+          if (aborted || shouldAbort?.()) throw new ScanAbortedError()
+          const rel = job.relPath || relFromRoot(root.path, job.absPath)
+          const tmp = join(stagingRoot, ...rel.split('/'))
+          await fsp.mkdir(dirname(tmp), { recursive: true })
+          await pipeline(provider.createReadStream(job.absPath), createWriteStream(tmp))
+          job.absPath = tmp
+        }
+      }
       const total = needThumb.length
       let done = 0
       let lastCurrent = ''
@@ -1284,13 +1475,9 @@ export async function runCacheTask(root, mode, { onProgress = () => {}, shouldAb
       let removedRows = 0
       for (const row of rows) {
         checkAbort()
-        let ok = false
-        try {
-          ok = existsSync(row.abs_path)
-        } catch {
-          ok = false
-        }
-        if (!ok) {
+        const abs = absFromRel(root.path, row.rel_path || relFromRoot(root.path, row.abs_path))
+        const st = await provider.stat(abs)
+        if (!st || !st.isFile) {
           db.prepare('DELETE FROM files WHERE abs_path = ?').run(row.abs_path)
           if (row.thumb) await fsp.rm(join(thumbDir, row.thumb), { force: true })
           removedRows++
@@ -1334,8 +1521,12 @@ export async function runCacheTask(root, mode, { onProgress = () => {}, shouldAb
     throw err
   } finally {
     await worker.terminate().catch(() => {})
+    if (stagingRoot) {
+      await fsp.rm(stagingRoot, { recursive: true, force: true }).catch(() => {})
+    }
   }
 
+  await rebuildFolderShas(db, thumbDir)
   metaSet(db, 'last_task', mode)
   metaSet(db, 'last_task_at', new Date().toISOString())
   onProgress({ phase: 'done' })
@@ -1420,8 +1611,20 @@ export function registerCacheIpc({ ipcMain }) {
 export async function handleImagesList(rootId, folderAbsPath, searchQuery) {
   const root = getRoot(rootId)
   if (!root) return []
+  const provider = getProvider(root)
+  // abs_path 以 rel_path 为准重建（DB 可移植：远程换挂载点/主机仍可用）
+  const absOf = (r) => (r.rel_path != null && r.rel_path !== '' ? absFromRel(root.path, r.rel_path) : r.abs_path)
 
-  const cache = openRootCache(root.path, { create: false })
+  // 远程根：先确保本地工作库与远程缓存一致（下载 DB / 按 SHA 判断）
+  if (isRemoteRoot(root)) {
+    try {
+      await ensureRemoteCache(root)
+    } catch (err) {
+      console.warn('[cache] ensureRemoteCache failed:', err?.message || err)
+    }
+  }
+
+  const cache = openRootCache(root, { create: false })
   const matcher = buildNameMatcher(searchQuery)
 
   // --- 搜索模式：跨整个根目录按文件名 +（可选）图内文字匹配 ---
@@ -1430,7 +1633,7 @@ export async function handleImagesList(rootId, folderAbsPath, searchQuery) {
       const pattern = (matcher.anchored ? '' : '%') + matcher.like + (matcher.anchored ? '' : '%')
       const nameRows = cache.db
         .prepare(
-          `SELECT abs_path, name, width, height, thumb, folder FROM files
+          `SELECT abs_path, rel_path, name, width, height, thumb, folder FROM files
            WHERE name LIKE ? ESCAPE '\\' COLLATE NOCASE
            ORDER BY folder, name COLLATE NOCASE`
         )
@@ -1439,7 +1642,7 @@ export async function handleImagesList(rootId, folderAbsPath, searchQuery) {
       const merged = mergeSearchResults(nameRows, textRows, (searchQuery || '').trim(), matcher.anchored)
       primeThumbIndex(cache, root, merged.map((m) => m.row))
       return merged.map((m) => ({
-        absPath: m.row.abs_path,
+        absPath: absOf(m.row),
         name: m.row.name,
         folder: m.row.folder || '',
         width: m.row.width,
@@ -1448,7 +1651,7 @@ export async function handleImagesList(rootId, folderAbsPath, searchQuery) {
         match: m.match
       }))
     }
-    const rows = await searchImagesQuick(root.path, wildcardToRegex(searchQuery))
+    const rows = await searchImagesQuick(root.path, wildcardToRegex(searchQuery), provider)
     return rows.map((r) => ({
       absPath: r.absPath,
       name: r.name,
@@ -1462,18 +1665,18 @@ export async function handleImagesList(rootId, folderAbsPath, searchQuery) {
 
   // --- 普通文件夹列表 ---
   if (cache) {
-    const rel = relative(root.path, folderAbsPath).split(/[\\/]+/).join('/')
+    const rel = relFromRoot(root.path, folderAbsPath)
     let rows
     if (rel === '') {
       // 根目录：返回全部图片（含所有子文件夹）
       rows = cache.db
-        .prepare('SELECT abs_path, name, width, height, thumb, folder FROM files ORDER BY folder, name COLLATE NOCASE')
+        .prepare('SELECT abs_path, rel_path, name, width, height, thumb, folder FROM files ORDER BY folder, name COLLATE NOCASE')
         .all()
     } else {
       const esc = likeEscape(rel)
       rows = cache.db
         .prepare(
-          `SELECT abs_path, name, width, height, thumb, folder FROM files
+          `SELECT abs_path, rel_path, name, width, height, thumb, folder FROM files
            WHERE folder = ? OR folder LIKE ? ESCAPE '\\'
            ORDER BY folder, name COLLATE NOCASE`
         )
@@ -1482,7 +1685,7 @@ export async function handleImagesList(rootId, folderAbsPath, searchQuery) {
     if (rows.length) {
       primeThumbIndex(cache, root, rows)
       return rows.map((r) => ({
-        absPath: r.abs_path,
+        absPath: absOf(r),
         name: r.name,
         folder: r.folder,
         width: r.width,
@@ -1491,7 +1694,7 @@ export async function handleImagesList(rootId, folderAbsPath, searchQuery) {
       }))
     }
   }
-  return listFolderQuick(folderAbsPath)
+  return listFolderQuick(folderAbsPath, provider)
 }
 
 /**
@@ -1510,43 +1713,56 @@ export function registerImageProtocol({ protocol }) {
       if (!absPath) return new Response('bad request', { status: 400 })
 
       const size = url.searchParams.get('size')
+      const root = Number.isFinite(rootId) && rootId > 0 ? getRoot(rootId) : undefined
+      const provider = root ? getProvider(root) : getProvider('local')
       let file = absPath
       let thumbServed = false
+      let localSource = false // file 指向本地磁盘（缩略图缓存）时用 fs 读
 
-      if (size !== 'orig' && Number.isFinite(rootId) && rootId > 0) {
-        const root = getRoot(rootId)
-        if (root) {
-          const cache = openRootCache(root.path, { create: false })
-          if (cache) {
-            // 走内存索引（命中跳过 DB 查询与磁盘探测），维护任务时会失效重查
-            const thumbPath = resolveThumb(cache, root, absPath)
-            if (thumbPath) {
-              file = thumbPath
-              thumbServed = true
+      if (size !== 'orig' && root) {
+        const cache = openRootCache(root, { create: false })
+        if (cache) {
+          // 走内存索引（命中跳过 DB 查询与磁盘探测），维护任务时会失效重查
+          let thumbPath = resolveThumb(cache, root, absPath)
+          // 远程根：本地无缩略图时按需从远程缓存目录拉取
+          if (!thumbPath && isRemoteRoot(root)) {
+            try {
+              thumbPath = await ensureRemoteThumb(root, cache, absPath)
+            } catch {
+              thumbPath = null
             }
           }
+          if (thumbPath) {
+            file = thumbPath
+            thumbServed = true
+            localSource = true
+          }
         }
       }
 
-      // 单次 stat 同时完成存在性检查与取大小（避免原来的 existsSync + stat 两次 syscall）。
-      // 命中缩略图但文件缺失（如被手动删除）时回退原图一次，避免 404 破图。
-      let st
-      try {
-        st = await fsp.stat(file)
-      } catch {
-        if (thumbServed && file !== absPath) {
-          file = absPath
-          thumbServed = false
+      const statAny = async () => {
+        if (localSource) {
           try {
-            st = await fsp.stat(file)
+            const s = await fsp.stat(file)
+            return { isFile: s.isFile(), size: s.size }
           } catch {
-            return new Response('not found', { status: 404 })
+            return null
           }
-        } else {
-          return new Response('not found', { status: 404 })
         }
+        return provider.stat(file)
       }
-      const mime = MIME_BY_EXT[extname(file).toLowerCase()] || 'application/octet-stream'
+
+      // 命中缩略图但文件缺失（如被手动删除）时回退原图一次，避免 404 破图。
+      let st = await statAny()
+      if ((!st || !st.isFile) && thumbServed) {
+        file = absPath
+        thumbServed = false
+        localSource = false
+        st = await provider.stat(file)
+      }
+      if (!st || !st.isFile) return new Response('not found', { status: 404 })
+
+      const mime = MIME_BY_EXT[extName(file)] || 'application/octet-stream'
       // 原图请求不缓存；缩略图请求（?size=thumb）若回退到原图（缩略图尚未生成）
       // 也不缓存，避免浏览器把缓存建立前的原图响应当作缩略图复用。
       const cacheControl =
@@ -1561,7 +1777,8 @@ export function registerImageProtocol({ protocol }) {
         'Cross-Origin-Resource-Policy': 'cross-origin',
         'Cache-Control': cacheControl
       })
-      const body = Readable.toWeb(createReadStream(file))
+      const stream = localSource ? createReadStream(file) : provider.createReadStream(file)
+      const body = Readable.toWeb(stream)
       return new Response(body, { status: 200, headers })
     } catch (err) {
       return new Response('error: ' + String(err?.message || err), { status: 500 })

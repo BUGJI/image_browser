@@ -116,7 +116,7 @@ export async function runOcrIndexTask(root, mode, { onProgress = () => {}, shoul
     throw err
   }
 
-  const cache = openRootCache(root.path, { create: true })
+  const cache = openRootCache(root, { create: true })
   const { db } = cache
   ensureOcrTable(db)
 
