@@ -31,7 +31,7 @@ import WebP from 'webp-wasm'
 
 const CACHE_DIR_NAME = '.image_browser_cache'
 const IMAGE_EXTS = new Set([
-  '.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tif', '.tiff'
+  '.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tif', '.tiff', '.webm'
 ])
 const SKIP_DIRS = new Set([
   '@eaDir', '#recycle', '.seekMeta', '.seekTrash', '.thumbnails', '.git', 'node_modules'

@@ -61,6 +61,17 @@ const itemZoom = ref(1.5)
 const zoomMax = ref(2)
 const ZOOM_STORAGE_KEY = 'waterfall-zoom'
 const ZOOM_MIN = 0.5
+// 浏览模式：瀑布流（保持原比例） / 矩形（等高卡片，超出部分裁切）
+const BROWSE_MODE_KEY = 'browse-mode'
+const browseMode = ref('waterfall') // 'waterfall' | 'rect'
+function toggleBrowseMode() {
+  browseMode.value = browseMode.value === 'waterfall' ? 'rect' : 'waterfall'
+  try {
+    localStorage.setItem(BROWSE_MODE_KEY, browseMode.value)
+  } catch {
+    /* ignore */
+  }
+}
 // 缓存维护完成后自增，通知 WaterfallGrid 重新加载（缩略图就绪后改用缩略图）
 const cacheRefreshTick = ref(0)
 
@@ -88,7 +99,7 @@ const itemTextMatchMode = ref('none')
 // 性能（设置 - 性能）：滚动预载距离 + 缓冲区懒加载（可视区外的图接近视口再解码）
 const imagePreload = ref(900)
 const imageBufferLazy = ref(true)
-// 超长图高度限制（设置-开发者选项-瀑布流）：默认开，卡片宽高比不超过 1:5
+// 卡片比例限制（设置-开发者选项-瀑布流）：默认开，卡片宽高比限制在 1:5 ~ 2:1
 const imageTallCap = ref(true)
 function toggleQuickCopy() {
   quickCopyEnabled.value = !quickCopyEnabled.value
@@ -396,6 +407,13 @@ onMounted(async () => {
     /* ignore */
   }
 
+  // 浏览模式：本地记忆（瀑布流 / 矩形）
+  try {
+    browseMode.value = localStorage.getItem(BROWSE_MODE_KEY) === 'rect' ? 'rect' : 'waterfall'
+  } catch {
+    /* ignore */
+  }
+
   // 瀑布流文件名显示方式（设置 - 外观）
   const inm = await window.api.getSetting('itemNameMode', 'hover')
   itemNameMode.value = ['none', 'hover', 'always'].includes(inm) ? inm : 'hover'
@@ -607,6 +625,32 @@ onBeforeUnmount(() => {
               />
             </div>
 
+            <!-- 浏览模式切换：瀑布流 / 矩形（矩形模式卡片等高、超出裁切） -->
+            <el-tooltip
+              :content="
+                t('app.browseModeTip', {
+                  mode: browseMode === 'rect' ? t('app.browseModeRect') : t('app.browseModeWaterfall')
+                })
+              "
+              placement="bottom"
+              :show-after="200"
+            >
+              <button
+                class="toolbar-btn"
+                :title="
+                  t('app.browseModeTip', {
+                    mode: browseMode === 'rect' ? t('app.browseModeRect') : t('app.browseModeWaterfall')
+                  })
+                "
+                @click="toggleBrowseMode"
+              >
+                <el-icon :size="16">
+                  <Grid v-if="browseMode === 'rect'" />
+                  <Menu v-else />
+                </el-icon>
+              </button>
+            </el-tooltip>
+
             <!-- 通知中心 -->
             <el-popover
               placement="bottom-end"
@@ -785,6 +829,7 @@ onBeforeUnmount(() => {
                   :preload="imagePreload"
                   :buffer-lazy="imageBufferLazy"
                   :cap-tall="imageTallCap"
+                  :mode="browseMode"
                 />
               </div>
               <div v-else class="welcome">

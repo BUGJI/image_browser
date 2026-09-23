@@ -149,10 +149,26 @@ async function setThumbSource(v) {
   }
 }
 
+async function onWebmAsGifChange(v) {
+  try {
+    await gifStore.setWebmAsGif(v)
+    ElMessage.success(t('common.saved'))
+  } catch {
+    ElMessage.error(t('common.saveFailed'))
+  }
+}
+
 const form = reactive({
+  type: 'local',
   path: '',
-  alias: ''
+  alias: '',
+  url: '',
+  username: '',
+  password: '',
+  writable: true
 })
+const testing = ref(false)
+const isRemoteForm = computed(() => form.type !== 'local')
 
 function displayName(root) {
   if (!root) return ''
@@ -172,15 +188,25 @@ async function loadRoots() {
 
 function openAdd() {
   editingId.value = null
+  form.type = 'local'
   form.path = ''
   form.alias = ''
+  form.url = ''
+  form.username = ''
+  form.password = ''
+  form.writable = true
   dialogVisible.value = true
 }
 
 function openEdit(root) {
   editingId.value = root.id
-  form.path = root.path
+  form.type = root.type || 'local'
+  form.path = form.type === 'local' ? root.path : ''
   form.alias = root.alias || ''
+  form.url = form.type === 'local' ? '' : root.path
+  form.username = root.config?.username || ''
+  form.password = ''
+  form.writable = root.writable == null ? true : !!root.writable
   dialogVisible.value = true
 }
 
@@ -189,18 +215,47 @@ async function browsePath() {
   if (dir) form.path = dir
 }
 
-async function save() {
-  if (!form.path.trim()) {
+async function testConnection() {
+  const path = isRemoteForm.value ? form.url.trim() : form.path.trim()
+  if (!path) {
     ElMessage.warning(t('roots.needPath'))
     return
   }
+  testing.value = true
+  try {
+    const res = await window.api.rootsTest({
+      type: form.type,
+      path,
+      config: isRemoteForm.value ? { username: form.username.trim() } : null,
+      secret: form.password
+    })
+    if (res?.ok) ElMessage.success(t('roots.testOk'))
+    else ElMessage.error(t('roots.testFail', { message: res?.message || '' }))
+  } catch (err) {
+    ElMessage.error(t('roots.testFail', { message: String(err?.message ?? err) }))
+  } finally {
+    testing.value = false
+  }
+}
+
+async function save() {
+  const path = (isRemoteForm.value ? form.url : form.path).trim()
+  if (!path) {
+    ElMessage.warning(t('roots.needPath'))
+    return
+  }
+  const opts = { type: form.type, writable: form.writable }
+  if (isRemoteForm.value) opts.config = { url: path, username: form.username.trim() }
+  // 留空表示不修改（编辑时）；新增时空则无密钥
+  if (form.password) opts.secret = form.password
+
   saving.value = true
   try {
     if (editingId.value == null) {
-      await window.api.rootsAdd(form.path.trim(), form.alias.trim())
+      await window.api.rootsAdd(path, form.alias.trim(), opts)
       ElMessage.success(t('roots.added'))
     } else {
-      await window.api.rootsUpdate(editingId.value, form.path.trim(), form.alias.trim())
+      await window.api.rootsUpdate(editingId.value, path, form.alias.trim(), opts)
       ElMessage.success(t('roots.updated'))
     }
     dialogVisible.value = false
@@ -210,6 +265,12 @@ async function save() {
   } finally {
     saving.value = false
   }
+}
+
+function typeLabel(type) {
+  if (type === 'webdav') return 'WebDAV'
+  if (type === 'smb') return 'SMB'
+  return t('roots.typeLocal')
 }
 
 async function remove(root) {
@@ -273,6 +334,12 @@ onMounted(async () => {
           <span class="name-cell">
             <el-icon :size="15" class="name-icon"><FolderOpened /></el-icon>
             {{ displayName(row) }}
+            <el-tag v-if="row.type && row.type !== 'local'" size="small" type="info" effect="plain">
+              {{ typeLabel(row.type) }}
+            </el-tag>
+            <el-tag v-if="row.writable === 0" size="small" type="warning" effect="plain">
+              {{ t('roots.readOnlyTag') }}
+            </el-tag>
           </span>
         </template>
       </el-table-column>
@@ -399,27 +466,69 @@ onMounted(async () => {
         </div>
         <p class="gif-source-desc">{{ t('roots.gifSourceDesc') }}</p>
       </div>
+
+      <el-divider />
+
+      <div class="gif-block">
+        <div class="gif-label">
+          <span>{{ t('roots.webmAsGif') }}</span>
+          <el-switch
+            v-model="gifStore.webmAsGif"
+            class="gif-source-switch"
+            @change="onWebmAsGifChange"
+          />
+        </div>
+        <p class="gif-source-desc">{{ t('roots.webmAsGifDesc') }}</p>
+      </div>
     </el-card>
 
     <!-- 添加 / 编辑 弹窗 -->
     <el-dialog
       v-model="dialogVisible"
+      width="65%"
       :title="editingId == null ? t('roots.addDialogTitle') : t('roots.editDialogTitle')"
-      width="520px"
     >
-      <el-form label-width="80px">
-        <el-form-item :label="t('roots.pathLabel')" required>
-          <div class="path-input">
-            <el-input v-model="form.path" :placeholder="t('roots.pathPlaceholder')" />
-            <el-button @click="browsePath">{{ t('roots.browse') }}</el-button>
-          </div>
-          <p class="form-tip">{{ t('roots.pathTip') }}</p>
+      <el-form label-width="auto">
+        <template v-if="!isRemoteForm">
+          <el-form-item :label="t('roots.pathLabel')" required>
+            <div class="path-input">
+              <el-input v-model="form.path" :placeholder="t('roots.pathPlaceholder')" />
+              <el-button @click="browsePath">{{ t('roots.browse') }}</el-button>
+            </div>
+            <p class="form-tip">{{ t('roots.pathTip') }}</p>
+          </el-form-item>
+        </template>
+
+        <template v-else>
+          <el-form-item :label="t('roots.pathLabelRemote')" required>
+            <el-input v-model="form.url" :placeholder="t('roots.webdavPlaceholder')" />
+          </el-form-item>
+          <el-form-item :label="t('roots.username')">
+            <el-input v-model="form.username" :placeholder="t('roots.usernamePlaceholder')" />
+          </el-form-item>
+          <el-form-item :label="t('roots.password')">
+            <el-input
+              v-model="form.password"
+              type="password"
+              show-password
+              :placeholder="editingId != null ? t('roots.passwordKeep') : t('roots.passwordPlaceholder')"
+            />
+          </el-form-item>
+        </template>
+
+        <el-form-item :label="t('roots.writable')">
+          <el-switch v-model="form.writable" />
+          <span class="form-tip inline">{{ t('roots.writableTip') }}</span>
         </el-form-item>
+
         <el-form-item :label="t('roots.alias')">
           <el-input v-model="form.alias" :placeholder="t('roots.aliasPlaceholder')" />
         </el-form-item>
       </el-form>
       <template #footer>
+        <el-button v-if="isRemoteForm" :loading="testing" @click="testConnection">
+          {{ t('roots.testConnection') }}
+        </el-button>
         <el-button @click="dialogVisible = false">{{ t('common.cancel') }}</el-button>
         <el-button type="primary" :loading="saving" @click="save">{{ t('common.save') }}</el-button>
       </template>
@@ -473,6 +582,10 @@ onMounted(async () => {
   margin: 6px 0 0;
   color: #aaa;
   font-size: 12px;
+}
+
+.form-tip.inline {
+  margin: 0 0 0 10px;
 }
 
 /* 维护工具 */

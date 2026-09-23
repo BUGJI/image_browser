@@ -1,10 +1,12 @@
-import { promises as fsp } from 'fs'
-import { join, basename } from 'path'
+import { basename } from 'path'
+import { getProvider } from './storage/index.js'
+import { baseName, joinPath } from './storage/path-utils.js'
 
 /**
  * 目录树扫描：只收集文件夹（不读文件）
  * - 迭代式遍历（避免超深目录递归爆栈）
  * - 支持进度回调 onProgress({ scanned }) 与中止 shouldAbort()
+ * - 通过 StorageProvider 访问目录，兼容本地与远程根
  */
 
 // 跳过的系统/隐藏目录（NAS 常见垃圾目录）
@@ -29,9 +31,10 @@ export class ScanAbortedError extends Error {
  * @param {(info: {scanned: number}) => void} [opts.onProgress] 每处理一批目录回调
  * @param {() => boolean} [opts.shouldAbort] 返回 true 时抛出 ScanAbortedError
  */
-export async function scanDirTree(rootPath, { maxDepth = Infinity, onProgress, shouldAbort } = {}) {
+export async function scanDirTree(rootPath, { maxDepth = Infinity, onProgress, shouldAbort, provider } = {}) {
+  const pv = provider || getProvider('local')
   let scanned = 0
-  const root = { name: basename(rootPath) || rootPath, path: rootPath, children: [] }
+  const root = { name: baseName(rootPath) || basename(rootPath) || rootPath, path: rootPath, children: [] }
   const stack = [{ dir: rootPath, node: root, depth: 0 }]
 
   while (stack.length) {
@@ -40,16 +43,16 @@ export async function scanDirTree(rootPath, { maxDepth = Infinity, onProgress, s
     const { dir, node, depth } = stack.pop()
     let entries
     try {
-      entries = await fsp.readdir(dir, { withFileTypes: true })
+      entries = await pv.list(dir)
     } catch {
       continue // 无权限/不存在则跳过
     }
 
     for (const entry of entries) {
-      if (!entry.isDirectory()) continue // 只收集文件夹
+      if (!entry.isDir) continue // 只收集文件夹
       if (isSkipDir(entry.name)) continue
       scanned++
-      const child = { name: entry.name, path: join(dir, entry.name), children: [] }
+      const child = { name: entry.name, path: joinPath(dir, entry.name), children: [] }
       node.children.push(child)
       if (depth + 1 < maxDepth) {
         stack.push({ dir: child.path, node: child, depth: depth + 1 })

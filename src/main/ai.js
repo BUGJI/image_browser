@@ -42,6 +42,9 @@ const MIME_BY_EXT = {
 
 const CAPTION_PROMPT = '用一句简洁的话描述这张图片的内容，包含主要物体、场景与动作。'
 
+// 视频文件（如 .webm）无法作为图片送视觉模型，跳过 AI 索引
+const VIDEO_RE = /\.webm$/i
+
 function getAiConfig() {
   const baseUrl = (getSetting('aiBaseUrl', '') || DEFAULT_BASE_URL).replace(/\/+$/, '')
   const apiKey = getSetting('aiApiKey', '')
@@ -180,7 +183,7 @@ export async function runAiIndexTask(root, mode, { onProgress = () => {}, should
   const cfg = getAiConfig()
   if (!cfg.apiKey) throw new Error('请先配置 API 密钥')
 
-  const cache = openRootCache(root.path, { create: true })
+  const cache = openRootCache(root, { create: true })
   const { db } = cache
   ensureAiTable(db)
 
@@ -215,6 +218,7 @@ export async function runAiIndexTask(root, mode, { onProgress = () => {}, should
 
   const need = []
   for (const f of files) {
+    if (VIDEO_RE.test(f.name)) continue
     const prev = existingMap.get(f.abs_path)
     if (prev === undefined || prev !== f.mtime) need.push(f)
   }
@@ -292,7 +296,7 @@ export async function handleAiSearch(rootId, query) {
     throw err
   }
 
-  const cache = openRootCache(root.path, { create: false })
+  const cache = openRootCache(root, { create: false })
   if (!cache) {
     const err = new Error('该根目录尚未建立缓存')
     err.code = 'AI_NO_CACHE'

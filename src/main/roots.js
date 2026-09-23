@@ -1,10 +1,17 @@
-import { statSync } from 'fs'
 import { getDb, transaction } from './db'
 import { getSetting, setSetting } from './settings'
 import { removeTagsOfRoot } from './tags'
+import { getProvider, isRemoteRoot } from './storage'
+import { ROOT_TYPE, ROOT_TYPES } from './storage/types.js'
+import { removeRootSecret } from './secrets'
 
 /**
- * 根目录注册管理：roots 表（路径唯一 + 可选别名 + 手动排序）
+ * 根目录注册管理：roots 表（路径唯一 + 可选别名 + 手动排序 + 存储类型/连接配置/只读）
+ *
+ * path 语义：
+ *   - 本地根：系统绝对路径
+ *   - 远程根：伪 URL，如 webdav://host/base
+ * config 为 JSON（不含密钥）；密钥单独存 root_secrets 表。
  */
 
 export function initRootsTable() {
@@ -18,15 +25,25 @@ export function initRootsTable() {
       updated_at TEXT NOT NULL
     )
   `)
-  // 旧库迁移：补 sort_order 列，并按现有顺序（created_at, id）填充初始序号
   const cols = getDb().prepare('PRAGMA table_info(roots)').all()
-  if (!cols.some((c) => c.name === 'sort_order')) {
+  const has = (name) => cols.some((c) => c.name === name)
+
+  // 旧库迁移：排序
+  if (!has('sort_order')) {
     getDb().exec('ALTER TABLE roots ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0')
-    const rows = getDb()
-      .prepare('SELECT id FROM roots ORDER BY created_at ASC, id ASC')
-      .all()
+    const rows = getDb().prepare('SELECT id FROM roots ORDER BY created_at ASC, id ASC').all()
     const update = getDb().prepare('UPDATE roots SET sort_order = ? WHERE id = ?')
     rows.forEach((r, i) => update.run(i + 1, r.id))
+  }
+  // 旧库迁移：存储类型 / 连接配置 / 可写标记
+  if (!has('type')) {
+    getDb().exec(`ALTER TABLE roots ADD COLUMN type TEXT NOT NULL DEFAULT '${ROOT_TYPE.LOCAL}'`)
+  }
+  if (!has('config')) {
+    getDb().exec('ALTER TABLE roots ADD COLUMN config TEXT')
+  }
+  if (!has('writable')) {
+    getDb().exec('ALTER TABLE roots ADD COLUMN writable INTEGER NOT NULL DEFAULT 1')
   }
 }
 
@@ -34,10 +51,26 @@ function now() {
   return new Date().toISOString()
 }
 
-/** 校验路径存在且是目录 */
-export function validateDir(path) {
+/** 把 DB 行转为对外对象（解析 config JSON） */
+function toRoot(row) {
+  if (!row) return row
+  let config = null
   try {
-    return statSync(path).isDirectory()
+    config = row.config ? JSON.parse(row.config) : null
+  } catch {
+    config = null
+  }
+  return { ...row, type: row.type || ROOT_TYPE.LOCAL, config }
+}
+
+/** 校验路径存在且是目录（远程走 Provider） */
+export async function validateDir(root) {
+  const path = typeof root === 'string' ? root : root?.path
+  if (!path) return false
+  try {
+    const provider = getProvider(typeof root === 'string' ? { type: ROOT_TYPE.LOCAL } : root)
+    const st = await provider.stat(path)
+    return !!st && st.isDir
   } catch {
     return false
   }
@@ -47,7 +80,8 @@ export function validateDir(path) {
 export function displayName(root) {
   if (!root) return ''
   if (root.alias && root.alias.trim()) return root.alias.trim()
-  const parts = root.path.split(/[\\/]+/).filter(Boolean)
+  const parts = String(root.path).split(/[\\/]+/).filter(Boolean)
+  if (isRemoteRoot(root) && parts.length <= 2) return root.path
   return parts.length ? parts[parts.length - 1] : root.path
 }
 
@@ -55,6 +89,7 @@ export function listRoots() {
   return getDb()
     .prepare('SELECT * FROM roots ORDER BY sort_order ASC, created_at ASC, id ASC')
     .all()
+    .map(toRoot)
 }
 
 /**
@@ -78,27 +113,83 @@ export function getRoot(id) {
   // node:sqlite 对参数类型严格：null/undefined 无法绑定，直接按「找不到」处理
   const n = Number(id)
   if (!Number.isFinite(n) || n <= 0) return undefined
-  return getDb().prepare('SELECT * FROM roots WHERE id = ?').get(n)
+  return toRoot(getDb().prepare('SELECT * FROM roots WHERE id = ?').get(n))
 }
 
-export function addRoot(path, alias = '') {
-  if (!validateDir(path)) throw new Error('目录不存在或不可访问')
+/** 按路径查找根（路径唯一） */
+export function getRootByPath(path) {
+  if (!path) return undefined
+  return toRoot(getDb().prepare('SELECT * FROM roots WHERE path = ?').get(String(path)))
+}
+
+/**
+ * 根据绝对路径反查所属根目录（取最长前缀匹配，兼容多根嵌套与远程伪路径）。
+ */
+export function findRootForPath(absPath) {
+  if (!absPath) return undefined
+  const norm = String(absPath).replace(/\\/g, '/')
+  let best = null
+  for (const root of listRoots()) {
+    const rp = String(root.path).replace(/\\/g, '/').replace(/\/+$/, '')
+    if (norm === rp || norm.startsWith(rp + '/')) {
+      if (!best || rp.length > best.len) best = { root, len: rp.length }
+    }
+  }
+  return best?.root
+}
+
+function normalizeType(type) {
+  return ROOT_TYPES.includes(type) ? type : ROOT_TYPE.LOCAL
+}
+
+/**
+ * 新增根目录。
+ * @param {string} path 本地绝对路径或远程伪 URL
+ * @param {string} alias 别名
+ * @param {{type?:string, config?:object, writable?:boolean}} [opts]
+ */
+export async function addRoot(path, alias = '', opts = {}) {
+  const type = normalizeType(opts.type)
+  const record = { path, type, config: opts.config || null, writable: opts.writable === false ? 0 : 1 }
+  // 凭据尚未落库：校验时用临时密钥，避免用空密码去连
+  if (opts.secret != null) record.__secret = opts.secret
+  if (!(await validateDir(record))) throw new Error('目录不存在或不可访问')
   const dup = getDb().prepare('SELECT id FROM roots WHERE path = ?').get(path)
   if (dup) throw new Error('该目录已注册')
   const ts = now()
   const info = getDb()
-    .prepare('INSERT INTO roots (path, alias, created_at, updated_at) VALUES (?, ?, ?, ?)')
-    .run(path, alias.trim(), ts, ts)
+    .prepare(
+      `INSERT INTO roots (path, alias, type, config, writable, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(path, String(alias || '').trim(), type, opts.config ? JSON.stringify(opts.config) : null, record.writable, ts, ts)
   return getRoot(Number(info.lastInsertRowid))
 }
 
-export function updateRoot(id, path, alias = '') {
-  if (!validateDir(path)) throw new Error('目录不存在或不可访问')
+/**
+ * 更新根目录。
+ * @param {number} id
+ * @param {string} path
+ * @param {string} alias
+ * @param {{type?:string, config?:object, writable?:boolean}} [opts]
+ */
+export async function updateRoot(id, path, alias = '', opts = {}) {
+  const existing = getRoot(id)
+  if (!existing) throw new Error('根目录不存在')
+  const type = opts.type ? normalizeType(opts.type) : existing.type
+  const config = opts.config !== undefined ? opts.config : existing.config
+  const writable = opts.writable === undefined ? (existing.writable ? 1 : 0) : opts.writable ? 1 : 0
+  const record = { id, path, type, config, writable }
+  // 密码留空=沿用原有（此时不传 secret，由 provider 读库）；传了则用新密码校验
+  if (opts.secret != null) record.__secret = opts.secret
+  if (!(await validateDir(record))) throw new Error('目录不存在或不可访问')
   const dup = getDb().prepare('SELECT id FROM roots WHERE path = ? AND id != ?').get(path, id)
   if (dup) throw new Error('该目录已被其他项注册')
   getDb()
-    .prepare('UPDATE roots SET path = ?, alias = ?, updated_at = ? WHERE id = ?')
-    .run(path, alias.trim(), now(), id)
+    .prepare(
+      `UPDATE roots SET path = ?, alias = ?, type = ?, config = ?, writable = ?, updated_at = ? WHERE id = ?`
+    )
+    .run(path, String(alias || '').trim(), type, config ? JSON.stringify(config) : null, writable, now(), id)
   return getRoot(id)
 }
 
@@ -106,6 +197,7 @@ export function removeRoot(id) {
   getDb().prepare('DELETE FROM roots WHERE id = ?').run(id)
   getDb().prepare('DELETE FROM favorites WHERE root_id = ?').run(id)
   removeTagsOfRoot(id)
+  removeRootSecret(id)
   // 删除的是当前选中时清空
   if (getSetting('currentRootId', '') === String(id)) {
     setSetting('currentRootId', '')

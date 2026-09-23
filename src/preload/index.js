@@ -66,9 +66,12 @@ const api = {
 
   // --- 根目录注册 ---
   rootsList: () => ipcRenderer.invoke('roots:list'),
-  rootsAdd: (path, alias) => ipcRenderer.invoke('roots:add', path, alias),
-  rootsUpdate: (id, path, alias) => ipcRenderer.invoke('roots:update', id, path, alias),
+  // opts: { type, config, writable, secret }
+  rootsAdd: (path, alias, opts) => ipcRenderer.invoke('roots:add', path, alias, opts),
+  rootsUpdate: (id, path, alias, opts) => ipcRenderer.invoke('roots:update', id, path, alias, opts),
   rootsRemove: (id) => ipcRenderer.invoke('roots:remove', id),
+  // 测试连接：payload { type, path, config, secret } => { ok, message }
+  rootsTest: (payload) => ipcRenderer.invoke('roots:test', payload),
   // 重新排序：传入按新顺序排列的 id 数组
   rootsReorder: (ids) => ipcRenderer.invoke('roots:reorder', ids),
   rootsGetCurrent: () => ipcRenderer.invoke('roots:get-current'),

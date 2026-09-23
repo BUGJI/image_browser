@@ -38,6 +38,9 @@ import {
 
 const OCROCR_BATCH = 20
 
+// 视频文件（如 .webm）不参与 OCR 文字识别
+const VIDEO_RE = /\.webm$/i
+
 /**
  * OCR 是否可用：@repeato/ocr（含模型）随包内置，
  * 但体积巨大的 ONNX Runtime + sharp 需先通过「模型管理」下载/导入。
@@ -116,7 +119,7 @@ export async function runOcrIndexTask(root, mode, { onProgress = () => {}, shoul
     throw err
   }
 
-  const cache = openRootCache(root.path, { create: true })
+  const cache = openRootCache(root, { create: true })
   const { db } = cache
   ensureOcrTable(db)
 
@@ -151,6 +154,7 @@ export async function runOcrIndexTask(root, mode, { onProgress = () => {}, shoul
 
   const need = []
   for (const f of files) {
+    if (VIDEO_RE.test(f.name)) continue
     const prev = existingMap.get(f.abs_path)
     if (prev === undefined || prev !== f.mtime) need.push(f)
   }

@@ -14,7 +14,7 @@ const showTest = ref(false)
 const showHidden = ref(false)
 // 瀑布流缩放滑块最大值
 const zoomMax = ref(2)
-// 超长图高度限制（默认开）
+// 卡片比例限制（默认开）：宽高比限制在 1:5 ~ 2:1
 const imageTallCap = ref(true)
 const ZOOM_MAX_MIN = 1
 const ZOOM_MAX_MAX = 100

@@ -5,6 +5,7 @@ import { join } from 'path'
 import { electronApp, optimizer } from '@electron-toolkit/utils'
 import { initDb, queryOne } from './db'
 import { initSettingsTable, getSetting, setSetting } from './settings'
+import { initSecretsTable } from './secrets'
 import {
   createMainWindow,
   createSettingsWindow,
@@ -21,11 +22,17 @@ import {
 import {
   initRootsTable,
   listRoots,
+  getRootByPath,
+  findRootForPath,
   addRoot,
   updateRoot,
   removeRoot,
   reorderRoots
 } from './roots'
+import { getProvider, isRemoteRoot, invalidateProvider } from './storage'
+import { registerRemoteProviders } from './storage/remote'
+import { testWebdavConnection } from './storage/webdav'
+import { setRootSecret } from './secrets'
 import {
   initFavoritesTable,
   listFavorites,
@@ -56,10 +63,11 @@ import { readClipboardImageBuffer } from './image-decode'
 
 // 自定义协议特权注册必须在 app ready 之前
 // 注意：不能加 standard:true —— 会把数字 host（如 2）按 IPv4 规范化为 0.0.0.2，导致 rootId 解析失败
+// corsEnabled：图片/视频以 crossorigin 请求时允许读取像素（复制视频当前帧等），响应已带 ACAO
 protocol.registerSchemesAsPrivileged([
   {
     scheme: 'image',
-    privileges: { secure: true, supportFetchAPI: true, stream: true }
+    privileges: { secure: true, supportFetchAPI: true, stream: true, corsEnabled: true }
   }
 ])
 
@@ -148,20 +156,45 @@ function registerIpc() {
 
   // --- 根目录注册 ---
   ipcMain.handle('roots:list', () => listRoots())
-  ipcMain.handle('roots:add', (_e, path, alias) => {
-    const root = addRoot(path, alias)
+  ipcMain.handle('roots:add', async (_e, path, alias, opts) => {
+    const { secret, ...rest } = opts || {}
+    const root = await addRoot(path, alias, { ...rest, secret })
+    if (secret) setRootSecret(root.id, secret)
+    invalidateProvider(root.id)
     broadcast('roots:changed')
     return root
   })
-  ipcMain.handle('roots:update', (_e, id, path, alias) => {
-    const root = updateRoot(id, path, alias)
+  ipcMain.handle('roots:update', async (_e, id, path, alias, opts) => {
+    const { secret, ...rest } = opts || {}
+    const root = await updateRoot(id, path, alias, { ...rest, secret })
+    if (secret !== undefined) setRootSecret(id, secret)
+    invalidateProvider(id)
     broadcast('roots:changed')
     return root
   })
   ipcMain.handle('roots:remove', (_e, id) => {
     removeRoot(id)
+    invalidateProvider(id)
     broadcast('roots:changed')
     return true
+  })
+
+  // 测试根目录连接（本地查存在性；WebDAV 尝试 stat 根）
+  ipcMain.handle('roots:test', async (_e, payload) => {
+    const { type, path, config, secret } = payload || {}
+    try {
+      if (type === 'webdav') {
+        return await testWebdavConnection({
+          url: path || config?.url,
+          username: config?.username,
+          password: secret
+        })
+      }
+      const ok = existsSync(path)
+      return { ok, message: ok ? '目录存在' : '目录不存在或不可访问' }
+    } catch (err) {
+      return { ok: false, message: String(err?.message || err) }
+    }
   })
   ipcMain.handle('roots:reorder', (_e, ids) => {
     const roots = reorderRoots(Array.isArray(ids) ? ids.map(Number) : [])
@@ -221,6 +254,8 @@ function registerIpc() {
 
   ipcMain.handle('fs:scan-tree', async (e, rootPath) => {
     if (!rootPath) return null
+    const root = getRootByPath(rootPath)
+    const provider = root ? getProvider(root) : getProvider('local')
     // 新扫描开始前中止上一次
     scanAbortController?.abort()
     const ac = new AbortController()
@@ -234,6 +269,7 @@ function registerIpc() {
 
     try {
       const tree = await scanDirTree(rootPath, {
+        provider,
         onProgress: ({ scanned }) => {
           lastScanned = scanned
           send({ rootPath, scanned })
@@ -291,7 +327,9 @@ function registerIpc() {
   // 复制图片到剪贴板（直接读文件，避免自定义协议下 canvas 污染；
   // nativeImage 解码不了的格式（GIF/WebP 等）自动转 PNG）
   ipcMain.handle('clipboard:write-image-path', async (_e, absPath) => {
-    const buf = await readClipboardImageBuffer(absPath)
+    const root = findRootForPath(absPath)
+    const provider = root ? getProvider(root) : getProvider('local')
+    const buf = await readClipboardImageBuffer(absPath, provider)
     if (!buf) throw new Error('无法读取或解码该图片（文件可能已被移动或格式不受支持）')
     const img = nativeImage.createFromBuffer(buf)
     if (img.isEmpty()) throw new Error('无法读取或解码该图片（文件可能已被移动或格式不受支持）')
@@ -301,7 +339,13 @@ function registerIpc() {
 
   // 复制原文件到剪贴板（Windows 文件列表 CF_HDROP，可在文件管理器直接粘贴出文件）。
   // Electron 未提供写文件列表的 API，借 Windows PowerShell 的 Clipboard.SetFileDropList 实现。
-  ipcMain.handle('clipboard:copy-file', (_e, absPath) => copyFileToClipboard(absPath))
+  ipcMain.handle('clipboard:copy-file', (_e, absPath) => {
+    const root = findRootForPath(absPath)
+    if (root && isRemoteRoot(root)) {
+      throw new Error('远程文件暂不支持复制为文件')
+    }
+    return copyFileToClipboard(absPath)
+  })
 
   // --- 托盘关闭行为 ---
   registerTrayIpc({ ipcMain })
@@ -388,9 +432,13 @@ function startApp() {
     // 初始化 SQLite + 设置表 + 根目录表 + 收藏表 + 标签表
     initDb()
     initSettingsTable()
+    initSecretsTable()
     initRootsTable()
     initFavoritesTable()
     initTagsTable()
+
+    // 注册远程存储 Provider（WebDAV；SMB 后续加入）
+    registerRemoteProviders()
 
     // 日志模块（开发者选项「记录日志」开关；替换 console + 注册 IPC + 监听渲染进程 console）
     initLogger()

@@ -24,3 +24,8 @@ export function buildImageUrl(rootId, absPath, size = 'auto') {
 export function isGifName(name) {
   return /\.gif$/i.test(String(name || ''))
 }
+
+/** 按文件名判断是否为视频（网格卡片用 <video> 取首帧、灯箱内播放） */
+export function isVideoName(name) {
+  return /\.webm$/i.test(String(name || ''))
+}
