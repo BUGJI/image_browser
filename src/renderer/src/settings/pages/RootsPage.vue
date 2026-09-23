@@ -149,6 +149,15 @@ async function setThumbSource(v) {
   }
 }
 
+async function onWebmAsGifChange(v) {
+  try {
+    await gifStore.setWebmAsGif(v)
+    ElMessage.success(t('common.saved'))
+  } catch {
+    ElMessage.error(t('common.saveFailed'))
+  }
+}
+
 const form = reactive({
   type: 'local',
   path: '',
@@ -456,6 +465,20 @@ onMounted(async () => {
           />
         </div>
         <p class="gif-source-desc">{{ t('roots.gifSourceDesc') }}</p>
+      </div>
+
+      <el-divider />
+
+      <div class="gif-block">
+        <div class="gif-label">
+          <span>{{ t('roots.webmAsGif') }}</span>
+          <el-switch
+            v-model="gifStore.webmAsGif"
+            class="gif-source-switch"
+            @change="onWebmAsGifChange"
+          />
+        </div>
+        <p class="gif-source-desc">{{ t('roots.webmAsGifDesc') }}</p>
       </div>
     </el-card>
 

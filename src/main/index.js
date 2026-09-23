@@ -63,10 +63,11 @@ import { readClipboardImageBuffer } from './image-decode'
 
 // 自定义协议特权注册必须在 app ready 之前
 // 注意：不能加 standard:true —— 会把数字 host（如 2）按 IPv4 规范化为 0.0.0.2，导致 rootId 解析失败
+// corsEnabled：图片/视频以 crossorigin 请求时允许读取像素（复制视频当前帧等），响应已带 ACAO
 protocol.registerSchemesAsPrivileged([
   {
     scheme: 'image',
-    privileges: { secure: true, supportFetchAPI: true, stream: true }
+    privileges: { secure: true, supportFetchAPI: true, stream: true, corsEnabled: true }
   }
 ])
 

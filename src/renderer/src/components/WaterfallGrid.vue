@@ -5,7 +5,8 @@ import { ElMessage } from 'element-plus'
 import { Star, StarFilled } from '@element-plus/icons-vue'
 import Lightbox from './Lightbox.vue'
 import GifThumb from './GifThumb.vue'
-import { buildImageUrl, isGifName } from '../utils/image-url'
+import VideoThumb from './VideoThumb.vue'
+import { buildImageUrl, isGifName, isVideoName } from '../utils/image-url'
 import { useGifStore } from '../stores/gif'
 import { useFavoritesStore } from '../stores/favorites'
 
@@ -55,7 +56,9 @@ const props = defineProps({
   bufferLazy: { type: Boolean, default: true },
   // 卡片比例限制（设置-开发者选项-瀑布流）：开 = 宽高比限制在 1:5 ~ 2:1（宽:高），
   // 更长的图封顶 1:5、更宽的图封底 2:1，超出的整图等比适配显示
-  capTall: { type: Boolean, default: true }
+  capTall: { type: Boolean, default: true },
+  // 浏览模式：waterfall = 瀑布流（保持原比例）；rect = 矩形（等高卡片，object-fit: cover 裁切超出部分）
+  mode: { type: String, default: 'waterfall' }
 })
 
 const gifStore = useGifStore()
@@ -66,6 +69,10 @@ const COL_BASE_WIDTH = 200
 const FALLBACK_RATIO = 0.75
 const MAX_TILE_RATIO = 5 // 卡片比例上限：宽:高 不超过 1:5（高图）
 const MIN_TILE_RATIO = 0.5 // 卡片比例下限：宽:高 不小于 2:1（宽图）
+// 矩形模式卡片固定宽高比（高/宽）：1:1 正方形，配合 object-fit: cover 裁切超出部分
+const RECT_TILE_RATIO = 1
+
+const isRect = computed(() => props.mode === 'rect')
 
 // 内存维度缓存：`rootId\u0000absPath -> {w,h}`。跨文件夹导航/滚动复用，
 // 让没有缓存索引（未跑维护）的图片也能用上一次加载到的真实比例，减少占位跳动。
@@ -131,8 +138,9 @@ function ratioOf(item) {
   return null
 }
 
-/** 布局用高度比例：开启比例限制时把超 1:5 的高图截到 1:5，把宽于 2:1 的宽图抬到 2:1 下限 */
+/** 布局用高度比例：矩形模式统一等高；瀑布流模式开启比例限制时把超 1:5 的高图截到 1:5、宽于 2:1 的宽图抬到 2:1 下限 */
 function effectiveRatio(item) {
+  if (isRect.value) return RECT_TILE_RATIO
   const raw = ratioOf(item) ?? avgRatio
   if (props.capTall) {
     if (raw > MAX_TILE_RATIO) return MAX_TILE_RATIO
@@ -141,8 +149,9 @@ function effectiveRatio(item) {
   return raw
 }
 
-/** 该卡片的原图比例是否被限制（用于给 <img> 切换 contain，保证整图可见不被裁剪） */
+/** 该卡片的原图比例是否被限制（用于给 <img> 切换 contain，保证整图可见不被裁剪）；矩形模式恒为 cover 裁切 */
 function isRatioCapped(item) {
+  if (isRect.value) return false
   if (!props.capTall) return false
   const r = ratioOf(item)
   if (r == null) return false
@@ -327,6 +336,16 @@ watch(
   }
 )
 
+// 浏览模式切换：瀑布流 ↔ 矩形，整表重新布局
+watch(
+  () => props.mode,
+  () => {
+    if (!items.value.length) return
+    doFullLayout()
+    layoutVersion.value++
+  }
+)
+
 // 缓存维护完成后 → 重新加载（此时 hasThumb 更新，改用缩略图 URL）
 watch(
   () => props.refreshTick,
@@ -414,14 +433,18 @@ function extOf(item) {
 
 function onImgLoad(item, e) {
   const img = e.target
-  if (img.naturalWidth && img.naturalHeight) {
-    rememberDims(props.rootId, item.absPath, img.naturalWidth, img.naturalHeight)
+  const nw = img.naturalWidth || img.videoWidth
+  const nh = img.naturalHeight || img.videoHeight
+  if (nw && nh) {
+    rememberDims(props.rootId, item.absPath, nw, nh)
     const prevH = item.h
-    item._loaded = { w: img.naturalWidth, h: img.naturalHeight }
-    item.width = img.naturalWidth
-    item.height = img.naturalHeight
+    item._loaded = { w: nw, h: nh }
+    item.width = nw
+    item.height = nh
+    // 矩形模式卡片等高等宽，比例不参与布局，无需重排
+    if (isRect.value) return
     // 比例与占位一致（如缓存索引已带尺寸）就不必重排；确有出入才排队批量提交
-    const naturalRatio = img.naturalHeight / img.naturalWidth
+    const naturalRatio = nh / nw
     let cappedRatio = naturalRatio
     if (props.capTall) {
       if (naturalRatio > MAX_TILE_RATIO) cappedRatio = MAX_TILE_RATIO
@@ -539,8 +562,17 @@ async function copyViaCanvas(e) {
         }"
         @click="handleItemClick(item, $event)"
       >
+        <VideoThumb
+          v-if="isVideoName(item.name)"
+          :root-id="rootId"
+          :item="item"
+          :play-mode="gifStore.webmAsGif ? gifStore.playMode : 'none'"
+          :native-priority="priorityMode(item)"
+          :class="{ 'fit-contain': isRatioCapped(item) }"
+          @load="onImgLoad(item, $event)"
+        />
         <GifThumb
-          v-if="isGifName(item.name)"
+          v-else-if="isGifName(item.name)"
           :root-id="rootId"
           :item="item"
           :play-mode="gifStore.playMode"
@@ -561,6 +593,9 @@ async function copyViaCanvas(e) {
           :fetchpriority="priorityMode(item)"
           @load="onImgLoad(item, $event)"
         />
+        <span v-if="isVideoName(item.name) && !gifStore.webmAsGif" class="waterfall-play-badge">
+          <el-icon :size="20"><VideoPlay /></el-icon>
+        </span>
         <button
           type="button"
           class="waterfall-fav"
@@ -638,10 +673,6 @@ async function copyViaCanvas(e) {
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
 }
 
-.waterfall-item:hover img {
-  transform: scale(1.03);
-}
-
 .waterfall-item img {
   width: 100%;
   height: 100%;
@@ -651,9 +682,47 @@ async function copyViaCanvas(e) {
   background: var(--panel-bg);
 }
 
+.waterfall-item:hover img {
+  transform: scale(1.03);
+}
+
+.waterfall-item video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  background: #000;
+  transition: transform 0.25s ease;
+}
+
+.waterfall-item:hover video {
+  transform: scale(1.03);
+}
+
 /* 比例限制开启时：整图等比显示（不被裁剪），卡片比例已限制在 1:5 ~ 2:1 */
 .waterfall-item img.fit-contain {
   object-fit: contain;
+}
+
+.waterfall-item video.fit-contain {
+  object-fit: contain;
+}
+
+.waterfall-play-badge {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 1;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  pointer-events: none;
 }
 
 .waterfall-hover {

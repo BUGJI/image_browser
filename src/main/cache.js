@@ -109,8 +109,11 @@ export function getCacheConfig() {
 
 const GIF_NAME_RE = /\.gif$/i
 
+// 视频扩展名：纳入索引与浏览，但不生成 webp 静态缩略图（首帧由渲染进程实时取）
+const VIDEO_EXTS = new Set(['.webm'])
+
 const IMAGE_EXTS = new Set([
-  '.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tif', '.tiff'
+  '.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tif', '.tiff', '.webm'
 ])
 
 const SKIP_DIRS = new Set([
@@ -125,7 +128,8 @@ const MIME_BY_EXT = {
   '.webp': 'image/webp',
   '.bmp': 'image/bmp',
   '.tif': 'image/tiff',
-  '.tiff': 'image/tiff'
+  '.tiff': 'image/tiff',
+  '.webm': 'video/webm'
 }
 
 // rootPath -> { db, cacheDir, thumbDir }
@@ -1175,8 +1179,9 @@ export async function runCacheTask(root, mode, { onProgress = () => {}, shouldAb
               null, null, null, nowMs, nowMs
             )
             const isGif = GIF_NAME_RE.test(f.name)
-            // 「实时获取」开启时 GIF 首帧不落盘
-            if (!(cfg.gifRealtime && isGif)) {
+            const isVideo = VIDEO_EXTS.has(extname(f.name).toLowerCase())
+            // 「实时获取」开启时 GIF 首帧不落盘；视频一律不落盘（首帧实时取）
+            if (!isVideo && !(cfg.gifRealtime && isGif)) {
               needThumb.push({
                 id: Number(info.lastInsertRowid),
                 absPath: f.absPath,
@@ -1188,14 +1193,14 @@ export async function runCacheTask(root, mode, { onProgress = () => {}, shouldAb
           } else if (row.mtime !== f.mtime || row.size !== f.size) {
             updateStmt.run(f.name, f.folder, f.size, f.mtime, nowMs, f.absPath)
             clearThumbStmt.run(f.absPath) // 原图变了，旧缩略图作废
-            if (!(cfg.gifRealtime && GIF_NAME_RE.test(f.name))) {
+            if (!VIDEO_EXTS.has(extname(f.name).toLowerCase()) && !(cfg.gifRealtime && GIF_NAME_RE.test(f.name))) {
               needThumb.push({ id: row.id, absPath: f.absPath, relPath: f.relPath, name: f.name })
             }
             stats.updated++
           } else if (!row.thumb) {
             // 索引在但缩略图缺失（上次失败/旧版平铺缓存）→ 重试
-            // 「实时获取」开启时 GIF 首帧不落盘，跳过，避免每次维护都重试
-            if (!(cfg.gifRealtime && GIF_NAME_RE.test(f.name))) {
+            // 「实时获取」开启时 GIF 首帧不落盘，跳过，避免每次维护都重试；视频同理
+            if (!VIDEO_EXTS.has(extname(f.name).toLowerCase()) && !(cfg.gifRealtime && GIF_NAME_RE.test(f.name))) {
               needThumb.push({ id: row.id, absPath: f.absPath, relPath: f.relPath, name: f.name })
             }
           }
@@ -1771,15 +1776,53 @@ export function registerImageProtocol({ protocol }) {
           : 'public, max-age=86400'
       const headers = new Headers({
         'Content-Type': mime,
-        'Content-Length': String(st.size),
         // 渲染端 canvas 读取像素（复制/导出）需要跨域许可
         'Access-Control-Allow-Origin': '*',
         'Cross-Origin-Resource-Policy': 'cross-origin',
         'Cache-Control': cacheControl
       })
-      const stream = localSource ? createReadStream(file) : provider.createReadStream(file)
+
+      // 本地文件（含本地缓存缩略图）支持 HTTP Range，供 <video> 拖动进度/按需取片。
+      // 远程 Provider 的流不支持区间，退化为 200 整体流。
+      const localFile = localSource || !isRemoteRoot(root)
+      const rangeHeader = req.headers.get('range')
+      let status = 200
+      let contentLength = st.size
+      let rangeStart = null
+      let rangeEnd = null
+      if (rangeHeader && localFile) {
+        const m = /^bytes=(\d*)-(\d*)$/.exec(rangeHeader.trim())
+        if (m) {
+          let start = m[1] === '' ? null : Number(m[1])
+          let end = m[2] === '' ? null : Number(m[2])
+          if (start === null && end !== null) {
+            start = Math.max(0, st.size - end)
+            end = st.size - 1
+          } else if (start !== null && end === null) {
+            end = st.size - 1
+          }
+          if (start != null && end != null && start <= end && start < st.size) {
+            end = Math.min(end, st.size - 1)
+            status = 206
+            contentLength = end - start + 1
+            rangeStart = start
+            rangeEnd = end
+            headers.set('Content-Range', `bytes ${start}-${end}/${st.size}`)
+          }
+        }
+      }
+      headers.set('Content-Length', String(contentLength))
+      if (localFile) headers.set('Accept-Ranges', 'bytes')
+      // 媒体元数据探测可能发 HEAD：只回头，不创建文件流
+      if (req.method === 'HEAD') return new Response(null, { status, headers })
+      const stream =
+        rangeStart != null
+          ? createReadStream(file, { start: rangeStart, end: rangeEnd })
+          : localFile
+            ? createReadStream(file)
+            : provider.createReadStream(file)
       const body = Readable.toWeb(stream)
-      return new Response(body, { status: 200, headers })
+      return new Response(body, { status, headers })
     } catch (err) {
       return new Response('error: ' + String(err?.message || err), { status: 500 })
     }

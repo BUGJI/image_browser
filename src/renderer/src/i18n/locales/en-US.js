@@ -57,6 +57,9 @@ export default {
     noNotifications: 'No notifications',
     themeToggleTip: 'Toggle light / dark',
     themeToggleTitle: 'Toggle light/dark theme',
+    browseModeTip: 'Browsing mode: {mode} (click to switch)',
+    browseModeWaterfall: 'Waterfall',
+    browseModeRect: 'Rectangle (crop)',
     selectFolderToBrowse: 'Select a folder in the tree to start browsing',
     rootColon: 'Root: {name}',
     noRoots: 'No roots yet',
@@ -253,6 +256,9 @@ export default {
     gifSourceRealtime: 'Real-time',
     gifSourceDesc:
       'Disk cache: generate and store a first-frame thumbnail for GIFs during cache maintenance, smoothest browsing (recommended). Real-time: stop generating/writing first-frame thumbnails for GIFs to save disk space; posters are decoded on demand at a small performance cost. Previously generated thumbnails can be removed with "Clean unused cache".',
+    webmAsGif: 'Treat WebM as animation (like GIF)',
+    webmAsGifDesc:
+      'On: WebM videos are treated as animations — the grid follows the "Grid GIF playback" setting above (first-frame poster fetched on demand, hover/auto playback), and the lightbox loops muted automatically. Ideal for silent, GIF-like WebM clips. Off: the grid shows a static first frame with a play badge, and the lightbox plays with native controls (seek/volume). Ideal for regular videos.',
     favSectionTitle: 'Favorites',
     favSectionDesc: 'Settings for "My favorites".',
     showFavorites: 'Show favorites',

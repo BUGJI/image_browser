@@ -57,6 +57,9 @@ export default {
     noNotifications: '暂无通知',
     themeToggleTip: '亮色 / 暗色切换',
     themeToggleTitle: '切换亮暗主题',
+    browseModeTip: '浏览模式：{mode}（点击切换）',
+    browseModeWaterfall: '瀑布流',
+    browseModeRect: '矩形（裁切）',
     selectFolderToBrowse: '在左侧目录树中选择一个文件夹开始浏览',
     rootColon: '根目录：{name}',
     noRoots: '还没有根目录',
@@ -248,6 +251,9 @@ export default {
     gifSourceRealtime: '实时获取',
     gifSourceDesc:
       '记录磁盘缓存：缓存维护时为 GIF 生成首帧缩略图并写入缓存目录，浏览最流畅（推荐）。实时获取：不再为 GIF 生成/写入首帧缩略图，节省磁盘空间，浏览时按需现算、略耗性能；此前已生成的旧缩略图可用「清理无用缓存」移除。',
+    webmAsGif: 'WebM 视为动图（按 GIF 处理）',
+    webmAsGifDesc:
+      '开启：WebM 视频按动图处理——网格遵循上方「网格动图播放」设置（首帧海报实时获取，可悬停/自动播放），灯箱内循环静音自动播放，适合无声音的动图类 WebM。关闭：网格显示静态首帧并带播放角标，灯箱内使用原生控件播放（可调进度/音量），适合普通视频。',
     favSectionTitle: '收藏',
     favSectionDesc: '「我的收藏」功能设置。',
     showFavorites: '显示收藏项',

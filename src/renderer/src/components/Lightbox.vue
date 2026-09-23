@@ -3,7 +3,7 @@ import { ref, watch, onMounted, onBeforeUnmount, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { Close, ArrowLeft, ArrowRight, CopyDocument, Files, Star, StarFilled, CollectionTag } from '@element-plus/icons-vue'
-import { buildImageUrl } from '../utils/image-url'
+import { buildImageUrl, isVideoName } from '../utils/image-url'
 import { loadShortcuts, eventMatches } from '../utils/shortcuts'
 import { useFavoritesStore } from '../stores/favorites'
 import { useTagsStore } from '../stores/tags'
@@ -27,6 +27,7 @@ const emit = defineEmits(['close', 'change'])
 
 const cur = ref(props.index)
 const imgRef = ref(null)
+const videoRef = ref(null)
 const loading = ref(true)
 const loadError = ref('')
 const copied = ref('') // '' | 'file' | 'image'
@@ -41,6 +42,8 @@ const favoritesEnabled = ref(true)
 const favLightboxBtn = ref(true)
 const tagsEnabled = ref(true)
 const tagsLightboxBtn = ref(true)
+// WebM 是否按动图（GIF 同类）处理：循环静音自动播放
+const webmAsGif = ref(false)
 
 // 图片缩放/平移视图（以中心为缩放锚点）；限制来自「设置 - 开发者选项」
 const zoomCfg = ref({ min: 1, max: 8, step: 1.2 })
@@ -84,9 +87,10 @@ function onWinMouseUp() {
   panStart = null
 }
 
-// 滚轮：navigate 模式节流连跳；zoom 模式缩放
+// 滚轮：navigate 模式节流连跳；zoom 模式缩放（视频交给原生控件，不拦截）
 let navCooldownAt = 0
 function onWheel(e) {
+  if (isVideo.value) return
   e.preventDefault()
   if (wheelAction.value === 'navigate') {
     const now = Date.now()
@@ -101,6 +105,7 @@ function onWheel(e) {
 }
 
 const current = computed(() => props.items[cur.value] || null)
+const isVideo = computed(() => isVideoName(current.value?.name))
 
 function resetState() {
   loading.value = true
@@ -111,6 +116,15 @@ function resetState() {
 function resetForImage() {
   resetView()
   resetState()
+  const v = videoRef.value
+  if (v) {
+    try {
+      v.pause()
+      v.currentTime = 0
+    } catch {
+      /* ignore */
+    }
+  }
 }
 
 watch(
@@ -144,6 +158,13 @@ function onImgLoad() {
 function onImgError() {
   loading.value = false
   loadError.value = t('lightbox.origLoadFailed')
+}
+
+// 视频首帧就绪：结束 loading 并显式播放（动态切换 src 时 autoplay 属性不一定会触发）
+function onVideoReady() {
+  loading.value = false
+  loadError.value = ''
+  videoRef.value?.play?.().catch(() => {})
 }
 
 function onKeydown(e) {
@@ -188,13 +209,26 @@ async function copyFile() {
   }
 }
 
-// 复制图片：解码为图像放入剪贴板（可粘贴到聊天/编辑器）
+// 复制图片：解码为图像放入剪贴板（可粘贴到聊天/编辑器）；视频复制当前帧
 async function copyImage() {
-  if (!imgRef.value || !imgRef.value.naturalWidth) return
+  const item = current.value
+  if (!item) return
   try {
+    if (isVideoName(item.name)) {
+      const v = videoRef.value
+      if (!v || !v.videoWidth) return
+      const canvas = document.createElement('canvas')
+      canvas.width = v.videoWidth
+      canvas.height = v.videoHeight
+      canvas.getContext('2d').drawImage(v, 0, 0)
+      await window.api?.copyImageDataUrl(canvas.toDataURL('image/png'))
+      flashCopied('image')
+      return
+    }
+    if (!imgRef.value || !imgRef.value.naturalWidth) return
     // 优先走主进程直接读文件写剪贴板（自定义协议下 canvas 会污染，不可靠）
     if (window.api?.copyImagePath) {
-      await window.api.copyImagePath(current.value.absPath)
+      await window.api.copyImagePath(item.absPath)
     } else {
       // 回退：canvas → dataURL → 主进程剪贴板
       const img = imgRef.value
@@ -285,6 +319,7 @@ onMounted(async () => {
   favLightboxBtn.value = (await window.api?.getSetting('favoritesLightboxBtn', 'true')) !== 'false'
   tagsEnabled.value = (await window.api?.getSetting('tagsEnabled', 'true')) !== 'false'
   tagsLightboxBtn.value = (await window.api?.getSetting('tagsLightboxBtn', 'true')) !== 'false'
+  webmAsGif.value = (await window.api?.getSetting('webmAsGif', 'false')) === 'true'
   // 读取开发者选项里的灯箱缩放限制
   const parseNum = async (key, fb) => {
     const n = parseFloat((await window.api?.getSetting(key, String(fb))) || '')
@@ -409,7 +444,7 @@ onBeforeUnmount(() => {
         <el-icon :size="26"><ArrowRight /></el-icon>
       </button>
 
-      <div class="lightbox-stage" @click.self="close" @wheel.prevent="onWheel">
+      <div class="lightbox-stage" @click.self="close" @wheel="onWheel">
         <div v-show="loading" class="lightbox-loading">
           <el-icon class="is-loading" :size="30"><VideoPlay /></el-icon>
           <span>{{ t('lightbox.loadingOrig') }}</span>
@@ -418,8 +453,21 @@ onBeforeUnmount(() => {
           <el-icon :size="30"><CircleCloseFilled /></el-icon>
           <span>{{ loadError }}</span>
         </div>
+        <video
+          v-if="current && isVideo"
+          ref="videoRef"
+          class="lightbox-video"
+          :src="buildImageUrl(rootId, current.absPath, 'orig')"
+          :controls="!webmAsGif"
+          :loop="webmAsGif"
+          :muted="webmAsGif"
+          autoplay
+          crossorigin="anonymous"
+          @loadeddata="onVideoReady"
+          @error="onImgError"
+        />
         <img
-          v-if="current"
+          v-else-if="current"
           ref="imgRef"
           class="lightbox-img"
           :class="{ 'is-pannable': view.scale > 1 }"
@@ -432,7 +480,7 @@ onBeforeUnmount(() => {
           @mousedown="onImgMouseDown"
           @dblclick="resetView"
         />
-        <span v-if="view.scale > 1" class="lightbox-zoom-badge">
+        <span v-if="!isVideo && view.scale > 1" class="lightbox-zoom-badge">
           {{ Math.round(view.scale * 100) }}%
         </span>
       </div>
@@ -592,6 +640,17 @@ onBeforeUnmount(() => {
 
 .lightbox-img.is-pannable {
   cursor: grab;
+}
+
+.lightbox-video {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 6px;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.6);
+  background: #000;
+  outline: none;
+  z-index: 1;
 }
 
 .lightbox-img.is-pannable:active {
