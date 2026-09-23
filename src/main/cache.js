@@ -185,6 +185,7 @@ export function openRootCache(rootOrPath, { create = false } = {}) {
       width      INTEGER,                -- 原图尺寸
       height     INTEGER,
       thumb      TEXT,                   -- image_cache 下的相对路径，null=未生成
+      thumb_size INTEGER,                -- 缩略图字节数（folder SHA 复用，避免全量 stat）
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
@@ -198,6 +199,16 @@ export function openRootCache(rootOrPath, { create = false } = {}) {
       updated_at  INTEGER NOT NULL
     );
   `)
+
+  // 旧库迁移：thumb_size（缩略图字节数），用于免去 folder SHA 计算时的全量 stat
+  try {
+    const fileCols = db.prepare('PRAGMA table_info(files)').all()
+    if (!fileCols.some((c) => c.name === 'thumb_size')) {
+      db.exec('ALTER TABLE files ADD COLUMN thumb_size INTEGER')
+    }
+  } catch {
+    /* 迁移失败不致命：后续按存在性回退 stat */
+  }
 
   const conn = { db, cacheDir, thumbDir, rootPath: key, root }
   cacheConnections.set(key, conn)
@@ -308,7 +319,7 @@ function sha256(text) {
  * 只在维护任务结束时调用；O(文件数)，可接受。
  */
 export async function rebuildFolderShas(db, thumbDir) {
-  const rows = db.prepare('SELECT folder, name, size, mtime, thumb FROM files').all()
+  const rows = db.prepare('SELECT folder, name, size, mtime, thumb, thumb_size FROM files').all()
   const groupByFolder = new Map() // folder -> files[]
   const folderSet = new Set([''])
   for (const r of rows) {
@@ -331,17 +342,25 @@ export async function rebuildFolderShas(db, thumbDir) {
     set.add(child)
   }
 
-  // 缩略图文件大小：一次读取
+  // 缩略图文件大小：优先用入库时记录的 thumb_size（生成/扫描缩略图时就已带回），
+  // 仅对旧库缺失该字段的记录才 stat，并顺便回填，之后维护不再触盘。
   const thumbSize = new Map()
+  const sizeBackfill = []
   for (const r of rows) {
     if (!r.thumb || thumbSize.has(r.thumb)) continue
+    if (r.thumb_size != null) {
+      thumbSize.set(r.thumb, r.thumb_size)
+      continue
+    }
     try {
       const st = await fsp.stat(join(thumbDir, r.thumb))
       thumbSize.set(r.thumb, st.size)
+      sizeBackfill.push([st.size, r.thumb])
     } catch {
       thumbSize.set(r.thumb, -1)
     }
   }
+  const backfillSizeStmt = db.prepare('UPDATE files SET thumb_size = ? WHERE thumb = ?')
 
   const upsert = db.prepare(
     `INSERT INTO folders (rel_path, src_sha, cache_sha, file_count, thumb_count, updated_at)
@@ -360,6 +379,7 @@ export async function rebuildFolderShas(db, thumbDir) {
   const folderShas = []
   db.exec('BEGIN')
   try {
+    for (const [size, thumb] of sizeBackfill) backfillSizeStmt.run(size, thumb)
     for (const folder of folderSet) {
       const files = groupByFolder.get(folder) || []
       const sub = [...(subdirs.get(folder) || [])]
@@ -498,8 +518,9 @@ async function runCliThumbStage({ cfg, rootPath, cache, mode, needThumb, db, sta
 
   console.log(`[cache] cli thumb start: ${exePath} ${args.join(' ')}`)
 
+  // thumb_size 置空：CLI 不回传字节数，交由任务末尾的 folder SHA 阶段 stat 回填一次
   const updateThumbStmt = db.prepare(
-    'UPDATE files SET thumb=?, width=?, height=?, updated_at=? WHERE id=?'
+    'UPDATE files SET thumb=?, width=?, height=?, thumb_size=NULL, updated_at=? WHERE id=?'
   )
   const relToJob = new Map() // rel -> job（只关心需要生成的那批）
   const pending = new Set()
@@ -600,59 +621,62 @@ async function runCliThumbStage({ cfg, rootPath, cache, mode, needThumb, db, sta
   console.log('[cache] cli thumb done, stats =', JSON.stringify(stats))
 }
 
-/** 只读文件头部解析图片像素，用于调度前的内存预算（读取量小、快） */
+/** 从文件头字节解析图片宽高（纯函数，无 IO） */
+function parseImageSize(b, name) {
+  if (name === '.png' && b.length >= 24 && b.readUInt32BE(0) === 0x89504e47) {
+    return { w: b.readUInt32BE(16), h: b.readUInt32BE(20) }
+  }
+  if ((name === '.jpg' || name === '.jpeg') && b[0] === 0xff && b[1] === 0xd8) {
+    // 扫描 SOF 段拿宽高（起始若干 KB 内一般就有）
+    let i = 2
+    while (i + 9 < b.length) {
+      if (b[i] !== 0xff) {
+        i++
+        continue
+      }
+      const marker = b[i + 1]
+      if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+        return { w: b.readUInt16BE(i + 7), h: b.readUInt16BE(i + 5) }
+      }
+      const segLen = b.readUInt16BE(i + 2)
+      if (segLen < 2) break
+      i += 2 + segLen
+    }
+    return null
+  }
+  if (name === '.webp' && b.subarray(0, 4).toString() === 'RIFF' && b.subarray(8, 12).toString() === 'WEBP') {
+    const four = b.subarray(12, 16).toString()
+    if (four === 'VP8 ' && b.length >= 30) {
+      return { w: b.readUInt16LE(26) & 0x3fff, h: b.readUInt16LE(28) & 0x3fff }
+    }
+    if (four === 'VP8L' && b.length >= 25) {
+      const bits = b.readUInt32LE(21)
+      return { w: (bits & 0x3fff) + 1, h: ((bits >> 14) & 0x3fff) + 1 }
+    }
+    if (four === 'VP8X' && b.length >= 30) {
+      return { w: 1 + b.readUIntLE(24, 3), h: 1 + b.readUIntLE(27, 3) }
+    }
+    return null
+  }
+  if (name === '.gif' && b.subarray(0, 6).toString() === 'GIF89a') {
+    return { w: b.readUInt16LE(6), h: b.readUInt16LE(8) }
+  }
+  if (name === '.bmp' && b.subarray(0, 2).toString() === 'BM' && b.length >= 26) {
+    const w = b.readInt32LE(18)
+    const h = Math.abs(b.readInt32LE(22))
+    return { w, h }
+  }
+  return null
+}
+
+/** 同步版：只读文件头解析像素（仅 CLI 兜底重算尺寸的冷路径使用） */
 function probeImageSize(absPath) {
   try {
     const fd = openSync(absPath, 'r')
     try {
       const head = Buffer.alloc(2048)
       const read = readSync(fd, head, 0, head.length, 0)
-      const b = head.subarray(0, read)
-      const name = extname(absPath).toLowerCase()
-      if (name === '.png' && b.length >= 24 && b.readUInt32BE(0) === 0x89504e47) {
-        return { w: b.readUInt32BE(16), h: b.readUInt32BE(20) }
-      }
-      if ((name === '.jpg' || name === '.jpeg') && b[0] === 0xff && b[1] === 0xd8) {
-        // 扫描 SOF 段拿宽高（起始若干 KB 内一般就有）
-        let i = 2
-        while (i + 9 < b.length) {
-          if (b[i] !== 0xff) {
-            i++
-            continue
-          }
-          const marker = b[i + 1]
-          if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
-            return { w: b.readUInt16BE(i + 7), h: b.readUInt16BE(i + 5) }
-          }
-          const segLen = b.readUInt16BE(i + 2)
-          if (segLen < 2) break
-          i += 2 + segLen
-        }
-        return null
-      }
-      if (name === '.webp' && b.subarray(0, 4).toString() === 'RIFF' && b.subarray(8, 12).toString() === 'WEBP') {
-        const four = b.subarray(12, 16).toString()
-        if (four === 'VP8 ' && b.length >= 30) {
-          return { w: b.readUInt16LE(26) & 0x3fff, h: b.readUInt16LE(28) & 0x3fff }
-        }
-        if (four === 'VP8L' && b.length >= 25) {
-          const bits = b.readUInt32LE(21)
-          return { w: (bits & 0x3fff) + 1, h: ((bits >> 14) & 0x3fff) + 1 }
-        }
-        if (four === 'VP8X' && b.length >= 30) {
-          return { w: 1 + b.readUIntLE(24, 3), h: 1 + b.readUIntLE(27, 3) }
-        }
-        return null
-      }
-      if (name === '.gif' && b.subarray(0, 6).toString() === 'GIF89a') {
-        return { w: b.readUInt16LE(6), h: b.readUInt16LE(8) }
-      }
-      if (name === '.bmp' && b.subarray(0, 2).toString() === 'BM' && b.length >= 26) {
-        const w = b.readInt32LE(18)
-        const h = Math.abs(b.readInt32LE(22))
-        return { w, h }
-      }
-      return null
+      return parseImageSize(head.subarray(0, read), extname(absPath).toLowerCase())
     } finally {
       closeSync(fd)
     }
@@ -661,9 +685,36 @@ function probeImageSize(absPath) {
   }
 }
 
+/** 异步版：只读文件头解析像素，不阻塞事件循环（缩略图调度主路径） */
+async function probeImageSizeAsync(absPath) {
+  let fh = null
+  try {
+    fh = await fsp.open(absPath, 'r')
+    const head = Buffer.alloc(2048)
+    const { bytesRead } = await fh.read(head, 0, head.length, 0)
+    return parseImageSize(head.subarray(0, bytesRead), extname(absPath).toLowerCase())
+  } catch {
+    return null
+  } finally {
+    if (fh) await fh.close().catch(() => {})
+  }
+}
+
 function mpOf(size) {
   if (!size || !size.w || !size.h) return 0
   return (size.w * size.h) / 1e6
+}
+
+/** 并发受限的异步 map（抛错直接向上传播，用于批量磁盘探测） */
+async function mapLimit(items, limit, fn) {
+  const queue = items.slice()
+  const n = Math.max(1, Math.min(limit, queue.length))
+  const workers = Array.from({ length: n }, async () => {
+    while (queue.length) {
+      await fn(queue.shift())
+    }
+  })
+  await Promise.all(workers)
 }
 
 /**
@@ -716,6 +767,29 @@ function ocrTextMatches(cache, query) {
     if (!has) return []
     const cnt = cache.db.prepare('SELECT COUNT(*) AS c FROM ocr_text').get()
     if (!cnt || !cnt.c) return []
+
+    // FTS5 trigram 快路径：查询 ≥3 个字符时走倒排索引，避免整表 LIKE 扫描。
+    // trigram 无法命中 1~2 字符查询，故更短的查询回退 LIKE（语义完全一致）。
+    const hasFts = cache.db
+      .prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'ocr_fts'")
+      .get()
+    if (hasFts && Array.from(q).length >= 3) {
+      try {
+        // 用双引号包成短语查询，转义内部引号，避免 FTS 语法字符被当作运算符
+        const match = '"' + q.replace(/"/g, '""') + '"'
+        return cache.db
+          .prepare(
+            `SELECT f.abs_path, f.name, f.folder, f.width, f.height, f.thumb, 1 AS text_hit
+             FROM ocr_fts JOIN ocr_text o ON o.rowid = ocr_fts.rowid
+             JOIN files f ON f.abs_path = o.abs_path
+             WHERE ocr_fts MATCH ?`
+          )
+          .all(match)
+      } catch {
+        /* 索引异常时回退 LIKE */
+      }
+    }
+
     const pattern = '%' + likeEscape(q) + '%'
     return cache.db
       .prepare(
@@ -768,13 +842,14 @@ function mergeSearchResults(nameRows, textRows, query, anchored) {
 }
 
 /**
- * 从 WebP 文件头读取宽高（只读前 30 字节，不整图解码）。
- * 返回 { w, h }；解析失败返回 null。
+ * 从 WebP 文件头读取宽高（只读前 30 字节，不整图解码）+ 文件字节数。
+ * 返回 { w, h, size }；解析失败返回 null。
  */
 async function webpDimsFromFile(filePath) {
   try {
     const fh = await fsp.open(filePath, 'r')
     try {
+      const st = await fh.stat()
       const buf = Buffer.alloc(30)
       const { bytesRead } = await fh.read(buf, 0, 30, 0)
       if (bytesRead < 30) return null
@@ -782,14 +857,14 @@ async function webpDimsFromFile(filePath) {
       if (buf.toString('latin1', 8, 12) !== 'WEBP') return null
       const fourcc = buf.toString('latin1', 12, 16)
       if (fourcc === 'VP8X') {
-        return { w: 1 + buf.readUIntLE(24, 3), h: 1 + buf.readUIntLE(27, 3) }
+        return { w: 1 + buf.readUIntLE(24, 3), h: 1 + buf.readUIntLE(27, 3), size: st.size }
       }
       if (fourcc === 'VP8 ') {
-        return { w: buf.readUInt16LE(26) & 0x3fff, h: buf.readUInt16LE(28) & 0x3fff }
+        return { w: buf.readUInt16LE(26) & 0x3fff, h: buf.readUInt16LE(28) & 0x3fff, size: st.size }
       }
       if (fourcc === 'VP8L') {
         const bits = buf.readUInt32LE(21)
-        return { w: 1 + (bits & 0x3fff), h: 1 + ((bits >> 14) & 0x3fff) }
+        return { w: 1 + (bits & 0x3fff), h: 1 + ((bits >> 14) & 0x3fff), size: st.size }
       }
       return null
     } finally {
@@ -987,58 +1062,68 @@ async function scanCacheIntoIndex({ db, thumbDir, root, provider, onProgress, sh
   const dbByAbs = new Map(existing.map((r) => [r.abs_path, r]))
 
   const insertStmt = db.prepare(
-    `INSERT INTO files (abs_path, rel_path, name, folder, size, mtime, width, height, thumb, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO files (abs_path, rel_path, name, folder, size, mtime, width, height, thumb, thumb_size, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   )
   const updateThumbStmt = db.prepare(
-    `UPDATE files SET thumb=?, width=?, height=?, updated_at=? WHERE abs_path=?`
+    `UPDATE files SET thumb=?, width=?, height=?, thumb_size=?, updated_at=? WHERE abs_path=?`
   )
   const deleteStmt = db.prepare('DELETE FROM files WHERE abs_path = ?')
 
   let processed = 0
+  let reported = 0
+  // 源图 stat 与缩略图头部读取都按批并发，避免逐张串行等待磁盘
+  const CONC = 16
   db.exec('BEGIN')
   try {
-    for (const thumbAbs of thumbs) {
+    for (let i = 0; i < thumbs.length; i += CONC) {
       if (shouldAbort?.()) throw new ScanAbortedError()
-      // 相对 image_cache 的路径（/ 分隔），如 相册/风景/photo.jpg.webp
-      const relThumb = relative(thumbDir, thumbAbs).split(/[\\/]+/).join('/')
-      // 镜像路径还原源图相对路径：去掉末尾 .webp
-      const srcRel = relThumb.slice(0, -'.webp'.length)
-      const srcAbs = absFromRel(root.path, srcRel)
-
-      const st = await provider.stat(srcAbs)
-      if (!st || !st.isFile) {
-        // 源图已不存在 → 孤儿缩略图，删除并移除对应索引
-        await fsp.rm(thumbAbs, { force: true })
-        stats.cleanedThumbs++
-        if (dbByAbs.has(srcAbs)) {
-          deleteStmt.run(srcAbs)
-          dbByAbs.delete(srcAbs)
+      const chunk = thumbs.slice(i, i + CONC)
+      const metas = await mapLimit(chunk, CONC, async (thumbAbs) => {
+        if (shouldAbort?.()) throw new ScanAbortedError()
+        // 相对 image_cache 的路径（/ 分隔），如 相册/风景/photo.jpg.webp
+        const relThumb = relative(thumbDir, thumbAbs).split(/[\\/]+/).join('/')
+        // 镜像路径还原源图相对路径：去掉末尾 .webp
+        const srcRel = relThumb.slice(0, -'.webp'.length)
+        const srcAbs = absFromRel(root.path, srcRel)
+        const st = await provider.stat(srcAbs)
+        if (!st || !st.isFile) return { thumbAbs, srcAbs, orphan: true }
+        const dim = await webpDimsFromFile(thumbAbs)
+        return { thumbAbs, srcAbs, srcRel, relThumb, st, dim }
+      })
+      for (const m of metas) {
+        if (m.orphan) {
+          // 源图已不存在 → 孤儿缩略图，删除并移除对应索引
+          await fsp.rm(m.thumbAbs, { force: true })
+          stats.cleanedThumbs++
+          if (dbByAbs.has(m.srcAbs)) {
+            deleteStmt.run(m.srcAbs)
+            dbByAbs.delete(m.srcAbs)
+          }
+          processed++
+          continue
         }
+        const folder = m.srcRel.includes('/') ? m.srcRel.slice(0, m.srcRel.lastIndexOf('/')) : ''
+        const row = dbByAbs.get(m.srcAbs)
+        if (!row) {
+          insertStmt.run(
+            m.srcAbs, m.srcRel, baseName(m.srcAbs), folder, m.st.size, Math.floor(m.st.mtimeMs),
+            m.dim?.w ?? null, m.dim?.h ?? null, m.relThumb, m.dim?.size ?? null, nowMs, nowMs
+          )
+          dbByAbs.set(m.srcAbs, { abs_path: m.srcAbs, thumb: m.relThumb })
+          stats.added++
+        } else if (!row.thumb) {
+          updateThumbStmt.run(
+            m.relThumb, m.dim?.w ?? null, m.dim?.h ?? null, m.dim?.size ?? null, nowMs, m.srcAbs
+          )
+          row.thumb = m.relThumb
+          stats.updated++
+        }
+        stats.thumbs++
         processed++
-        continue
       }
-
-      const dim = await webpDimsFromFile(thumbAbs)
-      const folder = srcRel.includes('/') ? srcRel.slice(0, srcRel.lastIndexOf('/')) : ''
-      const row = dbByAbs.get(srcAbs)
-
-      if (!row) {
-        insertStmt.run(
-          srcAbs, srcRel, baseName(srcAbs), folder, st.size, Math.floor(st.mtimeMs),
-          dim?.w ?? null, dim?.h ?? null, relThumb, nowMs, nowMs
-        )
-        dbByAbs.set(srcAbs, { abs_path: srcAbs, thumb: relThumb })
-        stats.added++
-      } else if (!row.thumb) {
-        updateThumbStmt.run(relThumb, dim?.w ?? null, dim?.h ?? null, nowMs, srcAbs)
-        row.thumb = relThumb
-        stats.updated++
-      }
-      stats.thumbs++
-      processed++
-
-      if (processed % 200 === 0) {
+      if (processed - reported >= 200) {
+        reported = processed
         onProgress({ phase: 'scan-cache', scanned: processed })
       }
     }
@@ -1159,13 +1244,13 @@ export async function runCacheTask(root, mode, { onProgress = () => {}, shouldAb
 
     if (mode !== 'clean') {
       const insertStmt = db.prepare(
-        `INSERT INTO files (abs_path, rel_path, name, folder, size, mtime, width, height, thumb, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO files (abs_path, rel_path, name, folder, size, mtime, width, height, thumb, thumb_size, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       const updateStmt = db.prepare(
         `UPDATE files SET name=?, folder=?, size=?, mtime=?, updated_at=? WHERE abs_path=?`
       )
-      const clearThumbStmt = db.prepare(`UPDATE files SET thumb=NULL WHERE abs_path=?`)
+      const clearThumbStmt = db.prepare(`UPDATE files SET thumb=NULL, thumb_size=NULL WHERE abs_path=?`)
       const deleteStmt = db.prepare('DELETE FROM files WHERE abs_path = ?')
 
       // 批量写入包进事务：逐条 autocommit 会触发大量 fsync，3 万图可卡住主进程上百秒
@@ -1176,7 +1261,7 @@ export async function runCacheTask(root, mode, { onProgress = () => {}, shouldAb
           if (!row) {
             const info = insertStmt.run(
               f.absPath, f.relPath, f.name, f.folder, f.size, f.mtime,
-              null, null, null, nowMs, nowMs
+              null, null, null, null, nowMs, nowMs
             )
             const isGif = GIF_NAME_RE.test(f.name)
             const isVideo = VIDEO_EXTS.has(extname(f.name).toLowerCase())
@@ -1259,19 +1344,23 @@ export async function runCacheTask(root, mode, { onProgress = () => {}, shouldAb
       let lastCurrent = ''
 
       const updateThumbStmt = db.prepare(
-        'UPDATE files SET thumb=?, width=?, height=?, updated_at=? WHERE id=?'
+        'UPDATE files SET thumb=?, width=?, height=?, thumb_size=?, updated_at=? WHERE id=?'
       )
+
+      // 预估每张图的解码像素（内存预算调度用）。只读文件头，但改为异步 + 并发，
+      // 避免重建几十万图时在主进程做大量同步 read 阻塞事件循环。
+      let heavyCount = 0
+      await mapLimit(needThumb, 32, async (job) => {
+        job.estMP = mpOf(await probeImageSizeAsync(job.absPath))
+      })
+      for (const job of needThumb) {
+        if ((job.estMP || 0) >= HEAVY_MP) heavyCount++
+      }
+      console.log(`[cache] thumb mp-probe done, heavy(>=${HEAVY_MP}MP)=${heavyCount}`)
 
       // 缩略图状态回写也包进事务，避免逐条 fsync 卡住主进程
       db.exec('BEGIN')
       try {
-        // 预估每张图的解码像素（用于内存预算调度），只读文件头，开销小
-        let heavyCount = 0
-        for (const job of needThumb) {
-          job.estMP = mpOf(probeImageSize(job.absPath))
-          if (job.estMP >= HEAVY_MP) heavyCount++
-        }
-        console.log(`[cache] thumb mp-probe done, heavy(>=${HEAVY_MP}MP)=${heavyCount}`)
 
         // 任务队列：开关打开 = 保持扫描顺序（连续读，机械硬盘友好）；关闭 = 跨目录打散
         const queue = buildThumbQueue(needThumb, cfg.cacheSequential)
@@ -1373,7 +1462,14 @@ export async function runCacheTask(root, mode, { onProgress = () => {}, shouldAb
                 return
               }
               if (m.type === 'thumb-done') {
-                updateThumbStmt.run(m.relThumb, m.width, m.height, Date.now(), m.id)
+                updateThumbStmt.run(
+                  m.relThumb,
+                  m.width,
+                  m.height,
+                  m.size ?? null,
+                  Date.now(),
+                  m.id
+                )
                 stats.thumbs++
                 done++
                 groupDone++
@@ -1476,14 +1572,23 @@ export async function runCacheTask(root, mode, { onProgress = () => {}, shouldAb
 
     // --- 3. 清理无用缓存（clean 模式，或顺带清理 rebuild 之外的孤儿）---
     if (mode === 'clean') {
-      const rows = db.prepare('SELECT abs_path, thumb FROM files').all()
+      const rows = db.prepare('SELECT abs_path, rel_path, thumb FROM files').all()
+      const delStmt = db.prepare('DELETE FROM files WHERE abs_path = ?')
       let removedRows = 0
-      for (const row of rows) {
+      // 源图存在性探测按批并发，磁盘往返不再逐张串行
+      const CLEAN_CONC = 24
+      for (let i = 0; i < rows.length; i += CLEAN_CONC) {
         checkAbort()
-        const abs = absFromRel(root.path, row.rel_path || relFromRoot(root.path, row.abs_path))
-        const st = await provider.stat(abs)
-        if (!st || !st.isFile) {
-          db.prepare('DELETE FROM files WHERE abs_path = ?').run(row.abs_path)
+        const chunk = rows.slice(i, i + CLEAN_CONC)
+        const results = await mapLimit(chunk, CLEAN_CONC, async (row) => {
+          if (shouldAbort?.()) throw new ScanAbortedError()
+          const abs = absFromRel(root.path, row.rel_path || relFromRoot(root.path, row.abs_path))
+          const st = await provider.stat(abs)
+          return { row, gone: !st || !st.isFile }
+        })
+        for (const { row, gone } of results) {
+          if (!gone) continue
+          delStmt.run(row.abs_path)
           if (row.thumb) await fsp.rm(join(thumbDir, row.thumb), { force: true })
           removedRows++
         }

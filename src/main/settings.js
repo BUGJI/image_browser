@@ -1,4 +1,4 @@
-import { getDb } from './db'
+import { getDb, prep } from './db'
 
 /**
  * 应用设置：持久化到 SQLite settings 表（key-value）
@@ -14,15 +14,13 @@ export function initSettingsTable() {
 }
 
 export function getSetting(key, fallback = null) {
-  const row = getDb().prepare('SELECT value FROM settings WHERE key = ?').get(key)
+  const row = prep('SELECT value FROM settings WHERE key = ?').get(key)
   return row ? row.value : fallback
 }
 
 export function setSetting(key, value) {
-  getDb()
-    .prepare(
-      `INSERT INTO settings (key, value) VALUES (?, ?)
-       ON CONFLICT(key) DO UPDATE SET value = excluded.value`
-    )
-    .run(key, String(value))
+  prep(
+    `INSERT INTO settings (key, value) VALUES (?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`
+  ).run(key, String(value))
 }

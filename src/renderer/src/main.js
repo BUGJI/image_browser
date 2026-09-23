@@ -1,9 +1,7 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
-import ElementPlus from 'element-plus'
-import 'element-plus/dist/index.css'
+// 深色主题变量（组件样式本身由 unplugin 按需注入）
 import 'element-plus/theme-chalk/dark/css-vars.css'
-import * as ElementPlusIconsVue from '@element-plus/icons-vue'
 import App from './App.vue'
 import './assets/main.css'
 import { ensureDevMock } from './dev-mock'
@@ -15,17 +13,11 @@ ensureDevMock()
 
 const app = createApp(App)
 
-// 全局注册 Element Plus 图标组件（模板中可直接 <Minus /> <Close /> 等）
-for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
-  app.component(key, component)
-}
-
 const pinia = createPinia()
 app.use(pinia)
 app.use(i18n)
-// Element Plus 组件库文案由 App.vue 中的 el-config-provider 按当前语言动态提供；
-// zIndex 基准设 6000，确保 message 等弹层高于灯箱遮罩（z-index 5000）
-app.use(ElementPlus, { zIndex: 6000 })
+// Element Plus 组件/图标按需自动引入（见 electron.vite.config.mjs）；
+// 组件库文案与 zIndex 由 App.vue 的 el-config-provider 提供。
 app.mount('#app')
 
 // 挂载后恢复语言设置（el-config-provider 会响应式切换）

@@ -1,28 +1,13 @@
 <script setup>
 import { useI18n } from 'vue-i18n'
-import { Close } from '@element-plus/icons-vue'
+import { InfoFilled } from '@element-plus/icons-vue'
 import { useNotificationsStore } from '../stores/notifications'
 import { useAnimationsStore } from '../stores/animations'
+import { NOTIFY_TYPE_ICON as TYPE_ICON, NOTIFY_TYPE_COLOR as TYPE_COLOR } from '../utils/notification-types'
 
 const { t } = useI18n()
 const store = useNotificationsStore()
 const animations = useAnimationsStore()
-
-const TYPE_ICON = {
-  info: 'InfoFilled',
-  success: 'SuccessFilled',
-  warning: 'WarningFilled',
-  error: 'CircleCloseFilled',
-  progress: 'VideoPlay'
-}
-
-const TYPE_COLOR = {
-  info: '#409eff',
-  success: '#67c23a',
-  warning: '#e6a23c',
-  error: '#f56c6c',
-  progress: '#409eff'
-}
 
 /** 点击操作按钮：先执行业务回调，再收起（若还在弹出区） */
 function onActionClick(n, action) {
@@ -47,7 +32,7 @@ function onCancel(n) {
         >
           <div class="notify-head">
             <el-icon :size="16" :style="{ color: TYPE_COLOR[n.type] }">
-              <component :is="TYPE_ICON[n.type] || 'InfoFilled'" />
+              <component :is="TYPE_ICON[n.type] || InfoFilled" />
             </el-icon>
             <span class="notify-title">{{ n.title }}</span>
             <button class="notify-close" :title="t('notifications.dismiss')" @click="store.dismiss(n.id)">
@@ -102,7 +87,8 @@ function onCancel(n) {
   position: fixed;
   right: 16px;
   bottom: 16px;
-  z-index: 4000;
+  /* 高于灯箱遮罩（5000），低于 Element Plus 弹层（config-provider z-index 6000） */
+  z-index: 5500;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -114,7 +100,7 @@ function onCancel(n) {
   pointer-events: auto;
   background: #fff;
   border: 1px solid #e6e8eb;
-  border-left: 3px solid #909399;
+  border-left: 3px solid var(--el-color-info);
   border-radius: 10px;
   padding: 10px 12px;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
@@ -129,19 +115,19 @@ html.dark .notify-card {
 }
 
 .notify-card.notify-info {
-  border-left-color: #409eff;
+  border-left-color: var(--el-color-primary);
 }
 .notify-card.notify-success {
-  border-left-color: #67c23a;
+  border-left-color: var(--el-color-success);
 }
 .notify-card.notify-warning {
-  border-left-color: #e6a23c;
+  border-left-color: var(--el-color-warning);
 }
 .notify-card.notify-error {
-  border-left-color: #f56c6c;
+  border-left-color: var(--el-color-danger);
 }
 .notify-card.notify-progress {
-  border-left-color: #409eff;
+  border-left-color: var(--el-color-primary);
 }
 
 .notify-head {
@@ -169,13 +155,13 @@ html.dark .notify-card {
   border: none;
   border-radius: 5px;
   background: transparent;
-  color: #909399;
+  color: var(--el-color-info);
   cursor: pointer;
 }
 
 .notify-close:hover {
-  background: #eef0f3;
-  color: #333;
+  background: var(--panel-hover);
+  color: var(--app-text);
 }
 
 .notify-msg {

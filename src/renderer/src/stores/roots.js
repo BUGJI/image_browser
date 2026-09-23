@@ -33,9 +33,20 @@ export const useRootsStore = defineStore('roots', () => {
     selectedFolder.value = folder
   }
 
-  async function refresh() {
-    await Promise.all([loadRoots(), loadCurrent()])
-    loaded.value = true
+  // 多个组件（App / SideBar）会在挂载时同时刷新，这里合并并发调用，
+  // 避免重复发起 rootsList + rootsGetCurrent 两组 IPC。
+  let refreshInFlight = null
+  function refresh() {
+    if (!refreshInFlight) {
+      refreshInFlight = Promise.all([loadRoots(), loadCurrent()])
+        .then(() => {
+          loaded.value = true
+        })
+        .finally(() => {
+          refreshInFlight = null
+        })
+    }
+    return refreshInFlight
   }
 
   return { roots, currentRootId, currentRoot, selectedFolder, loaded, loadRoots, loadCurrent, setCurrent, selectFolder, refresh }

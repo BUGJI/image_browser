@@ -1,14 +1,15 @@
 <script setup>
-import { ref, shallowRef, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ElMessage } from 'element-plus'
-import { Star, StarFilled } from '@element-plus/icons-vue'
+
 import Lightbox from './Lightbox.vue'
 import GifThumb from './GifThumb.vue'
 import VideoThumb from './VideoThumb.vue'
-import { buildImageUrl, isGifName, isVideoName } from '../utils/image-url'
+import { isGifName, isVideoName } from '../utils/image-url'
 import { useGifStore } from '../stores/gif'
 import { useFavoritesStore } from '../stores/favorites'
+import { useWaterfallLayout } from '../utils/use-waterfall-layout'
+import { useImageLoader } from '../utils/use-image-loader'
 
 const { t } = useI18n()
 
@@ -64,232 +65,91 @@ const props = defineProps({
 const gifStore = useGifStore()
 const favoritesStore = useFavoritesStore()
 
-const GAP = 10
-const COL_BASE_WIDTH = 200
-const FALLBACK_RATIO = 0.75
-const MAX_TILE_RATIO = 5 // 卡片比例上限：宽:高 不超过 1:5（高图）
-const MIN_TILE_RATIO = 0.5 // 卡片比例下限：宽:高 不小于 2:1（宽图）
-// 矩形模式卡片固定宽高比（高/宽）：1:1 正方形，配合 object-fit: cover 裁切超出部分
-const RECT_TILE_RATIO = 1
+// 虚拟布局引擎 + 图片加载调度（实现见 utils/use-waterfall-layout.js / use-image-loader.js）
+const layout = useWaterfallLayout(props)
+const {
+  items,
+  layoutVersion,
+  totalHeight,
+  setItems,
+  visibleItems,
+  inViewport,
+  isRatioCapped,
+  scheduleFullLayout,
+  applyInitialLayout,
+  reflowIncremental,
+  reflowFull,
+  updateScrollTop,
+  onItemLoaded,
+  observeResize,
+  disconnectResize,
+  cancelPending: cancelLayout
+} = layout
 
-const isRect = computed(() => props.mode === 'rect')
+const loader = useImageLoader(props, { visibleItems, inViewport })
+const {
+  srcFor,
+  loadMode,
+  priorityMode,
+  deferLoad,
+  primeViewportSrcs,
+  scheduleIdlePump,
+  enterScroll,
+  scheduleScrollIdle,
+  reset: resetSrcCache,
+  cancelPending: cancelLoader
+} = loader
 
-// 内存维度缓存：`rootId\u0000absPath -> {w,h}`。跨文件夹导航/滚动复用，
-// 让没有缓存索引（未跑维护）的图片也能用上一次加载到的真实比例，减少占位跳动。
-// 纯内存（本会话有效），有上限，超限淘汰最旧插入项。
-const DIM_CACHE_MAX = 120000
-const dimCache = new Map()
-
-function rememberDims(rootId, absPath, w, h) {
-  if (!absPath || !w || !h) return
-  const key = rootId + '\u0000' + absPath
-  if (dimCache.has(key)) return
-  if (dimCache.size >= DIM_CACHE_MAX) {
-    dimCache.delete(dimCache.keys().next().value)
-  }
-  dimCache.set(key, { w, h })
-}
-
-function knownDims(rootId, absPath) {
-  return dimCache.get(rootId + '\u0000' + absPath) || null
-}
-
-// 列表用 shallowRef：item 是普通对象，几何字段（x/y/w/h/col）与加载状态（width/height/_loaded）
-// 都不再逐条响应式，布局时的批量写入只触发一次 layoutVersion 变更，避免快速滚动时反复重排卡顿。
-const items = shallowRef([])
-const layoutVersion = ref(0)
+const scrollEl = ref(null)
 const loading = ref(false)
 const error = ref('')
 
-const scrollEl = ref(null)
-const scrollTop = ref(0)
-const viewportH = ref(0)
-const containerW = ref(0)
-const totalHeight = ref(0)
-
 const lightboxIndex = ref(-1)
 
-// ---------------------------------------------------------------- 布局
-// 几何信息直接写在 item 普通字段上（非响应式），
-// 布局只分两种：全量重建（换目录/缩放/容器尺寸变化）与增量提交（图片真实比例就绪后）。
-// 滚动过程中不做增量提交，等滚动停止后再批量 commit，消除“边滚边回排”的抖动与风暴。
-let curCols = 1 // 当前列数（决定是否保持列分配）
-let itemW = 0 // 当前列宽
-let avgRatio = FALLBACK_RATIO // 未知比例占位用的平均比例
-let lastScrollAt = 0 // 最近一次滚动时间戳（滚动空闲判定）
-let layoutTimer = null // 增量提交 debounce
-let layoutRaf = 0 // 全量重建 rAF 去重
-let layoutDirty = false // 是否有待提交的比例修正
-
-const COMMIT_DEBOUNCE = 200 // 距离最后一张图加载的等待毫秒数
-const SCROLL_IDLE = 250 // 距最近一次滚动至少空闲这么多毫秒才允许提交
-
-function calcCols() {
-  if (!containerW.value) return 1
-  const colMin = COL_BASE_WIDTH / Math.max(0.05, props.zoom)
-  // 不再硬限制列数：zoom 越大 colMin 越小，列数随之增加，缩放持续生效
-  return Math.max(1, Math.floor((containerW.value + GAP) / (colMin + GAP)))
-}
-
-/** 已知真实比例时返回比例，未知返回 null */
-function ratioOf(item) {
-  if (item.width && item.height) return item.height / item.width
-  if (item._loaded) return item._loaded.h / item._loaded.w
-  return null
-}
-
-/** 布局用高度比例：矩形模式统一等高；瀑布流模式开启比例限制时把超 1:5 的高图截到 1:5、宽于 2:1 的宽图抬到 2:1 下限 */
-function effectiveRatio(item) {
-  if (isRect.value) return RECT_TILE_RATIO
-  const raw = ratioOf(item) ?? avgRatio
-  if (props.capTall) {
-    if (raw > MAX_TILE_RATIO) return MAX_TILE_RATIO
-    if (raw < MIN_TILE_RATIO) return MIN_TILE_RATIO
-  }
-  return raw
-}
-
-/** 该卡片的原图比例是否被限制（用于给 <img> 切换 contain，保证整图可见不被裁剪）；矩形模式恒为 cover 裁切 */
-function isRatioCapped(item) {
-  if (isRect.value) return false
-  if (!props.capTall) return false
-  const r = ratioOf(item)
-  if (r == null) return false
-  return r > MAX_TILE_RATIO + 1e-6 || r < MIN_TILE_RATIO - 1e-6
-}
-
-/** 用本列表已知图片比例算均值，作为未知占位比例 */
-function recomputeAvg() {
-  let sum = 0
-  let n = 0
-  for (const it of items.value) {
-    const r = ratioOf(it)
-    if (r != null) {
-      sum += r
-      n++
-    }
-  }
-  avgRatio = n ? sum / n : FALLBACK_RATIO
-}
-
-/** 全量布局：先用内存真实尺寸回填，再逐条分配最短列并写几何 */
-function doFullLayout() {
-  // 1) 用内存里的真实尺寸回填（缓存索引缺失时），避免重复抖动
-  for (const it of items.value) {
-    if (it.width && it.height) continue
-    const d = knownDims(props.rootId, it.absPath)
-    if (d) {
-      it.width = d.w
-      it.height = d.h
-    }
-  }
-
-  curCols = calcCols()
-  itemW = (containerW.value - GAP * (curCols - 1)) / curCols
-  recomputeAvg()
-  const colBottom = new Array(curCols).fill(0)
-  for (const item of items.value) {
-    const h = itemW * effectiveRatio(item)
-    let col = 0
-    let minH = Infinity
-    for (let i = 0; i < curCols; i++) {
-      if (colBottom[i] < minH) {
-        minH = colBottom[i]
-        col = i
-      }
-    }
-    item.x = col * (itemW + GAP)
-    item.y = colBottom[col]
-    item.w = itemW
-    item.h = h
-    item.col = col
-    colBottom[col] += h + GAP
-  }
-  totalHeight.value = Math.max(...colBottom, 0)
-}
-
-/** 增量布局：保留已分配的列，仅按最新比例刷新各列 y/h（单遍 O(n)，不再重新分配列） */
-function doIncrementalLayout() {
-  if (!curCols) {
-    doFullLayout()
-    return
-  }
-  recomputeAvg()
-  const colBottom = new Array(curCols).fill(0)
-  for (const it of items.value) {
-    const h = itemW * effectiveRatio(it)
-    it.y = colBottom[it.col]
-    it.h = h
-    colBottom[it.col] = it.y + h + GAP
-  }
-  totalHeight.value = Math.max(...colBottom, 0)
-}
-
-/** 全量重建（换目录/缩放/尺寸变化）：rAF 合并到每帧一次，完成后统一触发重绘 */
-function scheduleFullLayout() {
-  if (layoutRaf) return
-  layoutRaf = requestAnimationFrame(() => {
-    layoutRaf = 0
-    doFullLayout()
-    layoutVersion.value++
+// 媒体（图/GIF/视频）实际加载完成的版本号：渲染时读取以驱动骨架屏显隐。
+// 按帧合并自增，避免同屏多张图各自触发一次重渲染。
+const mediaVersion = ref(0)
+let mediaRaf = 0
+function bumpMediaVersion() {
+  if (mediaRaf) return
+  mediaRaf = requestAnimationFrame(() => {
+    mediaRaf = 0
+    mediaVersion.value++
   })
 }
-
-/**
- * 图片真实比例就绪后的增量提交：
- * 滚动中 / 图片还在陆续加载时不提交（避免边滚边回排造成抖动与全表重算风暴），
- * 空闲后把攒下的一批修正一次性 commit。
- */
-function scheduleLayoutCommit() {
-  if (!curCols) {
-    scheduleFullLayout()
-    return
-  }
-  layoutDirty = true
-  clearTimeout(layoutTimer)
-  layoutTimer = setTimeout(() => {
-    if (!layoutDirty) return
-    if (Date.now() - lastScrollAt < SCROLL_IDLE) {
-      scheduleLayoutCommit()
-      return
-    }
-    layoutDirty = false
-    doIncrementalLayout()
-    layoutVersion.value++
-  }, COMMIT_DEBOUNCE)
+function isMediaLoaded(item) {
+  void mediaVersion.value
+  return !!item._loaded
 }
 
 // ---------------------------------------------------------------- 数据
 
 const isSearching = computed(() => !!props.searchQuery && props.searchQuery.trim() !== '')
 
-function initItems(list) {
-  return (list || []).map((it) => ({ ...it, x: 0, y: 0, w: 0, h: 0, col: 0, _loaded: null }))
+function extOfName(name) {
+  const n = name || ''
+  const i = n.lastIndexOf('.')
+  return i > 0 ? n.slice(i + 1).toLowerCase() : ''
 }
 
-/** 列表就绪后的首次布局（同步执行，避免首帧占位闪烁） */
-function applyInitialLayout() {
-  doFullLayout()
-  layoutVersion.value++
+function initItems(list) {
+  return (list || []).map((it) => ({
+    ...it,
+    x: 0,
+    y: 0,
+    w: 0,
+    h: 0,
+    col: 0,
+    _loaded: null,
+    _ext: extOfName(it.name)
+  }))
 }
 
 async function load() {
-  if (Array.isArray(props.favItems)) {
-    items.value = initItems(props.favItems)
-    totalHeight.value = 0
-    await nextTick()
-    applyInitialLayout()
-    return
-  }
-  if (Array.isArray(props.tagItems)) {
-    items.value = initItems(props.tagItems)
-    totalHeight.value = 0
-    await nextTick()
-    applyInitialLayout()
-    return
-  }
-  if (Array.isArray(props.aiResults)) {
-    items.value = initItems(props.aiResults)
+  // 外部直接注入的列表（收藏 / 标签 / AI 结果）优先渲染，不拉取 imagesList
+  const injected = [props.favItems, props.tagItems, props.aiResults].find((v) => Array.isArray(v))
+  if (injected) {
+    setItems(initItems(injected))
     totalHeight.value = 0
     await nextTick()
     applyInitialLayout()
@@ -297,7 +157,7 @@ async function load() {
   }
 
   if (!isSearching.value && !props.folderPath) {
-    items.value = []
+    setItems([])
     totalHeight.value = 0
     return
   }
@@ -307,7 +167,7 @@ async function load() {
     const list = isSearching.value
       ? await window.api.imagesList(props.rootId, null, props.searchQuery)
       : await window.api.imagesList(props.rootId, props.folderPath)
-    items.value = initItems(list)
+    setItems(initItems(list))
     await nextTick()
     applyInitialLayout()
   } catch (err) {
@@ -327,24 +187,10 @@ watch(
 watch(() => props.zoom, scheduleFullLayout)
 
 // 卡片比例限制开关变化：即时按新比例刷新（保留列分配，增量重排即可）
-watch(
-  () => props.capTall,
-  () => {
-    if (!items.value.length) return
-    doIncrementalLayout()
-    layoutVersion.value++
-  }
-)
+watch(() => props.capTall, reflowIncremental)
 
 // 浏览模式切换：瀑布流 ↔ 矩形，整表重新布局
-watch(
-  () => props.mode,
-  () => {
-    if (!items.value.length) return
-    doFullLayout()
-    layoutVersion.value++
-  }
-)
+watch(() => props.mode, reflowFull)
 
 // 缓存维护完成后 → 重新加载（此时 hasThumb 更新，改用缩略图 URL）
 watch(
@@ -356,105 +202,45 @@ watch(
 
 // ---------------------------------------------------------------- 滚动/尺寸
 
-function measure() {
-  if (!scrollEl.value) return
-  const el = scrollEl.value
-  const cs = getComputedStyle(el)
-  const padX = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0)
-  const w = el.clientWidth - padX
-  const h = el.clientHeight
-  if (w !== containerW.value || h !== viewportH.value) {
-    containerW.value = w
-    viewportH.value = h
-    scheduleFullLayout()
-  }
-}
-
 let scrollRaf = 0
 function onScroll() {
+  // 立即进入滚动态：暂停缓冲区加载（滚动优先）
+  enterScroll()
   if (scrollRaf) return
   scrollRaf = requestAnimationFrame(() => {
     scrollRaf = 0
-    lastScrollAt = Date.now()
-    scrollTop.value = scrollEl.value?.scrollTop || 0
+    updateScrollTop(scrollEl.value?.scrollTop || 0)
+    // 只保证严格可视区图片有 src；缓冲区等滚动空闲后由 idle 调度填充
+    primeViewportSrcs()
+    scheduleScrollIdle()
   })
 }
 
-let resizeObs = null
-onMounted(() => {
-  if (scrollEl.value && typeof ResizeObserver !== 'undefined') {
-    resizeObs = new ResizeObserver(() => measure())
-    resizeObs.observe(scrollEl.value)
-  }
-})
+onMounted(() => observeResize(scrollEl.value))
 onBeforeUnmount(() => {
-  resizeObs?.disconnect()
-  clearTimeout(layoutTimer)
-  if (layoutRaf) cancelAnimationFrame(layoutRaf)
+  disconnectResize()
+  cancelLayout()
+  cancelLoader()
+  if (scrollRaf) cancelAnimationFrame(scrollRaf)
+  if (mediaRaf) cancelAnimationFrame(mediaRaf)
 })
 
-// ---------------------------------------------------------------- 渲染
-
-const visibleItems = computed(() => {
-  // 依赖版本号：几何只写普通字段，全量/增量布局完成后自增一次，触发本屏重算
-  void layoutVersion.value
-  const top = scrollTop.value - props.preload
-  const bottom = scrollTop.value + viewportH.value + props.preload
-  return items.value.filter((it) => it.y + it.h > top && it.y < bottom)
+// 布局完成（首屏/换目录/缩放/尺寸变化）后：可视区立即取图，缓冲区空闲时再填
+watch(layoutVersion, () => {
+  primeViewportSrcs()
+  scheduleIdlePump()
 })
 
-/** item 是否落在「精确可视区」（非缓冲）内 */
-function inViewport(item) {
-  const top = scrollTop.value
-  const bottom = top + viewportH.value
-  return item.y + item.h > top && item.y < bottom
-}
+// 换根目录：URL 依赖 rootId，清空已分配缓存
+watch(() => props.rootId, resetSrcCache)
 
-/** img 的 loading 属性：可视区内立即加载，缓冲区内按开关决定懒加载 */
-function loadMode(item) {
-  return inViewport(item) ? 'eager' : props.bufferLazy ? 'lazy' : 'eager'
-}
-
-/** img 的 fetchpriority：可视区内高优先级，缓冲区低优先级（懒加载关闭时回到 auto） */
-function priorityMode(item) {
-  return inViewport(item) ? 'high' : props.bufferLazy ? 'low' : 'auto'
-}
-
-function srcFor(item) {
-  // 已知有缩略图时用 ?size=thumb（与无缩略图时的 URL 不同，避免复用缓存建立前的原图）
-  return buildImageUrl(props.rootId, item.absPath, item.hasThumb ? 'thumb' : 'auto')
-}
-
-function extOf(item) {
-  const n = item?.name || ''
-  const i = n.lastIndexOf('.')
-  return i > 0 ? n.slice(i + 1).toLowerCase() : ''
-}
-
+// 图片就绪：回填真实尺寸并按需排队增量重排；同时驱动骨架屏隐藏
 function onImgLoad(item, e) {
   const img = e.target
   const nw = img.naturalWidth || img.videoWidth
   const nh = img.naturalHeight || img.videoHeight
-  if (nw && nh) {
-    rememberDims(props.rootId, item.absPath, nw, nh)
-    const prevH = item.h
-    item._loaded = { w: nw, h: nh }
-    item.width = nw
-    item.height = nh
-    // 矩形模式卡片等高等宽，比例不参与布局，无需重排
-    if (isRect.value) return
-    // 比例与占位一致（如缓存索引已带尺寸）就不必重排；确有出入才排队批量提交
-    const naturalRatio = nh / nw
-    let cappedRatio = naturalRatio
-    if (props.capTall) {
-      if (naturalRatio > MAX_TILE_RATIO) cappedRatio = MAX_TILE_RATIO
-      else if (naturalRatio < MIN_TILE_RATIO) cappedRatio = MIN_TILE_RATIO
-    }
-    const newH = itemW ? itemW * cappedRatio : 0
-    if (Math.abs(newH - prevH) > 0.5) {
-      scheduleLayoutCommit()
-    }
-  }
+  onItemLoaded(item, nw, nh)
+  bumpMediaVersion()
 }
 
 function openLightbox(item) {
@@ -522,7 +308,7 @@ async function copyViaCanvas(e) {
 <template>
   <div ref="scrollEl" class="waterfall-scroll" @scroll.passive="onScroll">
     <div v-if="loading" class="waterfall-state">
-      <el-icon class="is-loading" :size="24"><VideoPlay /></el-icon>
+      <el-icon class="is-loading" :size="24"><Loading /></el-icon>
       <span>{{ t('waterfall.loading') }}</span>
     </div>
 
@@ -562,11 +348,14 @@ async function copyViaCanvas(e) {
         }"
         @click="handleItemClick(item, $event)"
       >
+        <!-- 占位骨架：媒体加载完成前显示，加载后移除 -->
+        <div v-if="!isMediaLoaded(item)" class="waterfall-skeleton" aria-hidden="true" />
         <VideoThumb
           v-if="isVideoName(item.name)"
           :root-id="rootId"
           :item="item"
           :play-mode="gifStore.webmAsGif ? gifStore.playMode : 'none'"
+          :defer-load="deferLoad(item)"
           :native-priority="priorityMode(item)"
           :class="{ 'fit-contain': isRatioCapped(item) }"
           @load="onImgLoad(item, $event)"
@@ -577,6 +366,7 @@ async function copyViaCanvas(e) {
           :item="item"
           :play-mode="gifStore.playMode"
           :thumb-source="gifStore.thumbSource"
+          :defer-load="deferLoad(item)"
           :native-loading="loadMode(item)"
           :native-priority="priorityMode(item)"
           :class="{ 'fit-contain': isRatioCapped(item) }"
@@ -584,7 +374,7 @@ async function copyViaCanvas(e) {
         />
         <img
           v-else
-          :src="srcFor(item)"
+          :src="srcFor(item) || undefined"
           :alt="item.name"
           draggable="false"
           decoding="async"
@@ -608,7 +398,7 @@ async function copyViaCanvas(e) {
             <StarFilled v-else />
           </el-icon>
         </button>
-        <span v-if="extOf(item)" class="waterfall-badge">{{ extOf(item) }}</span>
+        <span v-if="item._ext" class="waterfall-badge">{{ item._ext }}</span>
         <span v-if="item.match === 'text'" class="waterfall-text-badge">
           {{ t('waterfall.textMatch') }}
         </span>
@@ -673,13 +463,47 @@ async function copyViaCanvas(e) {
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
 }
 
+/* 占位骨架：底层的流光动画，媒体加载完成后由 v-if 移除 */
+.waterfall-skeleton {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    100deg,
+    var(--panel-bg) 30%,
+    var(--panel-hover) 50%,
+    var(--panel-bg) 70%
+  );
+  background-size: 200% 100%;
+  animation: waterfall-skeleton-shimmer 1.2s ease-in-out infinite;
+}
+
+@keyframes waterfall-skeleton-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* 媒体置于骨架之上；背景透明以便骨架透出 */
+.waterfall-item > img,
+.waterfall-item > video,
+.waterfall-item > .gif-thumb-pending,
+.waterfall-item > .video-thumb-pending {
+  position: relative;
+  z-index: 1;
+}
+
 .waterfall-item img {
   width: 100%;
   height: 100%;
   object-fit: cover;
   display: block;
   transition: transform 0.25s ease;
-  background: var(--panel-bg);
+  background: transparent;
 }
 
 .waterfall-item:hover img {
@@ -691,7 +515,7 @@ async function copyViaCanvas(e) {
   height: 100%;
   object-fit: cover;
   display: block;
-  background: #000;
+  background: transparent;
   transition: transform 0.25s ease;
 }
 

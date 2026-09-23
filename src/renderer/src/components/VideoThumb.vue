@@ -22,7 +22,9 @@ const props = defineProps({
   // 'all' | 'hover' | 'none'
   playMode: { type: String, default: 'none' },
   // 透传给根元素的 fetchpriority（可视区优先加载）
-  nativePriority: { type: String, default: 'auto' }
+  nativePriority: { type: String, default: 'auto' },
+  // 滚动中且处于缓冲区时为 true：暂不加载/取首帧，等滚动空闲再补（给滚动让路）
+  deferLoad: { type: Boolean, default: false }
 })
 const emit = defineEmits(['load'])
 
@@ -39,7 +41,7 @@ const showVideo = computed(
 
 let resolveSeq = 0
 async function ensurePoster() {
-  if (!needPoster.value) return
+  if (!needPoster.value || props.deferLoad) return
   if (posterState.value === 'ready') return
   const seq = ++resolveSeq
   posterState.value = 'loading'
@@ -53,6 +55,13 @@ watch(() => props.playMode, ensurePoster)
 watch(needPoster, (need) => {
   if (need) ensurePoster()
 })
+// 滚动停止（deferLoad 解除）后补取首帧
+watch(
+  () => props.deferLoad,
+  (d) => {
+    if (!d) ensurePoster()
+  }
+)
 ensurePoster()
 
 function onEnter() {
@@ -90,7 +99,7 @@ watch(showVideo, (show) => {
 
 <template>
   <video
-    v-if="showVideo || posterState === 'failed'"
+    v-if="!deferLoad && (showVideo || posterState === 'failed')"
     ref="videoEl"
     :src="videoUrl"
     :fetchpriority="nativePriority"
@@ -104,7 +113,7 @@ watch(showVideo, (show) => {
     @mouseleave="onLeave"
   />
   <img
-    v-else-if="posterUrl"
+    v-else-if="!deferLoad && posterUrl"
     :src="posterUrl"
     :alt="item.name"
     draggable="false"
@@ -121,6 +130,7 @@ watch(showVideo, (show) => {
 .video-thumb-pending {
   width: 100%;
   height: 100%;
-  background: var(--panel-bg);
+  /* 透明：让父级瀑布流的占位骨架透出 */
+  background: transparent;
 }
 </style>

@@ -1,9 +1,7 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
-import ElementPlus from 'element-plus'
-import 'element-plus/dist/index.css'
+// 深色主题变量（组件样式本身由 unplugin 按需注入）
 import 'element-plus/theme-chalk/dark/css-vars.css'
-import * as ElementPlusIconsVue from '@element-plus/icons-vue'
 import SettingsApp from './SettingsApp.vue'
 import '../assets/main.css'
 import { ensureDevMock } from '../dev-mock'
@@ -15,14 +13,10 @@ ensureDevMock()
 
 const app = createApp(SettingsApp)
 
-for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
-  app.component(key, component)
-}
-
 const pinia = createPinia()
 app.use(pinia)
 app.use(i18n)
-app.use(ElementPlus, { zIndex: 6000 })
+// Element Plus 组件/图标按需自动引入（见 electron.vite.config.mjs）
 app.mount('#settings-app')
 
 // 挂载后恢复语言设置（el-config-provider 会响应式切换）

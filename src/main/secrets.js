@@ -1,5 +1,5 @@
 import { safeStorage } from 'electron'
-import { getDb } from './db'
+import { getDb, prep } from './db'
 
 /**
  * 根目录凭据存储：单独建表，优先用 Electron safeStorage 加密。
@@ -45,19 +45,17 @@ function decrypt(stored) {
 }
 
 export function setRootSecret(rootId, secret) {
-  getDb()
-    .prepare(
-      `INSERT INTO root_secrets (root_id, secret) VALUES (?, ?)
-       ON CONFLICT(root_id) DO UPDATE SET secret = excluded.secret`
-    )
-    .run(Number(rootId), encrypt(secret))
+  prep(
+    `INSERT INTO root_secrets (root_id, secret) VALUES (?, ?)
+     ON CONFLICT(root_id) DO UPDATE SET secret = excluded.secret`
+  ).run(Number(rootId), encrypt(secret))
 }
 
 export function getRootSecret(rootId) {
-  const row = getDb().prepare('SELECT secret FROM root_secrets WHERE root_id = ?').get(Number(rootId))
+  const row = prep('SELECT secret FROM root_secrets WHERE root_id = ?').get(Number(rootId))
   return row ? decrypt(row.secret) : ''
 }
 
 export function removeRootSecret(rootId) {
-  getDb().prepare('DELETE FROM root_secrets WHERE root_id = ?').run(Number(rootId))
+  prep('DELETE FROM root_secrets WHERE root_id = ?').run(Number(rootId))
 }

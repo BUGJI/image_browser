@@ -1,7 +1,6 @@
 <script setup>
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Edit, Delete, CollectionTag } from '@element-plus/icons-vue'
 
 const { t } = useI18n()

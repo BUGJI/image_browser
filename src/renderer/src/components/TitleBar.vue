@@ -1,8 +1,6 @@
 <script setup>
 import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Minus, FullScreen, CopyDocument, Close } from '@element-plus/icons-vue'
-
 const { t } = useI18n()
 
 // 注意：模板里不能直接写 window.api（Vue 编译后 _ctx.window 为 undefined），

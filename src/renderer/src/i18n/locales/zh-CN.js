@@ -112,7 +112,10 @@ export default {
     tagSelectPlaceholder: '选择或输入新标签…',
     tagSelectTip: '从已有标签中选择，或输入新名称后回车创建；修改即时保存。',
     loadingOrig: '加载原图中…',
-    navHint: '←/→ 切换 · Esc 关闭'
+    navHint: '←/→ 切换 · Esc 关闭',
+    close: '关闭',
+    prev: '上一张',
+    next: '下一张'
   },
   closeAsk: {
     title: '关闭程序',

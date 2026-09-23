@@ -97,6 +97,48 @@ function ensureOcrTable(db) {
       updated_at INTEGER NOT NULL
     )
   `)
+  ensureOcrFts(db)
+}
+
+/**
+ * 建立 ocr_text 的 FTS5 外部内容索引（trigram 分词），加速图内文字的子串检索。
+ * - trigram 支持任意位置的中英文子串匹配（查询需 ≥3 个字符；更短的由 cache.js 回退 LIKE）。
+ * - 外部内容（content='ocr_text'）不复制原文，只存索引；用触发器保持同步。
+ * - 索引已存在时不做任何事；首次创建后从 ocr_text 回填一次。
+ */
+function ensureOcrFts(db) {
+  try {
+    const has = db
+      .prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'ocr_fts'")
+      .get()
+    if (has) return
+    db.exec(`
+      CREATE VIRTUAL TABLE ocr_fts USING fts5(
+        text,
+        content='ocr_text',
+        content_rowid='rowid',
+        tokenize='trigram'
+      );
+      CREATE TRIGGER IF NOT EXISTS ocr_text_ai AFTER INSERT ON ocr_text BEGIN
+        INSERT INTO ocr_fts(rowid, text) VALUES (new.rowid, new.text);
+      END;
+      CREATE TRIGGER IF NOT EXISTS ocr_text_ad AFTER DELETE ON ocr_text BEGIN
+        INSERT INTO ocr_fts(ocr_fts, rowid, text) VALUES ('delete', old.rowid, old.text);
+      END;
+      CREATE TRIGGER IF NOT EXISTS ocr_text_au AFTER UPDATE ON ocr_text BEGIN
+        INSERT INTO ocr_fts(ocr_fts, rowid, text) VALUES ('delete', old.rowid, old.text);
+        INSERT INTO ocr_fts(rowid, text) VALUES (new.rowid, new.text);
+      END;
+    `)
+    // 回填既有记录（升级场景）
+    try {
+      db.exec("INSERT INTO ocr_fts(ocr_fts) VALUES('rebuild')")
+    } catch {
+      /* rebuild 失败不致命，检索会自动回退 LIKE */
+    }
+  } catch (err) {
+    console.warn('[ocr] create fts index failed, fallback to LIKE:', err?.message || err)
+  }
 }
 
 function metaSet(db, key, value) {

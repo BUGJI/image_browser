@@ -1,15 +1,14 @@
 <script setup>
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ElConfigProvider, ElMessage } from 'element-plus'
 import en from 'element-plus/es/locale/lang/en'
 import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import TitleBar from './components/TitleBar.vue'
 import SideBar from './components/SideBar.vue'
 import NotificationHost from './components/NotificationHost.vue'
-import WaterfallGrid from './components/WaterfallGrid.vue'
+import Toolbar from './components/Toolbar.vue'
+import RootView from './components/RootView.vue'
 import CloseAskDialog from './components/CloseAskDialog.vue'
-import { Picture, Search, Loading, StarFilled, CollectionTag } from '@element-plus/icons-vue'
 import { useRootsStore } from './stores/roots'
 import { useThemeStore } from './stores/theme'
 import { useNotificationsStore } from './stores/notifications'
@@ -19,14 +18,14 @@ import { aiSearch } from './utils/ai-search'
 import { useGifStore } from './stores/gif'
 import { useFavoritesStore } from './stores/favorites'
 import { useTagsStore } from './stores/tags'
+import { useSettings, asBool, asEnum, asNumber } from './utils/use-settings'
 
 const { t } = useI18n()
 const localeStore = useLocaleStore()
 // Element Plus 组件库文案随语言联动
 const elementLocale = computed(() => (localeStore.locale === 'en-US' ? en : zhCn))
 
-// 顶栏模式：custom = 自绘顶栏（frameless）；system = 系统默认顶栏
-const useCustomTitlebar = ref(true)
+// 顶栏模式 / 缩放上限等窗口设置由下方 useSettings 统一声明
 let offSettingsChanged = null
 // 全局缓存维护进度通知（滞留于主窗口通知列表）
 let offCacheProgress = null
@@ -58,7 +57,6 @@ function showUpdateNotify(p) {
 
 // 瀑布流缩放：值越大 item 越小，一行容纳更多图片
 const itemZoom = ref(1.5)
-const zoomMax = ref(2)
 const ZOOM_STORAGE_KEY = 'waterfall-zoom'
 const ZOOM_MIN = 0.5
 // 浏览模式：瀑布流（保持原比例） / 矩形（等高卡片，超出部分裁切）
@@ -80,27 +78,9 @@ const searchInput = ref('')
 const searchQuery = ref('')
 const isSearching = computed(() => searchQuery.value.trim() !== '')
 
-// 快速复制：开启后点击图片直接复制（类型见设置-常规），不进灯箱
+// 快速复制：开启后点击图片直接复制（类型见设置-常规），不进灯箱；开关本地记忆
 const QUICK_COPY_KEY = 'quick-copy'
 const quickCopyEnabled = ref(false)
-const quickCopyType = ref('file') // 'file' | 'image'
-const quickCopyLabel = computed(() =>
-  t(quickCopyType.value === 'file' ? 'lightbox.copyFileAction' : 'lightbox.copyImageAction')
-)
-
-// 瀑布流卡片文件名显示方式：none / hover / always（设置 - 外观）
-const itemNameMode = ref('hover')
-// 卡片右上角格式角标显示方式：none / hover / always（默认不显示）
-const itemExtMode = ref('none')
-// 卡片左上角收藏按钮显示方式：none / hover / always（默认不显示）
-const itemFavMode = ref('none')
-// 卡片左下角「图内文字」角标显示方式：none / hover / always（默认不显示）
-const itemTextMatchMode = ref('none')
-// 性能（设置 - 性能）：滚动预载距离 + 缓冲区懒加载（可视区外的图接近视口再解码）
-const imagePreload = ref(900)
-const imageBufferLazy = ref(true)
-// 卡片比例限制（设置-开发者选项-瀑布流）：默认开，卡片宽高比限制在 1:5 ~ 2:1
-const imageTallCap = ref(true)
 function toggleQuickCopy() {
   quickCopyEnabled.value = !quickCopyEnabled.value
   try {
@@ -180,17 +160,82 @@ const gifStore = useGifStore()
 const favoritesStore = useFavoritesStore()
 const tagsStore = useTagsStore()
 
-// 「我的收藏」视图（仅当前根目录）
-const showFavorites = ref(false) // 设置 - 扩展功能-收藏夹：是否显示入口
-const favoritesEnabled = ref(true) // 扩展功能总开关（收藏夹）
-const tagsEnabled = ref(true) // 扩展功能总开关（标签）
 const favActive = ref(false) // 是否正在浏览“我的收藏”
+const tagActive = ref(false) // 是否正在浏览某个标签
+
+// ---------- 窗口设置：默认值 / 归一化 / 变更副作用集中声明 ----------
+const {
+  titlebar: useCustomTitlebar,
+  quickCopyType,
+  itemNameMode,
+  itemExtMode,
+  itemFavMode,
+  itemTextMatchMode,
+  showFavorites,
+  favoritesEnabled,
+  tagsEnabled,
+  imagePreload,
+  imageBufferLazy,
+  imageTallCap,
+  zoomMax,
+  rememberZoom,
+  load: loadSettings,
+  handleChange: applySettingChange
+} = useSettings({
+  // 顶栏模式：custom = 自绘顶栏（frameless）；system = 系统默认顶栏
+  titlebar: { default: 'custom', normalize: (v) => v === 'custom' },
+  quickCopyType: { default: 'file', normalize: asEnum(['file', 'image'], 'file') },
+  // 卡片文件名 / 格式角标 / 收藏按钮 / 图内文字角标的显示方式：none / hover / always
+  itemNameMode: { default: 'hover', normalize: asEnum(['none', 'hover', 'always'], 'hover') },
+  itemExtMode: { default: 'none', normalize: asEnum(['none', 'hover', 'always'], 'none') },
+  itemFavMode: { default: 'none', normalize: asEnum(['none', 'hover', 'always'], 'none') },
+  itemTextMatchMode: { default: 'none', normalize: asEnum(['none', 'hover', 'always'], 'none') },
+  // 扩展功能总开关
+  showFavorites: { default: false, normalize: asBool(false) },
+  favoritesEnabled: {
+    default: true,
+    normalize: asBool(true),
+    onChange: (v) => {
+      if (!v) favActive.value = false
+    }
+  },
+  tagsEnabled: {
+    default: true,
+    normalize: asBool(true),
+    onChange: (v) => {
+      if (!v) {
+        tagActive.value = false
+        tagsStore.leaveTag()
+      }
+    }
+  },
+  // 性能：滚动预载距离 + 缓冲区懒加载 + 卡片比例限制
+  imagePreload: { default: 900, normalize: asNumber(900, 0) },
+  imageBufferLazy: { default: true, normalize: asBool(true) },
+  imageTallCap: { default: true, normalize: asBool(true) },
+  zoomMax: {
+    default: 2,
+    normalize: asNumber(2, 1),
+    onChange: (v) => {
+      if (itemZoom.value > v) {
+        itemZoom.value = v
+        saveZoom()
+      }
+    }
+  },
+  rememberZoom: { default: false, normalize: asBool(false) }
+})
+
+const quickCopyLabel = computed(() =>
+  t(quickCopyType.value === 'file' ? 'lightbox.copyFileAction' : 'lightbox.copyImageAction')
+)
+
+// 「我的收藏」视图（仅当前根目录）
 const favItems = computed(() =>
   favActive.value && favoritesStore.rootId === rootsStore.currentRootId ? favoritesStore.list : null
 )
 
 // 「标签」视图（仅当前根目录）：选中某标签后浏览其下图片
-const tagActive = ref(false) // 是否正在浏览某个标签
 const activeTagInfo = computed(() => tagsStore.findTag(tagsStore.activeTagId))
 const tagItems = computed(() =>
   tagActive.value && tagsStore.rootId === rootsStore.currentRootId && tagsStore.activeTagId != null
@@ -272,42 +317,32 @@ const rootDisplayName = computed(() => {
   return parts.length ? parts[parts.length - 1] : root.path
 })
 
-// ---------- 通知历史面板 ----------
-const TYPE_ICON = {
-  info: 'InfoFilled',
-  success: 'SuccessFilled',
-  warning: 'WarningFilled',
-  error: 'CircleCloseFilled',
-  progress: 'VideoPlay'
-}
-
-const TYPE_COLOR = {
-  info: '#409eff',
-  success: '#67c23a',
-  warning: '#e6a23c',
-  error: '#f56c6c',
-  progress: '#409eff'
-}
-
-const STATUS_TAG = computed(() => ({
-  active: { label: t('notifications.active'), type: 'primary' },
-  done: { label: t('notifications.done'), type: 'success' },
-  aborted: { label: t('notifications.aborted'), type: 'warning' },
-  dismissed: { label: t('notifications.dismissed'), type: 'info' }
+// 瀑布流外观参数（打包传给 RootView → WaterfallGrid）
+const gridSettings = computed(() => ({
+  zoom: itemZoom.value,
+  refreshTick: cacheRefreshTick.value,
+  quickCopy: quickCopyEnabled.value,
+  quickCopyType: quickCopyType.value,
+  nameMode: itemNameMode.value,
+  extMode: itemExtMode.value,
+  favMode: itemFavMode.value,
+  textMatchMode: itemTextMatchMode.value,
+  preload: imagePreload.value,
+  bufferLazy: imageBufferLazy.value,
+  capTall: imageTallCap.value,
+  mode: browseMode.value
 }))
 
-function statusTag(n) {
-  return STATUS_TAG.value[n.status] || null
-}
-
-function fmtTime(ts) {
-  const d = new Date(ts)
-  const now = new Date()
-  const pad = (x) => String(x).padStart(2, '0')
-  const hm = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
-  if (d.toDateString() === now.toDateString()) return hm
-  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${hm}`
-}
+// 空态文案：收藏/标签视图各自覆盖
+const gridEmptyText = computed(() =>
+  favActive.value
+    ? t('app.favEmpty')
+    : tagActive.value
+      ? activeTagInfo.value?.name
+        ? t('app.tagEmpty', { name: activeTagInfo.value.name })
+        : t('app.tagEmptyGeneric')
+      : ''
+)
 
 function openSettings() {
   window.api.openSettings()
@@ -392,15 +427,13 @@ function saveZoom() {
 }
 
 onMounted(async () => {
-  const mode = await window.api.getSetting('titlebar', 'custom')
-  useCustomTitlebar.value = mode === 'custom'
-
   // AI 搜索正在开发中：主界面不再读取开关，固定关闭
   aiSearchEnabled.value = false
 
-  // 快速复制：类型取自「设置 - 常规」，开关状态本地记忆
-  const qcType = await window.api.getSetting('quickCopyType', 'file')
-  quickCopyType.value = ['file', 'image'].includes(qcType) ? qcType : 'file'
+  // 窗口设置（顶栏 / 快速复制类型 / 卡片显示 / 扩展功能 / 性能 / 缩放上限 / 记忆缩放）
+  await loadSettings()
+
+  // 快速复制开关：本地记忆
   try {
     quickCopyEnabled.value = localStorage.getItem(QUICK_COPY_KEY) === '1'
   } catch {
@@ -414,32 +447,8 @@ onMounted(async () => {
     /* ignore */
   }
 
-  // 瀑布流文件名显示方式（设置 - 外观）
-  const inm = await window.api.getSetting('itemNameMode', 'hover')
-  itemNameMode.value = ['none', 'hover', 'always'].includes(inm) ? inm : 'hover'
-  const iem = await window.api.getSetting('itemExtMode', 'none')
-  itemExtMode.value = ['none', 'hover', 'always'].includes(iem) ? iem : 'none'
-  const ifm = await window.api.getSetting('itemFavMode', 'none')
-  itemFavMode.value = ['none', 'hover', 'always'].includes(ifm) ? ifm : 'none'
-  const itm = await window.api.getSetting('itemTextMatchMode', 'none')
-  itemTextMatchMode.value = ['none', 'hover', 'always'].includes(itm) ? itm : 'none'
-  showFavorites.value = (await window.api.getSetting('showFavorites', 'false')) === 'true'
-  favoritesEnabled.value = (await window.api.getSetting('favoritesEnabled', 'true')) !== 'false'
-  tagsEnabled.value = (await window.api.getSetting('tagsEnabled', 'true')) !== 'false'
-
-  // 性能（设置 - 性能）：滚动预载距离 + 缓冲区懒加载
-  const pp = parseFloat(await window.api.getSetting('imagePreload', '900'))
-  imagePreload.value = Number.isFinite(pp) && pp >= 0 ? pp : 900
-  imageBufferLazy.value = (await window.api.getSetting('imageBufferLazy', 'true')) !== 'false'
-  imageTallCap.value = (await window.api.getSetting('imageTallCap', 'true')) !== 'false'
-
-  // 缩放滑块最大值（开发者选项可配置，默认 2）
-  const zm = parseFloat(await window.api.getSetting('zoomMax', '2'))
-  zoomMax.value = Number.isFinite(zm) ? Math.max(1, zm) : 2
-
   // 记忆缩放：开启时恢复上次缩放值；关闭时每次启动默认 1.5
-  const rememberZoom = (await window.api.getSetting('rememberZoom', 'false')) === 'true'
-  if (rememberZoom) {
+  if (rememberZoom.value) {
     try {
       const saved = parseFloat(localStorage.getItem(ZOOM_STORAGE_KEY))
       if (Number.isFinite(saved)) {
@@ -458,64 +467,13 @@ onMounted(async () => {
   localeStore.load()
   await gifStore.load()
   offSettingsChanged = window.api.onSettingsChanged(({ key, value }) => {
-    if (key === 'titlebar') {
-      useCustomTitlebar.value = value === 'custom'
-    }
+    // AI 搜索开发中：忽略外部改动，保持关闭
     if (key === 'aiSearchEnabled') {
-      // AI 搜索开发中：忽略外部改动，保持关闭
       aiSearchEnabled.value = false
       aiSearchActive.value = false
     }
-
-    if (key === 'zoomMax') {
-      const zm = parseFloat(value)
-      if (Number.isFinite(zm)) {
-        zoomMax.value = Math.max(1, zm)
-        if (itemZoom.value > zoomMax.value) {
-          itemZoom.value = zoomMax.value
-          saveZoom()
-        }
-      }
-    }
-    if (key === 'quickCopyType') {
-      quickCopyType.value = ['file', 'image'].includes(value) ? value : 'file'
-    }
-    if (key === 'itemNameMode') {
-      itemNameMode.value = ['none', 'hover', 'always'].includes(value) ? value : 'hover'
-    }
-    if (key === 'itemExtMode') {
-      itemExtMode.value = ['none', 'hover', 'always'].includes(value) ? value : 'none'
-    }
-    if (key === 'itemFavMode') {
-      itemFavMode.value = ['none', 'hover', 'always'].includes(value) ? value : 'none'
-    }
-    if (key === 'itemTextMatchMode') {
-      itemTextMatchMode.value = ['none', 'hover', 'always'].includes(value) ? value : 'none'
-    }
-    if (key === 'showFavorites') {
-      showFavorites.value = value === 'true'
-    }
-    if (key === 'favoritesEnabled') {
-      favoritesEnabled.value = value !== 'false'
-      if (!favoritesEnabled.value) favActive.value = false
-    }
-    if (key === 'tagsEnabled') {
-      tagsEnabled.value = value !== 'false'
-      if (!tagsEnabled.value) {
-        tagActive.value = false
-        tagsStore.leaveTag()
-      }
-    }
-    if (key === 'imagePreload') {
-      const pp = parseFloat(value)
-      if (Number.isFinite(pp) && pp >= 0) imagePreload.value = pp
-    }
-    if (key === 'imageBufferLazy') {
-      imageBufferLazy.value = value !== 'false'
-    }
-    if (key === 'imageTallCap') {
-      imageTallCap.value = value !== 'false'
-    }
+    // 其余窗口设置由 useSettings 统一归一化并触发副作用
+    applySettingChange(key, value)
     themeStore.onSettingsChanged({ key, value })
     localeStore.onSettingsChanged({ key, value })
     animationsStore.onSettingsChanged({ key, value })
@@ -539,7 +497,8 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <el-config-provider :locale="elementLocale">
+  <!-- zIndex 基准 6000：确保 message 等弹层高于灯箱遮罩（z-index 5000） -->
+  <el-config-provider :locale="elementLocale" :z-index="6000">
     <div class="app-layout">
       <TitleBar v-if="useCustomTitlebar" />
       <NotificationHost />
@@ -558,287 +517,47 @@ onBeforeUnmount(() => {
 
         <main class="app-content">
           <!-- 悬浮栏：快速复制 + 搜索 + AI + 缩放滑块 + 通知中心 + 主题切换 -->
-          <div class="floating-toolbar">
-            <!-- 快速复制开关：开启后点击图片直接复制，不进灯箱 -->
-            <el-tooltip
-              :content="t('app.quickCopyTip', { type: quickCopyLabel })"
-              placement="bottom"
-              :show-after="150"
-            >
-              <div
-                class="quick-copy-toggle"
-                :class="{ 'quick-copy-on': quickCopyEnabled }"
-                @click="toggleQuickCopy"
-              >
-                <span class="quick-copy-label">{{ t('app.quickCopy') }}</span>
-                <el-switch
-                  :model-value="quickCopyEnabled"
-                  size="small"
-                  class="quick-copy-switch"
-                />
-              </div>
-            </el-tooltip>
-
-            <!-- 图片搜索（回车触发，支持 * ? 通配符） -->
-            <div class="toolbar-search">
-              <el-input
-                v-model="searchInput"
-                :placeholder="t('app.searchImages')"
-                :disabled="!rootsStore.currentRoot"
-                clearable
-                size="small"
-                class="search-input"
-                @keyup.enter="applySearch"
-                @clear="clearSearch"
-              >
-                <template #prefix>
-                  <el-icon :size="14"><Search /></el-icon>
-                </template>
-              </el-input>
-            </div>
-
-            <!-- AI 搜索开关（设置中启用后显示） -->
-            <div v-if="aiSearchEnabled" class="ai-search-toggle">
-              <el-icon v-if="aiSearchBusy" class="is-loading ai-search-loading" :size="14">
-                <Loading />
-              </el-icon>
-              <el-switch
-                v-model="aiSearchActive"
-                size="small"
-                :aria-label="t('app.aiSearchToggle')"
-              />
-              <span class="ai-search-label">{{ t('app.aiSearchToggle') }}</span>
-            </div>
-
-            <div class="zoom-control">
-              <el-tooltip :content="t('app.zoomTip')" placement="bottom" :show-after="200">
-                <span class="zoom-icon"><el-icon :size="14"><Picture /></el-icon></span>
-              </el-tooltip>
-              <el-slider
-                v-model="itemZoom"
-                :min="ZOOM_MIN"
-                :max="zoomMax"
-                :step="0.1"
-                :show-tooltip="false"
-                class="zoom-slider"
-                @change="saveZoom"
-              />
-            </div>
-
-            <!-- 浏览模式切换：瀑布流 / 矩形（矩形模式卡片等高、超出裁切） -->
-            <el-tooltip
-              :content="
-                t('app.browseModeTip', {
-                  mode: browseMode === 'rect' ? t('app.browseModeRect') : t('app.browseModeWaterfall')
-                })
-              "
-              placement="bottom"
-              :show-after="200"
-            >
-              <button
-                class="toolbar-btn"
-                :title="
-                  t('app.browseModeTip', {
-                    mode: browseMode === 'rect' ? t('app.browseModeRect') : t('app.browseModeWaterfall')
-                  })
-                "
-                @click="toggleBrowseMode"
-              >
-                <el-icon :size="16">
-                  <Grid v-if="browseMode === 'rect'" />
-                  <Menu v-else />
-                </el-icon>
-              </button>
-            </el-tooltip>
-
-            <!-- 通知中心 -->
-            <el-popover
-              placement="bottom-end"
-              :width="380"
-              trigger="click"
-              popper-class="notify-popper"
-              @show="notificationsStore.markAllRead()"
-            >
-              <template #reference>
-                <el-badge
-                  :value="notificationsStore.unreadCount"
-                  :hidden="notificationsStore.unreadCount === 0"
-                  :max="99"
-                  :offset="[-4, 6]"
-                  class="notify-badge"
-                >
-                  <button class="toolbar-btn" :title="t('app.notifications')">
-                    <el-icon :size="16"><Bell /></el-icon>
-                  </button>
-                </el-badge>
-              </template>
-
-              <div class="notify-panel">
-                <div class="notify-panel-head">
-                  <span class="notify-panel-title">{{ t('app.notifications') }}</span>
-                  <el-button
-                    v-if="notificationsStore.items.length"
-                    link
-                    type="primary"
-                    size="small"
-                    @click="notificationsStore.clearAll()"
-                  >
-                    {{ t('app.clearAll') }}
-                  </el-button>
-                </div>
-
-                <div v-if="!notificationsStore.items.length" class="notify-panel-empty">
-                  {{ t('app.noNotifications') }}
-                </div>
-
-                <div v-else class="notify-list">
-                  <div
-                    v-for="n in notificationsStore.items"
-                    :key="n.id"
-                    class="notify-item"
-                    :class="{ 'notify-item-unread': !n.read }"
-                  >
-                    <el-icon
-                      :size="15"
-                      class="notify-item-icon"
-                      :style="{ color: TYPE_COLOR[n.type] }"
-                    >
-                      <component :is="TYPE_ICON[n.type] || 'InfoFilled'" />
-                    </el-icon>
-                    <div class="notify-item-main">
-                      <div class="notify-item-title">
-                        {{ n.title }}
-                        <el-tag
-                          v-if="statusTag(n)"
-                          size="small"
-                          :type="statusTag(n).type"
-                          class="notify-status-tag"
-                        >
-                          {{ statusTag(n).label }}
-                        </el-tag>
-                      </div>
-                      <div v-if="n.message" class="notify-item-msg">{{ n.message }}</div>
-                      <div class="notify-item-foot">
-                        <span class="notify-item-time">{{ fmtTime(n.createdAt) }}</span>
-                        <span v-if="n.actions.length" class="notify-item-actions">
-                          <el-button
-                            v-for="a in n.actions"
-                            :key="a.label"
-                            link
-                            size="small"
-                            :type="a.kind === 'primary' ? 'primary' : 'default'"
-                            @click="a.onClick?.()"
-                          >
-                            {{ a.label }}
-                          </el-button>
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </el-popover>
-
-            <!-- 主题切换 -->
-            <el-tooltip :content="t('app.themeToggleTip')" placement="bottom" :show-after="200">
-              <button class="toolbar-btn" :title="t('app.themeToggleTitle')" @click="themeStore.toggle()">
-                <el-icon :size="16">
-                  <Sunny v-if="themeStore.mode === 'light'" />
-                  <Moon v-else />
-                </el-icon>
-              </button>
-            </el-tooltip>
-          </div>
+          <Toolbar
+            :quick-copy-enabled="quickCopyEnabled"
+            :quick-copy-type="quickCopyType"
+            :search-input="searchInput"
+            :search-disabled="!rootsStore.currentRoot"
+            :ai-search-enabled="aiSearchEnabled"
+            :ai-search-active="aiSearchActive"
+            :ai-search-busy="aiSearchBusy"
+            :item-zoom="itemZoom"
+            :zoom-min="ZOOM_MIN"
+            :zoom-max="zoomMax"
+            :browse-mode="browseMode"
+            @toggle-quick-copy="toggleQuickCopy"
+            @update:search-input="searchInput = $event"
+            @search="applySearch"
+            @clear-search="clearSearch"
+            @update:ai-search-active="aiSearchActive = $event"
+            @update:item-zoom="itemZoom = $event"
+            @save-zoom="saveZoom"
+            @toggle-browse-mode="toggleBrowseMode"
+          />
 
           <!-- 已选择根目录 -->
-          <div v-if="rootsStore.currentRoot" class="root-view">
-            <div class="root-header">
-              <div class="root-header-main">
-                <h2 class="root-title">{{ rootDisplayName }}</h2>
-                <p class="root-path">{{ rootsStore.currentRoot.path }}</p>
-              </div>
-            </div>
-            <div class="root-body">
-              <template v-if="rootsStore.selectedFolder && !isSearching && !favActive && !tagActive">
-                <div class="folder-banner">
-                  <el-icon :size="18" class="folder-banner-icon"><Folder /></el-icon>
-                  <div class="folder-banner-text">
-                    <h3 class="folder-banner-name">{{ rootsStore.selectedFolder.name }}</h3>
-                    <p class="folder-banner-path">{{ rootsStore.selectedFolder.path }}</p>
-                  </div>
-                </div>
-              </template>
-              <template v-else-if="favActive">
-                <div class="folder-banner">
-                  <el-icon :size="18" class="folder-banner-icon fav-banner-icon">
-                    <StarFilled />
-                  </el-icon>
-                  <div class="folder-banner-text">
-                    <h3 class="folder-banner-name">{{ t('app.myFavorites') }}</h3>
-                    <p class="folder-banner-path">
-                      {{ t('app.favBannerRoot', { name: rootDisplayName }) }} ·
-                      {{ t('app.favCount', { n: favoritesStore.list.length }) }}
-                    </p>
-                  </div>
-                </div>
-              </template>
-              <template v-else-if="tagActive">
-                <div class="folder-banner">
-                  <el-icon :size="18" class="folder-banner-icon tag-banner-icon">
-                    <CollectionTag />
-                  </el-icon>
-                  <div class="folder-banner-text">
-                    <h3 class="folder-banner-name">
-                      {{ activeTagInfo?.name || '' }}
-                    </h3>
-                    <p class="folder-banner-path">
-                      {{ t('app.favBannerRoot', { name: rootDisplayName }) }} ·
-                      {{ t('app.favCount', { n: tagItems?.length ?? 0 }) }}
-                    </p>
-                  </div>
-                </div>
-              </template>
-              <div
-                v-if="rootsStore.selectedFolder || isSearching || favActive || tagActive"
-                class="folder-body"
-              >
-                <WaterfallGrid
-                  :root-id="rootsStore.currentRoot.id"
-                  :folder-path="rootsStore.selectedFolder?.path || ''"
-                  :zoom="itemZoom"
-                  :refresh-tick="cacheRefreshTick"
-                  :search-query="searchQuery"
-                  :ai-results="aiResults"
-                  :fav-items="favItems"
-                  :tag-items="tagItems"
-                  :empty-text="
-                    favActive
-                      ? t('app.favEmpty')
-                      : tagActive
-                        ? activeTagInfo?.name
-                          ? t('app.tagEmpty', { name: activeTagInfo.name })
-                          : t('app.tagEmptyGeneric')
-                        : ''
-                  "
-                  :quick-copy="quickCopyEnabled"
-                  :quick-copy-type="quickCopyType"
-                  :name-mode="itemNameMode"
-                  :ext-mode="itemExtMode"
-                  :fav-mode="itemFavMode"
-                  :text-match-mode="itemTextMatchMode"
-                  :preload="imagePreload"
-                  :buffer-lazy="imageBufferLazy"
-                  :cap-tall="imageTallCap"
-                  :mode="browseMode"
-                />
-              </div>
-              <div v-else class="welcome">
-                <el-empty :description="t('app.selectFolderToBrowse')">
-                  <p class="welcome-tip">{{ t('app.rootColon', { name: rootDisplayName }) }}</p>
-                </el-empty>
-              </div>
-            </div>
-          </div>
+          <RootView
+            v-if="rootsStore.currentRoot"
+            :root-id="rootsStore.currentRoot.id"
+            :root-name="rootDisplayName"
+            :root-path="rootsStore.currentRoot.path"
+            :selected-folder="rootsStore.selectedFolder"
+            :is-searching="isSearching"
+            :search-query="searchQuery"
+            :ai-results="aiResults"
+            :fav-active="favActive"
+            :tag-active="tagActive"
+            :fav-items="favItems"
+            :tag-items="tagItems"
+            :favorites-count="favoritesStore.list.length"
+            :active-tag-name="activeTagInfo?.name || ''"
+            :empty-text="gridEmptyText"
+            :settings="gridSettings"
+          />
 
           <!-- 未注册任何根目录 -->
           <div v-else class="welcome">
@@ -876,169 +595,6 @@ onBeforeUnmount(() => {
   overflow: auto;
 }
 
-/* 悬浮栏：绝对定位悬浮在内容右上角，不占文档流空间 */
-.floating-toolbar {
-  position: absolute;
-  top: 12px;
-  right: 0;
-  z-index: 20;
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  gap: 8px;
-  padding: 0 20px 0 0;
-  pointer-events: none;
-}
-
-.toolbar-btn {
-  pointer-events: auto;
-  width: 36px;
-  height: 36px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--panel-border);
-  border-radius: 10px;
-  background: var(--panel-bg);
-  color: var(--app-text-secondary);
-  cursor: pointer;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-  transition: color 0.2s, border-color 0.2s;
-}
-
-.toolbar-btn:hover {
-  color: var(--app-text);
-  border-color: #409eff;
-}
-
-.notify-badge {
-  pointer-events: auto;
-}
-
-/* 搜索框 */
-.toolbar-search {
-  pointer-events: auto;
-}
-
-.search-input {
-  width: 200px;
-}
-
-.search-input :deep(.el-input__wrapper) {
-  border-radius: 10px;
-  min-height: 36px;
-  height: 36px;
-  background: var(--panel-bg);
-  box-shadow: 0 0 0 1px var(--panel-border) inset;
-}
-
-.search-input :deep(.el-input__wrapper:hover) {
-  box-shadow: 0 0 0 1px #409eff inset;
-}
-
-.search-input :deep(.el-input__inner) {
-  font-size: 12px;
-}
-
-/* 快速复制开关 */
-.quick-copy-toggle {
-  pointer-events: auto;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 36px;
-  padding: 0 12px;
-  border: 1px solid var(--panel-border);
-  border-radius: 10px;
-  background: var(--panel-bg);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-  cursor: pointer;
-  user-select: none;
-  transition: border-color 0.2s, color 0.2s;
-}
-
-.quick-copy-toggle:hover {
-  border-color: #409eff;
-}
-
-.quick-copy-on {
-  border-color: #409eff;
-}
-
-.quick-copy-label {
-  font-size: 12px;
-  color: var(--app-text-secondary);
-  white-space: nowrap;
-}
-
-.quick-copy-on .quick-copy-label {
-  color: var(--el-color-primary);
-}
-
-.quick-copy-toggle :deep(.el-switch) {
-  pointer-events: none;
-}
-
-.quick-copy-toggle :deep(.el-switch__core) {
-  min-width: 26px;
-  height: 14px;
-}
-
-.quick-copy-toggle :deep(.el-switch__core .el-switch__action) {
-  width: 10px;
-  height: 10px;
-}
-
-/* AI 搜索开关 */
-.ai-search-toggle {
-  pointer-events: auto;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 36px;
-  padding: 0 12px;
-  border: 1px solid var(--panel-border);
-  border-radius: 10px;
-  background: var(--panel-bg);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-}
-
-.ai-search-label {
-  font-size: 12px;
-  color: var(--app-text-secondary);
-  white-space: nowrap;
-}
-
-.ai-search-loading {
-  color: var(--el-color-primary);
-}
-
-/* 缩放控件 */
-.zoom-control {
-  pointer-events: auto;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 36px;
-  padding: 0 12px;
-  border: 1px solid var(--panel-border);
-  border-radius: 10px;
-  background: var(--panel-bg);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-}
-
-.zoom-icon {
-  display: flex;
-  align-items: center;
-  color: var(--app-text-secondary);
-  flex-shrink: 0;
-}
-
-.zoom-slider {
-  width: 120px;
-  margin: 0;
-}
-
 .welcome {
   height: 100%;
   display: flex;
@@ -1052,181 +608,4 @@ onBeforeUnmount(() => {
   font-size: 13px;
 }
 
-.root-view {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-}
-
-.root-header {
-  padding: 24px 28px 12px;
-}
-
-.root-header-main {
-  max-width: calc(100% - 80px);
-}
-
-.root-title {
-  margin: 0 0 4px;
-  font-size: 22px;
-}
-
-.root-path {
-  margin: 0;
-  color: var(--app-text-secondary);
-  font-size: 13px;
-  word-break: break-all;
-}
-
-.root-body {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  padding: 0 28px 24px;
-}
-
-.folder-banner {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 14px 16px;
-  border: 1px solid var(--panel-border);
-  border-radius: 10px;
-  background: var(--panel-bg);
-  margin-bottom: 12px;
-}
-
-.folder-banner-icon {
-  color: #f7ba2a;
-  flex-shrink: 0;
-}
-
-.tag-banner-icon {
-  color: #409eff;
-}
-
-.folder-banner-text {
-  min-width: 0;
-}
-
-.folder-banner-name {
-  margin: 0;
-  font-size: 16px;
-}
-
-.folder-banner-path {
-  margin: 2px 0 0;
-  color: var(--app-text-secondary);
-  font-size: 12px;
-  word-break: break-all;
-}
-
-.folder-body {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
-</style>
-
-<style>
-/* 通知历史面板（popover 挂 body 下，需全局样式） */
-.notify-popper {
-  padding: 8px !important;
-}
-
-.notify-panel {
-  display: flex;
-  flex-direction: column;
-  max-height: 420px;
-}
-
-.notify-panel-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 4px 6px 8px;
-  border-bottom: 1px solid var(--el-border-color-lighter);
-}
-
-.notify-panel-title {
-  font-weight: 600;
-  font-size: 14px;
-}
-
-.notify-panel-empty {
-  padding: 40px 0;
-  text-align: center;
-  color: var(--el-text-color-secondary);
-  font-size: 13px;
-}
-
-.notify-list {
-  overflow-y: auto;
-  max-height: 360px;
-  display: flex;
-  flex-direction: column;
-}
-
-.notify-item {
-  display: flex;
-  gap: 8px;
-  padding: 10px 6px;
-  border-bottom: 1px solid var(--el-border-color-extra-light);
-}
-
-.notify-item-unread {
-  background: var(--el-color-primary-light-9);
-}
-
-.notify-item-icon {
-  margin-top: 2px;
-  flex-shrink: 0;
-}
-
-.notify-item-main {
-  flex: 1;
-  min-width: 0;
-}
-
-.notify-item-title {
-  font-size: 13px;
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.notify-status-tag {
-  height: 18px;
-  line-height: 18px;
-}
-
-.notify-item-msg {
-  margin-top: 3px;
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
-  word-break: break-all;
-  line-height: 1.5;
-}
-
-.notify-item-foot {
-  margin-top: 4px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.notify-item-time {
-  font-size: 11px;
-  color: var(--el-text-color-placeholder);
-}
-
-.notify-item-actions {
-  display: flex;
-  gap: 4px;
-}
 </style>

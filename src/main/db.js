@@ -9,11 +9,16 @@ import { join } from 'path'
 
 let db = null
 
+// prepared statement 缓存：按 SQL 文本复用，避免每次查询都重新编译（热点路径收益明显）。
+// 仅在 db 连接重建时清空。
+const stmtCache = new Map()
+
 export function initDb() {
   if (db) return db
 
   const dbPath = join(app.getPath('userData'), 'image-browser.db')
   db = new DatabaseSync(dbPath)
+  stmtCache.clear()
 
   // WAL 模式：读写并发更好，适合桌面应用
   db.exec('PRAGMA journal_mode = WAL')
@@ -27,27 +32,39 @@ export function getDb() {
 }
 
 /**
+ * 获取（并缓存）预编译语句。
+ * @param {string} sql
+ */
+export function prep(sql) {
+  let stmt = stmtCache.get(sql)
+  if (!stmt) {
+    stmt = getDb().prepare(sql)
+    stmtCache.set(sql, stmt)
+  }
+  return stmt
+}
+
+/**
  * 便捷查询：返回全部行
  * @param {string} sql
  * @param {unknown[]} params
  */
 export function queryAll(sql, params = []) {
-  return getDb().prepare(sql).all(...params)
+  return prep(sql).all(...params)
 }
 
 /**
  * 便捷查询：返回单行
  */
 export function queryOne(sql, params = []) {
-  return getDb().prepare(sql).get(...params)
+  return prep(sql).get(...params)
 }
 
 /**
  * 便捷执行：INSERT / UPDATE / DELETE，返回 { changes, lastInsertRowid }
  */
 export function run(sql, params = []) {
-  const stmt = getDb().prepare(sql)
-  const result = stmt.run(...params)
+  const result = prep(sql).run(...params)
   return { changes: result.changes, lastInsertRowid: Number(result.lastInsertRowid) }
 }
 
@@ -71,5 +88,6 @@ export function closeDb() {
   if (db) {
     db.close()
     db = null
+    stmtCache.clear()
   }
 }
