@@ -1,8 +1,10 @@
 <script setup>
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
+import { useDebounce } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 import { useRootsStore } from '../stores/roots'
 import { useTagsStore } from '../stores/tags'
+import { rootDisplayName as displayName } from '../utils/roots'
 
 const { t } = useI18n()
 const rootsStore = useRootsStore()
@@ -32,6 +34,8 @@ let offSettingsChanged = null
 const treeData = ref([])
 const scanning = ref(false)
 const searchText = ref('')
+// 输入框即时回显，但过滤/展开用 200ms 防抖值，避免每敲一键全树克隆 + 展开
+const debouncedSearch = useDebounce(searchText, 200)
 const treeKey = ref(0) // 模式切换/根目录变更时重建树，让 default-expanded-keys 生效
 let scanSeq = 0 // 丢弃过期扫描结果
 
@@ -62,14 +66,6 @@ function saveExpanded(keys) {
   const data = JSON.parse(localStorage.getItem(EXPANDED_STORAGE_KEY) || '{}')
   data[root.id] = keys
   localStorage.setItem(EXPANDED_STORAGE_KEY, JSON.stringify(data))
-}
-
-// 显示名：别名 > 目录名 > 完整路径
-function displayName(root) {
-  if (!root) return ''
-  if (root.alias && root.alias.trim()) return root.alias.trim()
-  const parts = root.path.split(/[\\/]+/).filter(Boolean)
-  return parts.length ? parts[parts.length - 1] : root.path
 }
 
 async function scanTree() {
@@ -208,7 +204,7 @@ watch(
 
 // 搜索过滤：保留名称匹配的节点 + 其祖先链
 const filteredTree = computed(() => {
-  const q = searchText.value.trim().toLowerCase()
+  const q = debouncedSearch.value.trim().toLowerCase()
   if (!q) return treeData.value
   const filter = (nodes) => {
     const result = []
@@ -226,14 +222,21 @@ const filteredTree = computed(() => {
 
 // 树内第一个伪节点「我的收藏」（显示在根目录之上，搜索时隐藏）
 const favNode = computed(() =>
-  props.showFavorites && rootsStore.currentRoot && !searchText.value.trim()
+  props.showFavorites && rootsStore.currentRoot && !debouncedSearch.value.trim()
     ? { path: FAV_KEY, name: t('sidebar.favorites'), isFavorites: true, children: [] }
     : null
 )
 // 树内第二个伪节点「标签」（可展开列出当前根全部标签，搜索时隐藏；无标签或功能关闭时整体隐藏）
 const tagsNode = computed(() => {
   const root = rootsStore.currentRoot
-  if (!root || !props.tagsEnabled || searchText.value.trim() || !tagsStore.loaded || !tagsStore.tags.length) return null
+  if (
+    !root ||
+    !props.tagsEnabled ||
+    debouncedSearch.value.trim() ||
+    !tagsStore.loaded ||
+    !tagsStore.tags.length
+  )
+    return null
   return {
     path: TAGS_KEY,
     name: t('sidebar.tags'),
@@ -254,7 +257,7 @@ const displayedTree = computed(() =>
 
 // 搜索时展开过滤后所有节点（含父链）；无搜索时：全部根模式自动展开当前根，单根模式用持久化展开
 const expandedKeys = computed(() => {
-  if (searchText.value.trim()) {
+  if (debouncedSearch.value.trim()) {
     const keys = []
     const collect = (nodes) => {
       for (const node of nodes) {
@@ -279,7 +282,7 @@ function isPseudoNode(data) {
   return data.isFavorites || data.isTagsGroup || data.isTag
 }
 function handleNodeExpand(data) {
-  if (allRoots.value || searchText.value.trim() || isPseudoNode(data)) return
+  if (allRoots.value || debouncedSearch.value.trim() || isPseudoNode(data)) return
   if (!persistedExpanded.value.includes(data.path)) {
     persistedExpanded.value = [...persistedExpanded.value, data.path]
     saveExpanded(persistedExpanded.value)
@@ -287,7 +290,7 @@ function handleNodeExpand(data) {
 }
 
 function handleNodeCollapse(data) {
-  if (allRoots.value || searchText.value.trim() || isPseudoNode(data)) return
+  if (allRoots.value || debouncedSearch.value.trim() || isPseudoNode(data)) return
   persistedExpanded.value = persistedExpanded.value.filter((p) => p !== data.path)
   saveExpanded(persistedExpanded.value)
 }
@@ -307,9 +310,9 @@ function applyPersistedExpanded() {
   })
 }
 
-// 搜索词变化：数据过滤由 displayedTree 响应式完成（不重建整棵树），
+// 搜索词（防抖后）变化：数据过滤由 displayedTree 响应式完成（不重建整棵树），
 // 这里只把过滤后命中的节点展开，让结果可见。
-watch(searchText, () => {
+watch(debouncedSearch, () => {
   nextTick(() => {
     const tree = treeRef.value
     if (!tree) return
@@ -581,7 +584,9 @@ onBeforeUnmount(() => {
   background: var(--el-color-primary-light-9);
 }
 
-html.dark .dir-tree :deep(.el-tree--highlight-current .el-tree-node.is-current > .el-tree-node__content) {
+html.dark
+  .dir-tree
+  :deep(.el-tree--highlight-current .el-tree-node.is-current > .el-tree-node__content) {
   background: var(--el-color-primary-light-3);
 }
 

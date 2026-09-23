@@ -2,7 +2,6 @@
 import { ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-
 const { t } = useI18n()
 
 // 通用三档模式：none / hover / always
@@ -57,7 +56,6 @@ function onFavModeChange(v) {
 function onTextMatchModeChange(v) {
   saveMode('itemTextMatchMode', v)
 }
-
 </script>
 
 <template>

@@ -77,6 +77,7 @@ const {
   isRatioCapped,
   scheduleFullLayout,
   applyInitialLayout,
+  appendItems,
   reflowIncremental,
   reflowFull,
   updateScrollTop,
@@ -104,6 +105,13 @@ const scrollEl = ref(null)
 const loading = ref(false)
 const error = ref('')
 
+// 分页 / 无限滚动：大根目录首批只取一页，滚动接近底部再追加下一页
+const PAGE_SIZE = 300
+let loadedOffset = 0 // 已加载条数（下一页 offset）
+let loadToken = 0 // 请求代次：换目录/换搜索时作废在途请求
+const hasMore = ref(false)
+const loadingMore = ref(false)
+
 const lightboxIndex = ref(-1)
 
 // 媒体（图/GIF/视频）实际加载完成的版本号：渲染时读取以驱动骨架屏显隐。
@@ -119,7 +127,7 @@ function bumpMediaVersion() {
 }
 function isMediaLoaded(item) {
   void mediaVersion.value
-  return !!item._loaded
+  return !!item._loaded || !!item._failed
 }
 
 // ---------------------------------------------------------------- 数据
@@ -145,10 +153,28 @@ function initItems(list) {
   }))
 }
 
+/** 当前列表对应的 imagesList 前三个参数（搜索模式忽略 folderPath）。
+ * 必须始终占满 searchQuery 位，否则后续 opts 会错位顶替成 searchQuery。 */
+function listArgs() {
+  return isSearching.value
+    ? [props.rootId, null, props.searchQuery]
+    : [props.rootId, props.folderPath, null]
+}
+
+/** 拉取一页，兼容旧版纯数组返回 */
+async function fetchPage(offset) {
+  const page = await window.api.imagesList(...listArgs(), { offset, limit: PAGE_SIZE })
+  if (Array.isArray(page)) return { items: page, total: page.length }
+  return { items: page?.items || [], total: page?.total ?? page?.items?.length ?? 0 }
+}
+
 async function load() {
   // 外部直接注入的列表（收藏 / 标签 / AI 结果）优先渲染，不拉取 imagesList
   const injected = [props.favItems, props.tagItems, props.aiResults].find((v) => Array.isArray(v))
   if (injected) {
+    loadToken++
+    hasMore.value = false
+    loadingMore.value = false
     setItems(initItems(injected))
     totalHeight.value = 0
     await nextTick()
@@ -157,28 +183,78 @@ async function load() {
   }
 
   if (!isSearching.value && !props.folderPath) {
+    loadToken++
+    hasMore.value = false
+    loadingMore.value = false
     setItems([])
     totalHeight.value = 0
     return
   }
+
+  const token = ++loadToken
   loading.value = true
   error.value = ''
+  hasMore.value = false
+  loadingMore.value = false
+  loadedOffset = 0
   try {
-    const list = isSearching.value
-      ? await window.api.imagesList(props.rootId, null, props.searchQuery)
-      : await window.api.imagesList(props.rootId, props.folderPath)
-    setItems(initItems(list))
+    const page = await fetchPage(0)
+    if (token !== loadToken) return
+    loadedOffset = page.items.length
+    setItems(initItems(page.items))
+    hasMore.value = loadedOffset < page.total
     await nextTick()
     applyInitialLayout()
   } catch (err) {
+    if (token !== loadToken) return
     error.value = String(err?.message || err)
   } finally {
-    loading.value = false
+    if (token === loadToken) {
+      loading.value = false
+      maybeLoadMore()
+    }
   }
 }
 
+/** 追加下一页（滚动接近底部时调用，失败保持现状待下次滚动重试） */
+async function loadMore() {
+  if (loadingMore.value || !hasMore.value || loading.value) return
+  const token = loadToken
+  loadingMore.value = true
+  try {
+    const page = await fetchPage(loadedOffset)
+    if (token !== loadToken) return
+    if (!page.items.length) {
+      hasMore.value = false
+      return
+    }
+    appendItems(initItems(page.items))
+    loadedOffset += page.items.length
+    hasMore.value = loadedOffset < page.total
+  } catch {
+    /* 忽略：保留已加载内容 */
+  } finally {
+    if (token === loadToken) loadingMore.value = false
+  }
+}
+
+/** 剩余可滚动高度不足一个预载距离时，提前拉下一页 */
+function maybeLoadMore() {
+  if (!hasMore.value || loadingMore.value || loading.value) return
+  const el = scrollEl.value
+  if (!el) return
+  if (totalHeight.value - el.scrollTop - el.clientHeight < props.preload) loadMore()
+}
+
 watch(
-  () => [props.rootId, props.folderPath, props.searchQuery, props.aiResults, props.favItems, props.tagItems],
+  () => [
+    props.rootId,
+    props.folderPath,
+    props.searchQuery,
+    props.aiResults,
+    props.favItems,
+    props.tagItems
+  ],
   load,
   { immediate: true }
 )
@@ -192,11 +268,15 @@ watch(() => props.capTall, reflowIncremental)
 // 浏览模式切换：瀑布流 ↔ 矩形，整表重新布局
 watch(() => props.mode, reflowFull)
 
-// 缓存维护完成后 → 重新加载（此时 hasThumb 更新，改用缩略图 URL）
+// 缓存维护完成后 → 重新加载（此时 hasThumb 更新，改用缩略图 URL）。
+// 必须先清空已分配的 src 缓存，否则旧的原图 URL 命中缓存不会升级为缩略图。
 watch(
   () => props.refreshTick,
   () => {
-    if (props.refreshTick > 0) load()
+    if (props.refreshTick > 0) {
+      resetSrcCache()
+      load()
+    }
   }
 )
 
@@ -213,11 +293,13 @@ function onScroll() {
     // 只保证严格可视区图片有 src；缓冲区等滚动空闲后由 idle 调度填充
     primeViewportSrcs()
     scheduleScrollIdle()
+    maybeLoadMore()
   })
 }
 
 onMounted(() => observeResize(scrollEl.value))
 onBeforeUnmount(() => {
+  loadToken++ // 作废在途分页请求，避免卸载后追加
   disconnectResize()
   cancelLayout()
   cancelLoader()
@@ -225,10 +307,12 @@ onBeforeUnmount(() => {
   if (mediaRaf) cancelAnimationFrame(mediaRaf)
 })
 
-// 布局完成（首屏/换目录/缩放/尺寸变化）后：可视区立即取图，缓冲区空闲时再填
+// 布局完成（首屏/换目录/缩放/尺寸变化/追加分页）后：可视区立即取图，缓冲区空闲时再填。
+// 同时检查是否需要继续拉下一页（首屏不足一屏时自动填充）。
 watch(layoutVersion, () => {
   primeViewportSrcs()
   scheduleIdlePump()
+  maybeLoadMore()
 })
 
 // 换根目录：URL 依赖 rootId，清空已分配缓存
@@ -240,6 +324,12 @@ function onImgLoad(item, e) {
   const nw = img.naturalWidth || img.videoWidth
   const nh = img.naturalHeight || img.videoHeight
   onItemLoaded(item, nw, nh)
+  bumpMediaVersion()
+}
+
+// 加载失败（文件被删/损坏/格式不支持）：结束骨架屏，保留估算尺寸
+function onImgError(item) {
+  item._failed = true
   bumpMediaVersion()
 }
 
@@ -314,7 +404,9 @@ async function copyViaCanvas(e) {
 
     <div v-else-if="error" class="waterfall-state">
       <el-empty :description="t('waterfall.loadFailed', { error })">
-        <el-button size="small" type="primary" plain @click="load">{{ t('waterfall.retry') }}</el-button>
+        <el-button size="small" type="primary" plain @click="load">{{
+          t('waterfall.retry')
+        }}</el-button>
       </el-empty>
     </div>
 
@@ -346,44 +438,61 @@ async function copyViaCanvas(e) {
           width: item.w + 'px',
           height: item.h + 'px'
         }"
+        role="button"
+        tabindex="0"
+        :aria-label="item.name"
         @click="handleItemClick(item, $event)"
+        @keydown.enter.prevent="handleItemClick(item, $event)"
+        @keydown.space.prevent="handleItemClick(item, $event)"
       >
         <!-- 占位骨架：媒体加载完成前显示，加载后移除 -->
         <div v-if="!isMediaLoaded(item)" class="waterfall-skeleton" aria-hidden="true" />
-        <VideoThumb
-          v-if="isVideoName(item.name)"
-          :root-id="rootId"
-          :item="item"
-          :play-mode="gifStore.webmAsGif ? gifStore.playMode : 'none'"
-          :defer-load="deferLoad(item)"
-          :native-priority="priorityMode(item)"
-          :class="{ 'fit-contain': isRatioCapped(item) }"
-          @load="onImgLoad(item, $event)"
-        />
-        <GifThumb
-          v-else-if="isGifName(item.name)"
-          :root-id="rootId"
-          :item="item"
-          :play-mode="gifStore.playMode"
-          :thumb-source="gifStore.thumbSource"
-          :defer-load="deferLoad(item)"
-          :native-loading="loadMode(item)"
-          :native-priority="priorityMode(item)"
-          :class="{ 'fit-contain': isRatioCapped(item) }"
-          @load="onImgLoad(item, $event)"
-        />
-        <img
-          v-else
-          :src="srcFor(item) || undefined"
-          :alt="item.name"
-          draggable="false"
-          decoding="async"
-          :class="{ 'fit-contain': isRatioCapped(item) }"
-          :loading="loadMode(item)"
-          :fetchpriority="priorityMode(item)"
-          @load="onImgLoad(item, $event)"
-        />
-        <span v-if="isVideoName(item.name) && !gifStore.webmAsGif" class="waterfall-play-badge">
+        <!-- 加载失败：移出媒体元素（否则浏览器会显示破损图标 + alt 文件名），改用占位 -->
+        <template v-if="!item._failed">
+          <VideoThumb
+            v-if="isVideoName(item.name)"
+            :root-id="rootId"
+            :item="item"
+            :play-mode="gifStore.webmAsGif ? gifStore.playMode : 'none'"
+            :defer-load="deferLoad(item)"
+            :native-priority="priorityMode(item)"
+            :class="{ 'fit-contain': isRatioCapped(item) }"
+            @load="onImgLoad(item, $event)"
+            @error="onImgError(item)"
+          />
+          <GifThumb
+            v-else-if="isGifName(item.name)"
+            :root-id="rootId"
+            :item="item"
+            :play-mode="gifStore.playMode"
+            :thumb-source="gifStore.thumbSource"
+            :defer-load="deferLoad(item)"
+            :native-loading="loadMode(item)"
+            :native-priority="priorityMode(item)"
+            :class="{ 'fit-contain': isRatioCapped(item) }"
+            @load="onImgLoad(item, $event)"
+            @error="onImgError(item)"
+          />
+          <img
+            v-else
+            :src="srcFor(item) || undefined"
+            :alt="item.name"
+            draggable="false"
+            decoding="async"
+            :class="{ 'fit-contain': isRatioCapped(item) }"
+            :loading="loadMode(item)"
+            :fetchpriority="priorityMode(item)"
+            @load="onImgLoad(item, $event)"
+            @error="onImgError(item)"
+          />
+        </template>
+        <div v-else class="waterfall-broken" :title="item.name" aria-hidden="true">
+          <el-icon :size="22"><PictureFilled /></el-icon>
+        </div>
+        <span
+          v-if="isVideoName(item.name) && !gifStore.webmAsGif && !item._failed"
+          class="waterfall-play-badge"
+        >
           <el-icon :size="20"><VideoPlay /></el-icon>
         </span>
         <button
@@ -408,6 +517,11 @@ async function copyViaCanvas(e) {
       </div>
     </div>
 
+    <!-- 分页追加中的底部loading（不遮挡已有内容） -->
+    <div v-if="loadingMore" class="waterfall-more" aria-hidden="true">
+      <el-icon class="is-loading" :size="18"><Loading /></el-icon>
+    </div>
+
     <Lightbox
       v-if="lightboxIndex >= 0 && items.length"
       :root-id="rootId"
@@ -426,7 +540,8 @@ async function copyViaCanvas(e) {
   overflow-y: auto;
   overflow-x: hidden;
   position: relative;
-  padding: 0 8px 24px;
+  /* 左右留白由父级 RootView 的 --content-gutter 统一提供，避免与标题/横幅错位 */
+  padding: 0 0 24px;
 }
 
 .waterfall-state {
@@ -445,6 +560,14 @@ async function copyViaCanvas(e) {
   width: 100%;
 }
 
+.waterfall-more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px 0 8px;
+  color: var(--app-text-secondary);
+}
+
 .waterfall-item {
   position: absolute;
   top: 0;
@@ -455,12 +578,18 @@ async function copyViaCanvas(e) {
   border: 1px solid var(--panel-border);
   cursor: pointer;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-  transition: transform 0.18s ease, box-shadow 0.18s ease;
+  transition: box-shadow 0.18s ease;
 }
 
-.waterfall-item:hover {
+.waterfall-item:hover,
+.waterfall-item:focus-visible {
   z-index: 2;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+}
+
+.waterfall-item:focus-visible {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: 2px;
 }
 
 /* 占位骨架：底层的流光动画，媒体加载完成后由 v-if 移除 */
@@ -477,6 +606,19 @@ async function copyViaCanvas(e) {
   );
   background-size: 200% 100%;
   animation: waterfall-skeleton-shimmer 1.2s ease-in-out infinite;
+}
+
+/* 加载失败占位：替换破损的 <img>，只留一个淡淡的图标 */
+.waterfall-broken {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--app-text-secondary);
+  opacity: 0.5;
 }
 
 @keyframes waterfall-skeleton-shimmer {
@@ -647,7 +789,10 @@ async function copyViaCanvas(e) {
   color: #fff;
   cursor: pointer;
   opacity: 0;
-  transition: opacity 0.18s ease, background 0.18s ease, color 0.18s ease;
+  transition:
+    opacity 0.18s ease,
+    background 0.18s ease,
+    color 0.18s ease;
 }
 
 .waterfall-fav:hover {
@@ -655,7 +800,8 @@ async function copyViaCanvas(e) {
   color: #ffd04b;
 }
 
-.waterfall-item:hover .waterfall-fav {
+.waterfall-item:hover .waterfall-fav,
+.waterfall-item:focus-within .waterfall-fav {
   opacity: 1;
 }
 

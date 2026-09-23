@@ -158,7 +158,8 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <el-config-provider :locale="elementLocale">
+  <!-- zIndex 基准与主窗口一致（见 App.vue），确保弹层高于通知/灯箱 -->
+  <el-config-provider :locale="elementLocale" :z-index="6000">
     <div class="settings-app">
       <SidebarTree :data="treeData" :current-key="currentKey" @node-click="onNodeClick" />
       <NotificationHost />

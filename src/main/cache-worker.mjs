@@ -22,32 +22,28 @@
  */
 
 import { parentPort } from 'node:worker_threads'
+import { createRequire } from 'module'
 import { promises as fsp } from 'fs'
 import { join, extname, relative, dirname } from 'path'
 import { decode as decodeJpeg } from 'jpeg-js'
 import { PNG } from 'pngjs'
 import omggif from 'omggif'
 import WebP from 'webp-wasm'
-
-const CACHE_DIR_NAME = '.image_browser_cache'
-const IMAGE_EXTS = new Set([
-  '.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tif', '.tiff', '.webm'
-])
-const SKIP_DIRS = new Set([
-  '@eaDir', '#recycle', '.seekMeta', '.seekTrash', '.thumbnails', '.git', 'node_modules'
-])
-const DEFAULT_SCAN_BATCH = 100
-const DEFAULT_THUMB_WIDTH = 512
-const DEFAULT_THUMB_QUALITY = 80
+import {
+  CACHE_DIR_NAME,
+  IMAGE_EXTS,
+  isSkipDir,
+  DEFAULT_SCAN_BATCH,
+  DEFAULT_THUMB_WIDTH,
+  DEFAULT_THUMB_QUALITY
+} from './scan-constants.mjs'
 
 let aborted = false
 
-function isSkipDir(name) {
-  return name.startsWith('.') || SKIP_DIRS.has(name)
-}
-
 function relSlash(rootPath, target) {
-  return relative(rootPath, target).split(/[\\/]+/).join('/')
+  return relative(rootPath, target)
+    .split(/[\\/]+/)
+    .join('/')
 }
 
 /** 消息宿主：当前由主进程以 worker_threads 调用（parentPort）；同时兼容 utilityProcess/fork 通道以便复用 */
@@ -58,7 +54,8 @@ const HOST_CHANNEL =
 
 function post(msg) {
   if (parentPort) parentPort.postMessage(msg)
-  else if (typeof process !== 'undefined' && process.parentPort && process.parentPort.postMessage) process.parentPort.postMessage(msg)
+  else if (typeof process !== 'undefined' && process.parentPort && process.parentPort.postMessage)
+    process.parentPort.postMessage(msg)
   else if (process.send) process.send(msg)
 }
 
@@ -66,7 +63,14 @@ function post(msg) {
 for (const method of ['debug', 'log', 'info', 'warn', 'error']) {
   const original = console[method]
   if (typeof original !== 'function') continue
-  const level = method === 'debug' ? 'DEBUG' : method === 'warn' ? 'WARN' : method === 'error' ? 'ERROR' : 'INFO'
+  const level =
+    method === 'debug'
+      ? 'DEBUG'
+      : method === 'warn'
+        ? 'WARN'
+        : method === 'error'
+          ? 'ERROR'
+          : 'INFO'
   console[method] = function (...args) {
     try {
       if (parentPort) {
@@ -145,6 +149,22 @@ async function scanImages(rootPath, scanBatch = DEFAULT_SCAN_BATCH) {
 
 // ---------------------------------------------------------------- 缩略图
 
+// 可选原生解码/缩放（sharp）：存在时优先使用，速度/内存远优于纯 JS 解码链路，
+// 且自带 EXIF 方向矫正、支持 BMP/TIFF。未安装（如打包后未装 OCR 运行时）则回退。
+const require = createRequire(import.meta.url)
+let sharpMod
+let sharpProbed = false
+function getSharp() {
+  if (sharpProbed) return sharpMod
+  sharpProbed = true
+  try {
+    sharpMod = require('sharp')
+  } catch {
+    sharpMod = null
+  }
+  return sharpMod
+}
+
 let webpLoaded = false
 async function ensureWebP() {
   if (!webpLoaded) {
@@ -185,7 +205,6 @@ async function decodeImageAsync(buf, ext) {
   return decodeImage(buf, ext)
 }
 
-
 /** 双线性缩放 RGBA */
 function resizeRGBA(src, sw, sh, dw, dh) {
   const out = new Uint8Array(dw * dh * 4)
@@ -223,7 +242,12 @@ let lastSteps = null
  * 生成 webp 缩略图（镜像目录），返回 { width, height }；失败返回 null。
  * relThumb：相对 thumbDir 的路径，如 `相册/风景/photo.jpg.webp`
  */
-async function makeThumb(absPath, thumbDir, relThumb, { thumbWidth = DEFAULT_THUMB_WIDTH, thumbQuality = DEFAULT_THUMB_QUALITY } = {}) {
+async function makeThumb(
+  absPath,
+  thumbDir,
+  relThumb,
+  { thumbWidth = DEFAULT_THUMB_WIDTH, thumbQuality = DEFAULT_THUMB_QUALITY } = {}
+) {
   const phases = { read: 0, decode: 0, encode: 0, write: 0 }
   lastSteps = phases
 
@@ -234,6 +258,37 @@ async function makeThumb(absPath, thumbDir, relThumb, { thumbWidth = DEFAULT_THU
     phases.read = Date.now() - t0
   } catch {
     return null
+  }
+
+  // 快路径：有 sharp 时一步完成 解码/方向矫正/缩放/webp 编码
+  const sharp = getSharp()
+  if (sharp) {
+    try {
+      const t1 = Date.now()
+      const img = sharp(buf, { failOn: 'none' })
+      const md = await img.metadata()
+      let ow = md.width || 0
+      let oh = md.height || 0
+      // 方向 5-8 表示旋转 90°，宽高需互换
+      if (md.orientation && md.orientation >= 5) [ow, oh] = [oh, ow]
+      const t2 = Date.now()
+      const webpBuf = await img
+        .rotate()
+        .resize({ width: thumbWidth, withoutEnlargement: true })
+        .webp({ quality: thumbQuality })
+        .toBuffer()
+      phases.decode = t2 - t1
+      phases.encode = Date.now() - t2
+      if (!webpBuf?.length) return null
+      const outPath = join(thumbDir, relThumb)
+      const t3 = Date.now()
+      await fsp.mkdir(dirname(outPath), { recursive: true })
+      await fsp.writeFile(outPath, webpBuf)
+      phases.write = Date.now() - t3
+      return { width: ow || 1, height: oh || 1, size: webpBuf.length }
+    } catch {
+      /* sharp 失败则回退到纯 JS 链路 */
+    }
   }
 
   const ext = extname(absPath).toLowerCase()
@@ -280,58 +335,62 @@ async function makeThumb(absPath, thumbDir, relThumb, { thumbWidth = DEFAULT_THU
 
 if (HOST_CHANNEL) {
   HOST_CHANNEL.on('message', async (msg) => {
-  try {
-    if (msg.type === 'scan') {
-      const total = await scanImages(msg.rootPath, msg.scanBatch)
-      post({ type: 'scan-done', total })
-    } else if (msg.type === 'thumb') {
-      const { jobs, thumbDir, thumbWidth, thumbQuality, thumbSlowMs } = msg
-      let done = 0
-      for (const job of jobs) {
-        if (aborted) throw new Error('scan aborted')
-        // 镜像目录：<相对目录>/<文件名>.<原扩展名>.webp
-        const relThumb = `${job.relPath}.webp`
-        const jobStart = Date.now()
-        const result = await makeThumb(job.absPath, thumbDir, relThumb, { thumbWidth, thumbQuality })
-        const jobCost = Date.now() - jobStart
-        done++
-        // 超时重图：打 WARN，附各阶段耗时（读盘/解码/编码/写盘）与内存占用，方便定位卡在哪一步
-        if (thumbSlowMs && jobCost >= thumbSlowMs) {
-          const s = lastSteps
-          let mem = ''
-          try {
-            const m = process.memoryUsage()
-            mem = ` heap=${(m.heapUsed / 1048576).toFixed(0)}MB rss=${(m.rss / 1048576).toFixed(0)}MB`
-          } catch {
-            /* ignore */
-          }
-          const ph = s ? ` [read=${s.read}ms dec=${s.decode}ms enc=${s.encode}ms write=${s.write}ms]` : ''
-          console.warn(`slow thumb ${jobCost}ms >= ${thumbSlowMs}ms${ph}${mem}  ${job.absPath}`)
-        }
-        if (done % 100 === 0) {
-          console.log(`worker thumb progress ${done}/${jobs.length} last=${job.name}`)
-        }
-        if (result) {
-          post({
-            type: 'thumb-done',
-            id: job.id,
-            relThumb,
-            width: result.width,
-            height: result.height,
-            size: result.size,
-            name: job.name
+    try {
+      if (msg.type === 'scan') {
+        const total = await scanImages(msg.rootPath, msg.scanBatch)
+        post({ type: 'scan-done', total })
+      } else if (msg.type === 'thumb') {
+        const { jobs, thumbDir, thumbWidth, thumbQuality, thumbSlowMs } = msg
+        let done = 0
+        for (const job of jobs) {
+          if (aborted) throw new Error('scan aborted')
+          // 镜像目录：<相对目录>/<文件名>.<原扩展名>.webp
+          const relThumb = `${job.relPath}.webp`
+          const jobStart = Date.now()
+          const result = await makeThumb(job.absPath, thumbDir, relThumb, {
+            thumbWidth,
+            thumbQuality
           })
-        } else {
-          post({ type: 'thumb-fail', id: job.id, name: job.name })
+          const jobCost = Date.now() - jobStart
+          done++
+          // 超时重图：打 WARN，附各阶段耗时（读盘/解码/编码/写盘）与内存占用，方便定位卡在哪一步
+          if (thumbSlowMs && jobCost >= thumbSlowMs) {
+            const s = lastSteps
+            let mem = ''
+            try {
+              const m = process.memoryUsage()
+              mem = ` heap=${(m.heapUsed / 1048576).toFixed(0)}MB rss=${(m.rss / 1048576).toFixed(0)}MB`
+            } catch {
+              /* ignore */
+            }
+            const ph = s
+              ? ` [read=${s.read}ms dec=${s.decode}ms enc=${s.encode}ms write=${s.write}ms]`
+              : ''
+            console.warn(`slow thumb ${jobCost}ms >= ${thumbSlowMs}ms${ph}${mem}  ${job.absPath}`)
+          }
+          if (done % 100 === 0) {
+            console.log(`worker thumb progress ${done}/${jobs.length} last=${job.name}`)
+          }
+          if (result) {
+            post({
+              type: 'thumb-done',
+              id: job.id,
+              relThumb,
+              width: result.width,
+              height: result.height,
+              size: result.size,
+              name: job.name
+            })
+          } else {
+            post({ type: 'thumb-fail', id: job.id, name: job.name })
+          }
         }
+        post({ type: 'thumb-done-all', total: jobs.length })
+      } else if (msg.type === 'abort') {
+        aborted = true
       }
-      post({ type: 'thumb-done-all', total: jobs.length })
-    } else if (msg.type === 'abort') {
-      aborted = true
+    } catch (err) {
+      post({ type: 'error', message: String(err?.message || err) })
     }
-  } catch (err) {
-    post({ type: 'error', message: String(err?.message || err) })
-  }
-})
+  })
 }
-

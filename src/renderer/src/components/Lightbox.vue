@@ -1,5 +1,6 @@
 <script setup>
-import { ref, watch, onMounted, onBeforeUnmount, computed } from 'vue'
+import { ref, watch, onMounted, onBeforeUnmount, computed, nextTick } from 'vue'
+import { useEventListener, useScrollLock } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 import { buildImageUrl, isVideoName } from '../utils/image-url'
 import { loadShortcuts, eventMatches } from '../utils/shortcuts'
@@ -23,7 +24,18 @@ const props = defineProps({
 
 const emit = defineEmits(['close', 'change'])
 
-const cur = ref(props.index)
+// 对话框语义与焦点管理：遮罩持有焦点、Tab 在灯箱内循环、关闭后归还焦点
+const maskRef = ref(null)
+let previouslyFocused = null
+// 打开期间锁定 body 滚动（避免背景随滚轮/方向键滚动）
+const bodyScrollLocked = useScrollLock(document.body, true)
+
+// 单一数据源：cur 直接映射父级 index，navigation 通过 emit('change') 回写，
+// 避免「内部 cur + props.index 双 watcher」导致每次切图重复 reset/preload。
+const cur = computed({
+  get: () => props.index,
+  set: (v) => emit('change', v)
+})
 const imgRef = ref(null)
 const videoRef = ref(null)
 const loading = ref(true)
@@ -85,6 +97,11 @@ function onWinMouseUp() {
   panStart = null
 }
 
+// 全局监听随组件卸载自动清理（@vueuse/core）
+useEventListener(window, 'keydown', onKeydown)
+useEventListener(window, 'mousemove', onWinMouseMove)
+useEventListener(window, 'mouseup', onWinMouseUp)
+
 // 滚轮：navigate 模式节流连跳；zoom 模式缩放（视频交给原生控件，不拦截）
 let navCooldownAt = 0
 function onWheel(e) {
@@ -125,23 +142,14 @@ function resetForImage() {
   }
 }
 
-watch(
-  () => props.index,
-  (v) => {
-    cur.value = v
-    resetForImage()
-  }
-)
-
-watch(cur, (v) => {
-  emit('change', v)
+watch(cur, () => {
   resetForImage()
   preloadNeighbors()
 })
 
 // 预加载相邻图片（原图），切换时秒开；视频不预载（较重）。
 // 保留 Image 引用避免被回收，使浏览器缓存对下一张生效。
-let preloaded = []
+let _preloaded = []
 function preloadNeighbors() {
   const list = props.items
   const next = []
@@ -153,7 +161,7 @@ function preloadNeighbors() {
     el.src = buildImageUrl(props.rootId, it.absPath, 'orig')
     next.push(el)
   }
-  preloaded = next
+  _preloaded = next
 }
 
 function prev() {
@@ -192,7 +200,39 @@ function isEditableTarget(t) {
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable === true
 }
 
+const FOCUSABLE_SELECTOR =
+  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
+// 把 Tab 焦点限制在灯箱内（含首次进入：焦点落在遮罩上时纳入第一个可聚焦元素）。
+// 标签编辑弹层被 Teleport 到 body，单独纳入循环，避免键盘焦点被弹出。
+function trapTab(e) {
+  const roots = [maskRef.value, document.querySelector('.lightbox-tag-popper')].filter(Boolean)
+  if (!roots.length) return
+  const list = roots
+    .flatMap((r) => Array.from(r.querySelectorAll(FOCUSABLE_SELECTOR)))
+    .filter((el) => el.getClientRects().length > 0)
+  if (!list.length) return
+  const first = list[0]
+  const last = list[list.length - 1]
+  const active = document.activeElement
+  const inside = roots.some((r) => r.contains(active))
+  if (!inside) {
+    e.preventDefault()
+    first.focus()
+  } else if (e.shiftKey && active === first) {
+    e.preventDefault()
+    last.focus()
+  } else if (!e.shiftKey && active === last) {
+    e.preventDefault()
+    first.focus()
+  }
+}
+
 function onKeydown(e) {
+  if (e.key === 'Tab') {
+    trapTab(e)
+    return
+  }
   if (isEditableTarget(e.target)) return
   if (eventMatches(e, shortcuts.value.copyFile)) {
     e.preventDefault()
@@ -338,6 +378,10 @@ async function onTagNamesChange(names) {
 }
 
 onMounted(async () => {
+  // 记住打开前的焦点，关闭时归还；并把初始焦点移入灯箱
+  previouslyFocused = document.activeElement
+  await nextTick()
+  maskRef.value?.focus?.()
   shortcuts.value = await loadShortcuts()
   const wa = await window.api?.getSetting('lightboxWheelAction', 'zoom')
   wheelAction.value = ['zoom', 'navigate'].includes(wa) ? wa : 'zoom'
@@ -356,22 +400,26 @@ onMounted(async () => {
   const step = await parseNum('lightboxZoomStep', 1.2)
   zoomCfg.value = { min, max, step }
   view.value = { scale: Math.min(Math.max(1, min), max), tx: 0, ty: 0 }
-  window.addEventListener('keydown', onKeydown)
-  window.addEventListener('mousemove', onWinMouseMove)
-  window.addEventListener('mouseup', onWinMouseUp)
   preloadNeighbors()
 })
 onBeforeUnmount(() => {
-  window.removeEventListener('keydown', onKeydown)
-  window.removeEventListener('mousemove', onWinMouseMove)
-  window.removeEventListener('mouseup', onWinMouseUp)
-  preloaded = []
+  _preloaded = []
+  bodyScrollLocked.value = false
+  previouslyFocused?.focus?.()
 })
 </script>
 
 <template>
   <Teleport to="body">
-    <div class="lightbox-mask" @click.self="close">
+    <div
+      ref="maskRef"
+      class="lightbox-mask"
+      role="dialog"
+      aria-modal="true"
+      :aria-label="t('lightbox.dialogLabel')"
+      tabindex="-1"
+      @click.self="close"
+    >
       <div class="lightbox-toolbar">
         <span class="lightbox-count">
           {{ cur + 1 }} / {{ items.length }}
@@ -447,7 +495,11 @@ onBeforeUnmount(() => {
             :content="t('lightbox.copyFileTip', { key: shortcuts.copyFile })"
             placement="bottom"
           >
-            <button class="lb-btn" :class="{ 'lb-btn-copied': copied === 'file' }" @click="copyFile">
+            <button
+              class="lb-btn"
+              :class="{ 'lb-btn-copied': copied === 'file' }"
+              @click="copyFile"
+            >
               <el-icon :size="16"><Files /></el-icon>
             </button>
           </el-tooltip>
@@ -455,11 +507,20 @@ onBeforeUnmount(() => {
             :content="t('lightbox.copyImageTip', { key: shortcuts.copyImage })"
             placement="bottom"
           >
-            <button class="lb-btn" :class="{ 'lb-btn-copied': copied === 'image' }" @click="onCopyImageClick">
+            <button
+              class="lb-btn"
+              :class="{ 'lb-btn-copied': copied === 'image' }"
+              @click="onCopyImageClick"
+            >
               <el-icon :size="16"><CopyDocument /></el-icon>
             </button>
           </el-tooltip>
-          <button class="lb-btn" :title="t('lightbox.close')" :aria-label="t('lightbox.close')" @click="close">
+          <button
+            class="lb-btn"
+            :title="t('lightbox.close')"
+            :aria-label="t('lightbox.close')"
+            @click="close"
+          >
             <el-icon :size="16"><Close /></el-icon>
           </button>
         </div>

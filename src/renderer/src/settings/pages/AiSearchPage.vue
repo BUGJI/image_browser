@@ -3,7 +3,11 @@ import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { Connection } from '@element-plus/icons-vue'
-import { useNotificationsStore } from '../../stores/notifications'
+import {
+  rootDisplayName as displayName,
+  indexButtonType as buttonType
+} from '../../utils/roots'
+import { useIndexMaintenance } from '../../utils/use-index-maintenance'
 
 const { t } = useI18n()
 
@@ -46,106 +50,36 @@ async function testConnection() {
   }
 }
 
-// 向量索引维护工具
-const maintainBusy = ref(false)
-const maintainRootId = ref(null)
-const maintainRoots = ref([])
+// 向量索引维护工具（通用流程见 utils/use-index-maintenance）
 const AI_MAINTAIN_ACTIONS = computed(() => [
   { label: t('aiSearch.updateIndex'), mode: 'update' },
   { label: t('aiSearch.rebuildIndex'), mode: 'rebuild' },
   { label: t('aiSearch.cleanIndex'), mode: 'clean' }
 ])
 
-const notificationsStore = useNotificationsStore()
-let offAiProgress = null
-let aiNotifyId = null
-let aiRootId = null
-
-function buttonType(mode) {
-  if (mode === 'update') return 'primary'
-  if (mode === 'rebuild') return 'warning'
-  return 'danger'
-}
-
-function displayName(root) {
-  if (!root) return ''
-  if (root.alias && root.alias.trim()) return root.alias.trim()
-  const parts = root.path.split(/[\\/]+/).filter(Boolean)
-  return parts.length ? parts[parts.length - 1] : root.path
-}
-
-async function loadMaintainRoots() {
-  maintainRoots.value = await window.api.rootsList()
-}
-
-// 维护操作：接真实向量索引引擎 + 进度通知
-function maintainIndex(mode) {
-  const item = AI_MAINTAIN_ACTIONS.value.find((m) => m.mode === mode)
-  const root = maintainRoots.value.find((r) => r.id === maintainRootId.value)
-  if (!root) {
-    ElMessage.warning(t('aiSearch.selectRootFirst'))
-    return
-  }
-  if (!enabled.value) {
-    ElMessage.warning(t('aiSearch.enableMasterFirst'))
-    return
-  }
-
-  maintainBusy.value = true
-  aiRootId = root.id
-  aiNotifyId = notificationsStore.add({
-    type: 'progress',
-    title: `${item.label} · ${displayName(root)}`,
-    message: t('common.preparing'),
-    cancellable: true,
-    onCancel: () => window.api.aiAbort()
-  })
-
-  window.api.aiIndex(root.id, mode).catch((err) => {
-    if (aiNotifyId) {
-      notificationsStore.finish(aiNotifyId, 'aborted', {
-        message: t('aiSearch.startFailed', { error: String(err?.message || err) })
-      })
-    }
-    maintainBusy.value = false
-  })
-}
-
-function onAiProgress(p) {
-  if (p.rootId !== aiRootId) return
-  if (!aiNotifyId) return
-
-  const finished = p.done === true
-
-  if (p.error) {
-    notificationsStore.finish(aiNotifyId, 'aborted', { message: p.error })
-    maintainBusy.value = false
-    return
-  }
-  if (p.aborted) {
-    notificationsStore.finish(aiNotifyId, 'aborted', { message: t('notifications.aborted') })
-    maintainBusy.value = false
-    return
-  }
-  if (finished) {
-    const s = p.stats || {}
+const { maintainBusy, maintainRootId, maintainRoots, maintainIndex } = useIndexMaintenance({
+  actions: AI_MAINTAIN_ACTIONS,
+  api: {
+    index: (rootId, mode) => window.api.aiIndex(rootId, mode),
+    abort: () => window.api.aiAbort(),
+    onProgress: (cb) => window.api.onAiProgress(cb)
+  },
+  canRun: () => enabled.value,
+  noRootWarn: t('aiSearch.selectRootFirst'),
+  disabledWarn: t('aiSearch.enableMasterFirst'),
+  phase: 'embed',
+  phaseMessage: (p) =>
+    t('aiSearch.embedding', { done: p.done, total: p.total, current: p.current || '' }),
+  summary: (s) => {
     const parts = []
     if (s.embedded) parts.push(t('aiSearch.statsEmbedded', { n: s.embedded }))
     if (s.removed) parts.push(t('aiSearch.statsRemoved', { n: s.removed }))
     if (s.failed) parts.push(t('aiSearch.statsFailed', { n: s.failed }))
-    notificationsStore.finish(aiNotifyId, 'done', {
-      message: parts.length ? parts.join(t('common.separator')) : t('aiSearch.indexDone')
-    })
-    maintainBusy.value = false
-    return
-  }
-  if (p.phase === 'embed') {
-    notificationsStore.updateProgress(aiNotifyId, p.total ? Math.round((p.done / p.total) * 100) : 0)
-    notificationsStore.update(aiNotifyId, {
-      message: t('aiSearch.embedding', { done: p.done, total: p.total, current: p.current || '' })
-    })
-  }
-}
+    return parts.length ? parts.join(t('common.separator')) : ''
+  },
+  doneMessage: t('aiSearch.indexDone'),
+  startFailed: (error) => t('aiSearch.startFailed', { error })
+})
 
 onMounted(async () => {
   // AI 搜索正在开发中：总开关暂不可用，始终为关闭态
@@ -156,7 +90,6 @@ onMounted(async () => {
   visionModel.value = (await window.api.getSetting('aiVisionModel', '')) || DEFAULT_VISION_MODEL
   const tk = Number(await window.api.getSetting('aiTopK', String(DEFAULT_TOP_K)))
   topK.value = Number.isFinite(tk) ? tk : DEFAULT_TOP_K
-  await loadMaintainRoots()
 
   // 主窗口或本窗口可能修改这些设置，保持同步
   offSettingsChanged = window.api.onSettingsChanged(({ key, value }) => {
@@ -171,13 +104,10 @@ onMounted(async () => {
       if (Number.isFinite(n)) topK.value = n
     }
   })
-
-  offAiProgress = window.api.onAiProgress(onAiProgress)
 })
 
 onBeforeUnmount(() => {
   offSettingsChanged?.()
-  offAiProgress?.()
 })
 
 async function saveSetting(key, raw, fallback) {
@@ -240,12 +170,7 @@ function onTopKChange() {
       <template #header>
         <div class="endpoint-head">
           <span>{{ t('aiSearch.endpoint') }}</span>
-          <el-button
-            size="small"
-            :icon="Connection"
-            :loading="testingConn"
-            @click="testConnection"
-          >
+          <el-button size="small" :icon="Connection" :loading="testingConn" @click="testConnection">
             {{ t('aiSearch.testConnection') }}
           </el-button>
         </div>
@@ -323,7 +248,9 @@ function onTopKChange() {
       <div class="ai-row">
         <div class="ai-label">
           <div class="ai-name">{{ t('aiSearch.resultCount') }}</div>
-          <div class="ai-desc">{{ t('aiSearch.resultCountDesc', { min: TOP_K_MIN, max: TOP_K_MAX }) }}</div>
+          <div class="ai-desc">
+            {{ t('aiSearch.resultCountDesc', { min: TOP_K_MIN, max: TOP_K_MAX }) }}
+          </div>
         </div>
         <el-input-number
           v-model="topK"

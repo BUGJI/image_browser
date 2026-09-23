@@ -12,10 +12,32 @@ export const DEFAULT_SHORTCUTS = {
 
 // 不参与绑定的按键（系统或灯箱保留功能）
 const IGNORED_KEYS = new Set([
-  'CapsLock', 'NumLock', 'ScrollLock', 'Tab', 'Enter', 'Escape', 'Backspace',
-  'Delete', 'Insert', 'Home', 'End', 'PageUp', 'PageDown',
-  'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', ' ', 'Spacebar', 'ContextMenu',
-  'Control', 'Alt', 'Shift', 'Meta', 'OS', 'F1'
+  'CapsLock',
+  'NumLock',
+  'ScrollLock',
+  'Tab',
+  'Enter',
+  'Escape',
+  'Backspace',
+  'Delete',
+  'Insert',
+  'Home',
+  'End',
+  'PageUp',
+  'PageDown',
+  'ArrowLeft',
+  'ArrowRight',
+  'ArrowUp',
+  'ArrowDown',
+  ' ',
+  'Spacebar',
+  'ContextMenu',
+  'Control',
+  'Alt',
+  'Shift',
+  'Meta',
+  'OS',
+  'F1'
 ])
 
 const MODIFIER_KEYS = new Set(['Control', 'Alt', 'Shift', 'Meta', 'OS'])
@@ -64,8 +86,10 @@ export function combosEqual(a, b) {
   const x = parseCombo(a)
   const y = parseCombo(b)
   return (
-    x.ctrl === y.ctrl && x.alt === y.alt &&
-    x.shift === y.shift && x.meta === y.meta &&
+    x.ctrl === y.ctrl &&
+    x.alt === y.alt &&
+    x.shift === y.shift &&
+    x.meta === y.meta &&
     x.key.toLowerCase() === y.key.toLowerCase()
   )
 }

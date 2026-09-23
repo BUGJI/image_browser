@@ -12,15 +12,22 @@ app.whenReady().then(async () => {
   mkdirSync(srcDir, { recursive: true })
 
   const png = new PNG({ width: 64, height: 64 })
-  for (let y = 0; y < 64; y++) for (let x = 0; x < 64; x++) {
-    const idx = (png.width * y + x) << 2
-    png.data[idx] = x * 4; png.data[idx + 1] = y * 4; png.data[idx + 2] = 100; png.data[idx + 3] = 255
-  }
+  for (let y = 0; y < 64; y++)
+    for (let x = 0; x < 64; x++) {
+      const idx = (png.width * y + x) << 2
+      png.data[idx] = x * 4
+      png.data[idx + 1] = y * 4
+      png.data[idx + 2] = 100
+      png.data[idx + 3] = 255
+    }
   const abs = join(srcDir, 'pic.png')
   writeFileSync(abs, PNG.sync.write(png))
 
   const worker = new Worker(join(process.cwd(), 'src', 'main', 'cache-worker.mjs'))
-  worker.on('error', (e) => { console.log('WORKER ERROR:', e.message); app.exit(1) })
+  worker.on('error', (e) => {
+    console.log('WORKER ERROR:', e.message)
+    app.exit(1)
+  })
   worker.on('message', (m) => {
     if (m.type === 'thumb-done') {
       console.log('thumb-done OK, relThumb =', m.relThumb, 'size =', m.width + 'x' + m.height)

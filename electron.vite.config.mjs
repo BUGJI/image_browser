@@ -27,6 +27,7 @@ export default defineConfig({
         input: {
           index: resolve('src/main/index.js'),
           'cache-worker': resolve('src/main/cache-worker.mjs'),
+          'shas-worker': resolve('src/main/shas-worker.mjs'),
           'ocr-worker': resolve('src/main/ocr-worker.mjs')
         }
       }

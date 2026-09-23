@@ -1,0 +1,9 @@
+out
+dist
+node_modules
+resources
+build/icon.png
+package-lock.json
+*.min.*
+# 语法非法的临时调试脚本
+locate-dir.mjs

@@ -1,7 +1,8 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
-
+import { rootDisplayName as displayName, indexButtonType as buttonType } from '../../utils/roots'
+import { useCacheMaintenance } from '../../utils/use-cache-maintenance'
 
 const { t } = useI18n()
 
@@ -17,7 +18,8 @@ const zoomMax = ref(2)
 // 卡片比例限制（默认开）：宽高比限制在 1:5 ~ 2:1
 const imageTallCap = ref(true)
 const ZOOM_MAX_MIN = 1
-const ZOOM_MAX_MAX = 100
+// 上限 8：再大列宽过小、收益很低，且易触发极端列数导致的布局开销
+const ZOOM_MAX_MAX = 8
 
 // 灯箱缩放限制
 const LIGHT_ZOOM_MIN_BOUND = 0.1
@@ -60,9 +62,35 @@ const gridPreload = ref(GRID_PRELOAD_DEFAULT)
 // 记录日志开关
 const loggingEnabled = ref(false)
 
+// ---------- 缓存维护工具（原「根目录」页移入） ----------
+const roots = ref([])
+const maintainRootId = ref(null) // 选中的根目录
+
+// 维护任务的进度/通知逻辑抽到公共 composable（根目录页的一键「更新缓存」也复用）
+const {
+  busy: maintainBusy,
+  modes: MAINTAIN_MODES,
+  start: startMaintain,
+  attach: attachCacheProgress,
+  detach: detachCacheProgress
+} = useCacheMaintenance()
+
 let offSettingsChanged = null
 
 const disabled = computed(() => !devEnabled.value)
+
+async function loadRoots() {
+  try {
+    roots.value = await window.api.rootsList()
+  } catch {
+    roots.value = []
+  }
+}
+
+function maintain(mode) {
+  const root = roots.value.find((r) => r.id === maintainRootId.value)
+  if (root) startMaintain(root, mode)
+}
 
 onMounted(async () => {
   devEnabled.value = (await window.api.getSetting('devOptions', 'false')) === 'true'
@@ -72,14 +100,49 @@ onMounted(async () => {
   zoomMax.value = Number.isFinite(zm) ? clampZoomMax(zm) : 2
   imageTallCap.value = (await window.api.getSetting('imageTallCap', 'true')) !== 'false'
 
-  lightZoomMin.value = clampNum(await window.api.getSetting('lightboxZoomMin', '0.5'), LIGHT_ZOOM_MIN_BOUND, LIGHT_ZOOM_MAX_BOUND, 0.5)
-  lightZoomMax.value = clampNum(await window.api.getSetting('lightboxZoomMax', '8'), LIGHT_ZOOM_MIN_BOUND, LIGHT_ZOOM_MAX_BOUND, 8)
-  lightZoomStep.value = clampNum(await window.api.getSetting('lightboxZoomStep', '1.2'), 1.01, 2, 1.2)
+  lightZoomMin.value = clampNum(
+    await window.api.getSetting('lightboxZoomMin', '0.5'),
+    LIGHT_ZOOM_MIN_BOUND,
+    LIGHT_ZOOM_MAX_BOUND,
+    0.5
+  )
+  lightZoomMax.value = clampNum(
+    await window.api.getSetting('lightboxZoomMax', '8'),
+    LIGHT_ZOOM_MIN_BOUND,
+    LIGHT_ZOOM_MAX_BOUND,
+    8
+  )
+  lightZoomStep.value = clampNum(
+    await window.api.getSetting('lightboxZoomStep', '1.2'),
+    1.01,
+    2,
+    1.2
+  )
 
-  cacheThumbWidth.value = clampNum(await window.api.getSetting('cacheThumbWidth', '512'), 64, 4096, 512)
-  cacheThumbQuality.value = clampNum(await window.api.getSetting('cacheThumbQuality', '80'), 1, 100, 80)
-  cacheScanBatch.value = clampNum(await window.api.getSetting('cacheScanBatch', '100'), 10, 1000, 100)
-  cacheThumbBatch.value = clampNum(await window.api.getSetting('cacheThumbBatch', '100'), 10, 500, 100)
+  cacheThumbWidth.value = clampNum(
+    await window.api.getSetting('cacheThumbWidth', '512'),
+    64,
+    4096,
+    512
+  )
+  cacheThumbQuality.value = clampNum(
+    await window.api.getSetting('cacheThumbQuality', '80'),
+    1,
+    100,
+    80
+  )
+  cacheScanBatch.value = clampNum(
+    await window.api.getSetting('cacheScanBatch', '100'),
+    10,
+    1000,
+    100
+  )
+  cacheThumbBatch.value = clampNum(
+    await window.api.getSetting('cacheThumbBatch', '100'),
+    10,
+    500,
+    100
+  )
 
   thumbWorkers.value = clampNum(
     await window.api.getSetting('cacheThumbWorkers', String(THUMB_WORKERS_DEFAULT)),
@@ -120,29 +183,49 @@ onMounted(async () => {
     else if (key === 'zoomMax') {
       const zm = parseFloat(value)
       if (Number.isFinite(zm)) zoomMax.value = clampZoomMax(zm)
-    }
-    else if (key === 'imageTallCap') imageTallCap.value = value !== 'false'
-    else if (key === 'lightboxZoomMin') lightZoomMin.value = clampNum(value, LIGHT_ZOOM_MIN_BOUND, LIGHT_ZOOM_MAX_BOUND, 0.5)
-    else if (key === 'lightboxZoomMax') lightZoomMax.value = clampNum(value, LIGHT_ZOOM_MIN_BOUND, LIGHT_ZOOM_MAX_BOUND, 8)
+    } else if (key === 'imageTallCap') imageTallCap.value = value !== 'false'
+    else if (key === 'lightboxZoomMin')
+      lightZoomMin.value = clampNum(value, LIGHT_ZOOM_MIN_BOUND, LIGHT_ZOOM_MAX_BOUND, 0.5)
+    else if (key === 'lightboxZoomMax')
+      lightZoomMax.value = clampNum(value, LIGHT_ZOOM_MIN_BOUND, LIGHT_ZOOM_MAX_BOUND, 8)
     else if (key === 'lightboxZoomStep') lightZoomStep.value = clampNum(value, 1.01, 2, 1.2)
     else if (key === 'cacheThumbWidth') cacheThumbWidth.value = clampNum(value, 64, 4096, 512)
     else if (key === 'cacheThumbQuality') cacheThumbQuality.value = clampNum(value, 1, 100, 80)
     else if (key === 'cacheScanBatch') cacheScanBatch.value = clampNum(value, 10, 1000, 100)
     else if (key === 'cacheThumbBatch') cacheThumbBatch.value = clampNum(value, 10, 500, 100)
-    else if (key === 'cacheThumbWorkers') thumbWorkers.value = clampNum(value, THUMB_WORKERS_DEFAULT, THUMB_WORKERS_MAX, THUMB_WORKERS_DEFAULT)
-    else if (key === 'cacheThumbTimeout') thumbTimeout.value = clampNum(value, THUMB_TIMEOUT_MIN, THUMB_TIMEOUT_MAX, THUMB_TIMEOUT_DEFAULT)
-    else if (key === 'cacheThumbSlowMs') thumbSlowMs.value = clampNum(value, THUMB_SLOW_MIN, THUMB_SLOW_MAX, THUMB_SLOW_DEFAULT)
+    else if (key === 'cacheThumbWorkers')
+      thumbWorkers.value = clampNum(
+        value,
+        THUMB_WORKERS_DEFAULT,
+        THUMB_WORKERS_MAX,
+        THUMB_WORKERS_DEFAULT
+      )
+    else if (key === 'cacheThumbTimeout')
+      thumbTimeout.value = clampNum(
+        value,
+        THUMB_TIMEOUT_MIN,
+        THUMB_TIMEOUT_MAX,
+        THUMB_TIMEOUT_DEFAULT
+      )
+    else if (key === 'cacheThumbSlowMs')
+      thumbSlowMs.value = clampNum(value, THUMB_SLOW_MIN, THUMB_SLOW_MAX, THUMB_SLOW_DEFAULT)
     else if (key === 'cacheSequential') sequentialRead.value = value !== 'false'
     else if (key === 'cacheUseCli') useCli.value = value === 'true'
     else if (key === 'cacheCliExe') cliExePath.value = value || ''
     else if (key === 'imageBufferLazy') gridBufferLazy.value = value !== 'false'
-    else if (key === 'imagePreload') gridPreload.value = clampNum(value, 0, GRID_PRELOAD_MAX, GRID_PRELOAD_DEFAULT)
+    else if (key === 'imagePreload')
+      gridPreload.value = clampNum(value, 0, GRID_PRELOAD_MAX, GRID_PRELOAD_DEFAULT)
     else if (key === 'loggingEnabled') loggingEnabled.value = value === 'true'
   })
+
+  // 缓存维护：根目录列表 + 进度监听
+  loadRoots()
+  attachCacheProgress()
 })
 
 onBeforeUnmount(() => {
   offSettingsChanged?.()
+  detachCacheProgress()
 })
 
 function clampNum(v, min, max, fallback) {
@@ -251,10 +334,22 @@ function onCacheThumbBatchChange(v) {
   saveCacheSetting('cacheThumbBatch', v, 10, 500, 100)
 }
 function onThumbWorkersChange(v) {
-  saveCacheSetting('cacheThumbWorkers', v, THUMB_WORKERS_DEFAULT, THUMB_WORKERS_MAX, THUMB_WORKERS_DEFAULT)
+  saveCacheSetting(
+    'cacheThumbWorkers',
+    v,
+    THUMB_WORKERS_DEFAULT,
+    THUMB_WORKERS_MAX,
+    THUMB_WORKERS_DEFAULT
+  )
 }
 function onThumbTimeoutChange(v) {
-  saveCacheSetting('cacheThumbTimeout', v, THUMB_TIMEOUT_MIN, THUMB_TIMEOUT_MAX, THUMB_TIMEOUT_DEFAULT)
+  saveCacheSetting(
+    'cacheThumbTimeout',
+    v,
+    THUMB_TIMEOUT_MIN,
+    THUMB_TIMEOUT_MAX,
+    THUMB_TIMEOUT_DEFAULT
+  )
 }
 function onThumbSlowChange(v) {
   saveCacheSetting('cacheThumbSlowMs', v, THUMB_SLOW_MIN, THUMB_SLOW_MAX, THUMB_SLOW_DEFAULT)
@@ -374,7 +469,9 @@ async function onLoggingChange(v) {
       <div class="dev-row">
         <div class="dev-label">
           <div class="dev-name">{{ t('devOptions.zoomMax') }}</div>
-          <div class="dev-desc">{{ t('devOptions.zoomMaxDesc', { min: ZOOM_MAX_MIN, max: ZOOM_MAX_MAX }) }}</div>
+          <div class="dev-desc">
+            {{ t('devOptions.zoomMaxDesc', { min: ZOOM_MAX_MIN, max: ZOOM_MAX_MAX }) }}
+          </div>
         </div>
         <el-input-number
           v-model="zoomMax"
@@ -624,6 +721,58 @@ async function onLoggingChange(v) {
     </el-card>
 
     <el-card class="dev-card" shadow="never">
+      <template #header>
+        <div class="maintain-head">
+          <span>{{ t('roots.maintainTools') }}</span>
+          <el-tag v-if="maintainBusy" size="small" type="primary" effect="plain">{{
+            t('roots.taskRunning')
+          }}</el-tag>
+        </div>
+      </template>
+      <div class="dev-desc-block">{{ t('roots.maintainDesc') }}</div>
+      <div class="maintain-row">
+        <el-select
+          v-model="maintainRootId"
+          class="maintain-select"
+          :placeholder="t('roots.selectMaintainRoot')"
+          clearable
+          :disabled="maintainBusy"
+        >
+          <el-option
+            v-for="root in roots"
+            :key="root.id"
+            :value="root.id"
+            :label="displayName(root)"
+          >
+            <el-tooltip :content="root.path" placement="left" :show-after="300">
+              <span>{{ displayName(root) }}</span>
+            </el-tooltip>
+          </el-option>
+        </el-select>
+
+        <template v-for="item in MAINTAIN_MODES" :key="item.mode">
+          <el-tooltip
+            :disabled="maintainRootId != null"
+            :content="t('roots.selectRootFirst')"
+            placement="top"
+          >
+            <span>
+              <el-button
+                :type="buttonType(item.mode)"
+                plain
+                :disabled="maintainRootId == null || maintainBusy"
+                :loading="maintainBusy"
+                @click="maintain(item.mode)"
+              >
+                {{ item.label }}
+              </el-button>
+            </span>
+          </el-tooltip>
+        </template>
+      </div>
+    </el-card>
+
+    <el-card class="dev-card" shadow="never">
       <template #header>{{ t('performance.scrollTitle') }}</template>
       <div class="dev-desc-block">{{ t('performance.pageDesc') }}</div>
 
@@ -735,6 +884,25 @@ async function onLoggingChange(v) {
 
 .cli-exe-input {
   width: 300px;
+  flex-shrink: 0;
+}
+
+/* 缓存维护工具 */
+.maintain-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.maintain-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.maintain-select {
+  width: 260px;
   flex-shrink: 0;
 }
 </style>

@@ -10,7 +10,8 @@ export default {
     operationFailed: '操作失败',
     preparing: '准备中…',
     loading: '加载中…',
-    separator: '，'
+    separator: '，',
+    warning: '警告'
   },
   notifications: {
     active: '进行中',
@@ -115,7 +116,8 @@ export default {
     navHint: '←/→ 切换 · Esc 关闭',
     close: '关闭',
     prev: '上一张',
-    next: '下一张'
+    next: '下一张',
+    dialogLabel: '图片查看器'
   },
   closeAsk: {
     title: '关闭程序',
@@ -195,6 +197,20 @@ export default {
     moveUp: '上移',
     moveDown: '下移',
     reordered: '排序已保存',
+    statsTitle: '缓存概况',
+    statRefresh: '刷新',
+    statRoots: '根目录数',
+    statMedia: '已索引媒体',
+    statCoverage: '缩略图覆盖率',
+    statCacheSize: '缩略图占用',
+    statSrcSize: '原图 {size}',
+    statNoCache: '未建立缓存',
+    colMedia: '媒体数',
+    colCacheState: '缓存状态',
+    colCacheSize: '缓存占用',
+    colLastTask: '最近维护',
+    neverMaintained: '从未维护',
+    updateCacheNow: '更新缓存',
     maintainTools: '性能优化',
     taskRunning: '任务运行中',
     maintainDesc:
@@ -263,9 +279,11 @@ export default {
     showFavoritesDesc: '在左侧目录树顶部显示「我的收藏」入口（展示当前根目录下收藏的图片）'
   },
   tags: {
-    pageDesc: '管理当前根目录下的图片标签：可新建、重命名、删除或合并。标签在灯箱中打给图片，命中数即该标签下的图片数。',
+    pageDesc:
+      '管理当前根目录下的图片标签：可新建、重命名、删除或合并。标签在灯箱中打给图片，命中数即该标签下的图片数。',
     enableMaster: '启用标签',
-    masterDesc: '关闭后，主界面侧栏的「标签」入口与灯箱里的打标按钮将隐藏，已打的标签数据仍会保留。',
+    masterDesc:
+      '关闭后，主界面侧栏的「标签」入口与灯箱里的打标按钮将隐藏，已打的标签数据仍会保留。',
     enabled: '标签已启用',
     disabled: '标签已关闭',
     lightboxBtn: '在灯箱中显示打标按钮',
@@ -353,7 +371,8 @@ export default {
     pressKeys: '按下快捷键',
     unbound: '未绑定',
     conflict: '该组合已绑定给「{action}」，请换一个',
-    recordTip: '点击按键区域后直接按下新组合；普通字母/数字键需带修饰键（Ctrl/Alt/Shift），F2~F24 可单独使用。',
+    recordTip:
+      '点击按键区域后直接按下新组合；普通字母/数字键需带修饰键（Ctrl/Alt/Shift），F2~F24 可单独使用。',
     reset: '恢复默认',
     wheelSection: '灯箱滚轮',
     wheelAction: '滚轮行为',
@@ -408,7 +427,8 @@ export default {
     disabled: 'AI 搜索已关闭',
     maintainTools: '维护工具',
     taskRunning: '任务运行中',
-    maintainDesc: '为所选根目录的图片建立向量索引（视觉模型生成描述 + 向量模型转向量），供 AI 语义搜索使用。',
+    maintainDesc:
+      '为所选根目录的图片建立向量索引（视觉模型生成描述 + 向量模型转向量），供 AI 语义搜索使用。',
     maintainDir: '维护根目录',
     maintainDirDesc: '选择要维护的根目录',
     selectMaintainRoot: '选择要维护的根目录',
@@ -423,7 +443,8 @@ export default {
     statsEmbedded: '已向量化 {n} 张',
     statsRemoved: '清理 {n} 条失效',
     statsFailed: '失败 {n} 张',
-    usageTip: '使用流程：先在「维护工具」中为根目录建立向量索引，然后在主界面打开 AI 搜索开关，输入自然语言描述（如“海边的日落”）回车即可语义检索。'
+    usageTip:
+      '使用流程：先在「维护工具」中为根目录建立向量索引，然后在主界面打开 AI 搜索开关，输入自然语言描述（如“海边的日落”）回车即可语义检索。'
   },
   ocrSearch: {
     pageDesc: '用 PaddleOCR 识别图片内的文字，按「图内文字」快速搜索图片。',
@@ -432,7 +453,8 @@ export default {
     installed: 'OCR 运行时组件已安装，可正常建立图内文字索引。',
     notInstalled: '未安装 OCR 运行时组件，索引功能不可用。',
     runtimeTitle: '运行时组件',
-    runtimeDesc: '图内文字识别所需的运行组件，体积较大（约 60–100MB），不随应用附带，可在此按需下载或导入。',
+    runtimeDesc:
+      '图内文字识别所需的运行组件，体积较大（约 60–100MB），不随应用附带，可在此按需下载或导入。',
     runtimeInstalledTag: '已安装',
     runtimeMissingTag: '未安装',
     runtimeUnsupportedTag: '不支持',
@@ -466,7 +488,8 @@ export default {
     statsCount: '已识别 {n} 张',
     statsRemoved: '清理 {n} 条失效',
     statsFailed: '失败 {n} 张',
-    usageTip: '使用流程：先在「运行时组件」中下载/导入组件，再到「维护工具」为根目录建立文字索引；之后在搜索框输入图片内出现的文字回车，即可与文件名一起搜索定位。'
+    usageTip:
+      '使用流程：先在「运行时组件」中下载/导入组件，再到「维护工具」为根目录建立文字索引；之后在搜索框输入图片内出现的文字回车，即可与文件名一起搜索定位。'
   },
   devOptions: {
     pageDesc: '面向开发者的调试与实验性功能。',
@@ -481,8 +504,7 @@ export default {
     showHidden: '显示隐藏功能',
     showHiddenDesc: '开启后显示默认隐藏的功能入口（如 AI 搜索）',
     logging: '记录日志',
-    loggingDesc:
-      '捕获所有日志，自动写入 userData/logs/app-YYYYMMDD.log',
+    loggingDesc: '捕获所有日志，自动写入 userData/logs/app-YYYYMMDD.log',
     zoomTitle: '瀑布流',
     zoomMax: '缩放滑块最大值',
     zoomMaxDesc: '主界面缩放滑块的最大值（{min} ~ {max}）',
@@ -521,8 +543,7 @@ export default {
     thumbWorkersDesc:
       '并行解码/编码缩略图的 worker 数量。0 = 自动（同时受 CPU 核数与可用内存约束，超大图解码很吃内存）；调大更吃 CPU/内存，内存不足会反而变慢（抖动）。',
     thumbTimeout: '单段超时（毫秒）',
-    thumbTimeoutDesc:
-      '一个 worker 段最多运行多久，超时则跳过该段剩余任务（10000 ~ 600000）。',
+    thumbTimeoutDesc: '一个 worker 段最多运行多久，超时则跳过该段剩余任务（10000 ~ 600000）。',
     thumbSlow: '重图告警阈值（毫秒）',
     thumbSlowDesc:
       '生成耗时超过该值的缩略图，会打印 [WARN] 及文件路径（1000 ~ 60000），便于定位重图。',
@@ -614,8 +635,7 @@ export default {
     thumbPx: '{n} px',
     thumbApplyHint:
       '仅对新生成的缩略图生效。设置后到「根目录」对该根执行一次「更新缓存」或「重建缓存」即可；已缓存的旧图最长 1 天内仍可能沿用旧尺寸。',
-    advancedHint:
-      '缩略图质量、生成批大小等可在「开发者选项」微调；缓存维护入口在「根目录」页。',
+    advancedHint: '缩略图质量、生成批大小等可在「开发者选项」微调；缓存维护入口在「根目录」页。',
     saved: '已保存'
   },
   update: {

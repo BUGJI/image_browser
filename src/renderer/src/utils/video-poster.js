@@ -99,7 +99,9 @@ async function decodePoster(rootId, absPath) {
     const ctx = canvas.getContext('2d')
     if (!ctx) return ''
     ctx.drawImage(video, 0, 0, dw, dh)
-    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/webp', POSTER_QUALITY))
+    const blob = await new Promise((resolve) =>
+      canvas.toBlob(resolve, 'image/webp', POSTER_QUALITY)
+    )
     if (!blob) return ''
     return URL.createObjectURL(blob)
   } finally {

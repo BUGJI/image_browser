@@ -2,6 +2,7 @@
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Plus, Edit, Delete, CollectionTag } from '@element-plus/icons-vue'
+import { rootDisplayName as displayName } from '../../utils/roots'
 
 const { t } = useI18n()
 
@@ -45,13 +46,6 @@ async function saveToggle(key, value) {
   } catch {
     ElMessage.error(t('common.saveFailed'))
   }
-}
-
-function displayName(root) {
-  if (!root) return ''
-  if (root.alias && root.alias.trim()) return root.alias.trim()
-  const parts = root.path.split(/[\\/]+/).filter(Boolean)
-  return parts.length ? parts[parts.length - 1] : root.path
 }
 
 async function loadRoots() {
@@ -145,11 +139,15 @@ async function saveRename() {
 // ---------- 删除 ----------
 async function removeTag(row) {
   try {
-    await ElMessageBox.confirm(t('tags.deleteConfirm', { name: row.name, count: row.count }), t('common.delete'), {
-      confirmButtonText: t('common.delete'),
-      cancelButtonText: t('common.cancel'),
-      type: 'warning'
-    })
+    await ElMessageBox.confirm(
+      t('tags.deleteConfirm', { name: row.name, count: row.count }),
+      t('common.delete'),
+      {
+        confirmButtonText: t('common.delete'),
+        cancelButtonText: t('common.cancel'),
+        type: 'warning'
+      }
+    )
     tags.value = (await window.api.tagsDelete(tagRootId.value, row.id)) || []
     ElMessage.success(t('tags.deleted'))
   } catch {
@@ -206,12 +204,7 @@ onBeforeUnmount(() => {
         <h2>{{ t('settings.tags') }}</h2>
         <p class="page-desc">{{ t('tags.pageDesc') }}</p>
       </div>
-      <el-button
-        type="primary"
-        :icon="Plus"
-        :disabled="disabled"
-        @click="openAdd"
-      >
+      <el-button type="primary" :icon="Plus" :disabled="disabled" @click="openAdd">
         {{ t('tags.addTag') }}
       </el-button>
     </div>
@@ -233,16 +226,23 @@ onBeforeUnmount(() => {
             <div class="master-name">{{ t('tags.lightboxBtn') }}</div>
             <div class="master-desc">{{ t('tags.lightboxBtnDesc') }}</div>
           </div>
-          <el-switch
-            v-model="tagsLightboxBtn"
-            @change="(v) => saveToggle('tagsLightboxBtn', v)"
-          />
+          <el-switch v-model="tagsLightboxBtn" @change="(v) => saveToggle('tagsLightboxBtn', v)" />
         </div>
       </el-card>
 
       <div class="toolbar">
-        <el-select v-model="tagRootId" class="root-select" :placeholder="t('tags.selectRoot')" clearable>
-          <el-option v-for="root in roots" :key="root.id" :value="root.id" :label="displayName(root)">
+        <el-select
+          v-model="tagRootId"
+          class="root-select"
+          :placeholder="t('tags.selectRoot')"
+          clearable
+        >
+          <el-option
+            v-for="root in roots"
+            :key="root.id"
+            :value="root.id"
+            :label="displayName(root)"
+          >
             <el-tooltip :content="root.path" placement="left" :show-after="300">
               <span>{{ displayName(root) }}</span>
             </el-tooltip>
@@ -261,8 +261,8 @@ onBeforeUnmount(() => {
       </div>
 
       <el-table
-        :data="tags"
         v-loading="loading"
+        :data="tags"
         :empty-text="t('tags.empty')"
         @selection-change="onSelectionChange"
       >
@@ -282,8 +282,12 @@ onBeforeUnmount(() => {
         </el-table-column>
         <el-table-column :label="t('roots.actions')" width="150" align="center">
           <template #default="{ row }">
-            <el-button link type="primary" :icon="Edit" @click="openRename(row)">{{ t('common.edit') }}</el-button>
-            <el-button link type="danger" :icon="Delete" @click="removeTag(row)">{{ t('common.delete') }}</el-button>
+            <el-button link type="primary" :icon="Edit" @click="openRename(row)">{{
+              t('common.edit')
+            }}</el-button>
+            <el-button link type="danger" :icon="Delete" @click="removeTag(row)">{{
+              t('common.delete')
+            }}</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -301,7 +305,9 @@ onBeforeUnmount(() => {
       />
       <template #footer>
         <el-button @click="addVisible = false">{{ t('common.cancel') }}</el-button>
-        <el-button type="primary" :loading="savingAdd" @click="saveAdd">{{ t('common.save') }}</el-button>
+        <el-button type="primary" :loading="savingAdd" @click="saveAdd">{{
+          t('common.save')
+        }}</el-button>
       </template>
     </el-dialog>
 
@@ -316,7 +322,9 @@ onBeforeUnmount(() => {
       />
       <template #footer>
         <el-button @click="renameVisible = false">{{ t('common.cancel') }}</el-button>
-        <el-button type="primary" :loading="savingRename" @click="saveRename">{{ t('common.save') }}</el-button>
+        <el-button type="primary" :loading="savingRename" @click="saveRename">{{
+          t('common.save')
+        }}</el-button>
       </template>
     </el-dialog>
 
@@ -325,20 +333,22 @@ onBeforeUnmount(() => {
       <div class="merge-form">
         <div class="merge-label">{{ t('tags.mergeTargetLabel') }}</div>
         <el-select v-model="mergeTargetId" class="merge-select">
-          <el-option
-            v-for="row in selected"
-            :key="row.id"
-            :value="row.id"
-            :label="row.name"
-          />
+          <el-option v-for="row in selected" :key="row.id" :value="row.id" :label="row.name" />
         </el-select>
         <p class="merge-tip">
-          {{ t('tags.mergeConfirmMsg', { n: selected.length - 1, target: (selected.find((r) => r.id === mergeTargetId) || {}).name || '' }) }}
+          {{
+            t('tags.mergeConfirmMsg', {
+              n: selected.length - 1,
+              target: (selected.find((r) => r.id === mergeTargetId) || {}).name || ''
+            })
+          }}
         </p>
       </div>
       <template #footer>
         <el-button @click="mergeVisible = false">{{ t('common.cancel') }}</el-button>
-        <el-button type="warning" :loading="merging" @click="confirmMerge">{{ t('tags.merge') }}</el-button>
+        <el-button type="warning" :loading="merging" @click="confirmMerge">{{
+          t('tags.merge')
+        }}</el-button>
       </template>
     </el-dialog>
   </div>

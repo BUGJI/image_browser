@@ -102,7 +102,9 @@ const browseModeTip = computed(() =>
 
     <div class="zoom-control">
       <el-tooltip :content="t('app.zoomTip')" placement="bottom" :show-after="200">
-        <span class="zoom-icon"><el-icon :size="14"><Picture /></el-icon></span>
+        <span class="zoom-icon"
+          ><el-icon :size="14"><Picture /></el-icon
+        ></span>
       </el-tooltip>
       <el-slider
         :model-value="itemZoom"
@@ -205,7 +207,9 @@ const browseModeTip = computed(() =>
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
   cursor: pointer;
   user-select: none;
-  transition: border-color 0.2s, color 0.2s;
+  transition:
+    border-color 0.2s,
+    color 0.2s;
 }
 
 .quick-copy-toggle:hover {
@@ -289,6 +293,34 @@ const browseModeTip = computed(() =>
   width: 120px;
   margin: 0;
 }
+
+/* 窄窗口：收紧工具栏（隐藏文字标签、收窄搜索/缩放），避免溢出到标题区 */
+@media (max-width: 1000px) {
+  .quick-copy-label,
+  .ai-search-label {
+    display: none;
+  }
+
+  .quick-copy-toggle,
+  .ai-search-toggle,
+  .zoom-control {
+    padding: 0 8px;
+  }
+
+  .search-input {
+    width: 160px;
+  }
+}
+
+@media (max-width: 760px) {
+  .zoom-slider {
+    width: 80px;
+  }
+
+  .search-input {
+    width: 130px;
+  }
+}
 </style>
 
 <style>
@@ -306,7 +338,9 @@ const browseModeTip = computed(() =>
   color: var(--app-text-secondary);
   cursor: pointer;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-  transition: color 0.2s, border-color 0.2s;
+  transition:
+    color 0.2s,
+    border-color 0.2s;
 }
 
 .toolbar-btn:hover {

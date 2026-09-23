@@ -3,7 +3,10 @@ import { useI18n } from 'vue-i18n'
 import { InfoFilled } from '@element-plus/icons-vue'
 import { useNotificationsStore } from '../stores/notifications'
 import { useAnimationsStore } from '../stores/animations'
-import { NOTIFY_TYPE_ICON as TYPE_ICON, NOTIFY_TYPE_COLOR as TYPE_COLOR } from '../utils/notification-types'
+import {
+  NOTIFY_TYPE_ICON as TYPE_ICON,
+  NOTIFY_TYPE_COLOR as TYPE_COLOR
+} from '../utils/notification-types'
 
 const { t } = useI18n()
 const store = useNotificationsStore()
@@ -24,18 +27,17 @@ function onCancel(n) {
   <Teleport to="body">
     <div class="notify-host" :class="{ 'no-notify-anim': !animations.animNotify }">
       <TransitionGroup name="notify-pop">
-        <div
-          v-for="n in store.popups"
-          :key="n.id"
-          class="notify-card"
-          :class="`notify-${n.type}`"
-        >
+        <div v-for="n in store.popups" :key="n.id" class="notify-card" :class="`notify-${n.type}`">
           <div class="notify-head">
             <el-icon :size="16" :style="{ color: TYPE_COLOR[n.type] }">
               <component :is="TYPE_ICON[n.type] || InfoFilled" />
             </el-icon>
             <span class="notify-title">{{ n.title }}</span>
-            <button class="notify-close" :title="t('notifications.dismiss')" @click="store.dismiss(n.id)">
+            <button
+              class="notify-close"
+              :title="t('notifications.dismiss')"
+              @click="store.dismiss(n.id)"
+            >
               <el-icon :size="12"><Close /></el-icon>
             </button>
           </div>

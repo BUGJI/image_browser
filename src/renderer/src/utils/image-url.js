@@ -15,8 +15,7 @@ export function buildImageUrl(rootId, absPath, size = 'auto') {
     .split(/[\\/]+/)
     .map(encodeURIComponent)
     .join('/')
-  const q =
-    size === 'orig' ? '?size=orig' : size === 'thumb' ? '?size=thumb' : ''
+  const q = size === 'orig' ? '?size=orig' : size === 'thumb' ? '?size=thumb' : ''
   return `image://${rootId}/${encoded}${q}`
 }
 

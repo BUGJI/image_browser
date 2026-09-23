@@ -104,7 +104,7 @@ defineProps({
 
 .root-header {
   /* 顶部留出悬浮工具栏的空间（工具栏 top:12px + 高 36px），避免标题被遮挡 */
-  padding: 60px 28px 12px;
+  padding: 60px var(--content-gutter) 12px;
 }
 
 .root-title {
@@ -124,7 +124,7 @@ defineProps({
   display: flex;
   flex-direction: column;
   min-height: 0;
-  padding: 0 28px 24px;
+  padding: 0 var(--content-gutter) 24px;
 }
 
 .folder-banner {

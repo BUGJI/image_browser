@@ -60,12 +60,16 @@ async function onCheckUpdate() {
     </el-card>
 
     <el-descriptions :column="1" border class="info-table">
-      <el-descriptions-item :label="t('about.version')">{{ appVersion || '-' }}</el-descriptions-item>
+      <el-descriptions-item :label="t('about.version')">{{
+        appVersion || '-'
+      }}</el-descriptions-item>
       <el-descriptions-item label="Electron">{{ info.electron }}</el-descriptions-item>
       <el-descriptions-item label="Chromium">{{ info.chrome }}</el-descriptions-item>
       <el-descriptions-item :label="t('about.node')">{{ info.node }}</el-descriptions-item>
       <el-descriptions-item :label="t('about.author')">BUGJI</el-descriptions-item>
-      <el-descriptions-item :label="t('about.stack')">Electron · Vue 3 · Pinia · Element Plus · node:sqlite</el-descriptions-item>
+      <el-descriptions-item :label="t('about.stack')"
+        >Electron · Vue 3 · Pinia · Element Plus · node:sqlite</el-descriptions-item
+      >
     </el-descriptions>
   </div>
 </template>

@@ -20,15 +20,11 @@ async function saveTitlebar() {
 
   // 顶栏样式属于窗口级设置，需重启生效
   try {
-    await ElMessageBox.confirm(
-      t('appearance.restartConfirm'),
-      t('appearance.restartTitle'),
-      {
-        confirmButtonText: t('appearance.restartNow'),
-        cancelButtonText: t('appearance.restartLater'),
-        type: 'warning'
-      }
-    )
+    await ElMessageBox.confirm(t('appearance.restartConfirm'), t('appearance.restartTitle'), {
+      confirmButtonText: t('appearance.restartNow'),
+      cancelButtonText: t('appearance.restartLater'),
+      type: 'warning'
+    })
     window.api.appRelaunch()
   } catch {
     ElMessage({ type: 'success', message: t('appearance.savedRestartLater') })

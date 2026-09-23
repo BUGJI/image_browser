@@ -130,12 +130,7 @@ async function onQuickCopyTypeChange(v) {
           <div class="behavior-desc">{{ t('general.onCloseDesc') }}</div>
         </div>
         <el-select v-model="closeAction" class="behavior-select" @change="onCloseActionChange">
-          <el-option
-            v-for="o in CLOSE_OPTIONS"
-            :key="o.value"
-            :value="o.value"
-            :label="o.label"
-          />
+          <el-option v-for="o in CLOSE_OPTIONS" :key="o.value" :value="o.value" :label="o.label" />
         </el-select>
       </div>
       <p class="behavior-tip">{{ CLOSE_OPTIONS.find((o) => o.value === closeAction)?.desc }}</p>
@@ -208,8 +203,12 @@ async function onQuickCopyTypeChange(v) {
 
     <el-descriptions :column="1" border class="info-table">
       <el-descriptions-item :label="t('general.appNameLabel')">Image Browser</el-descriptions-item>
-      <el-descriptions-item :label="t('general.sqliteVersion')">{{ dbVersion || t('common.loading') }}</el-descriptions-item>
-      <el-descriptions-item :label="t('general.dataLocationLabel')">{{ dataLocation }}</el-descriptions-item>
+      <el-descriptions-item :label="t('general.sqliteVersion')">{{
+        dbVersion || t('common.loading')
+      }}</el-descriptions-item>
+      <el-descriptions-item :label="t('general.dataLocationLabel')">{{
+        dataLocation
+      }}</el-descriptions-item>
     </el-descriptions>
 
     <el-alert type="info" :closable="false" class="tip">

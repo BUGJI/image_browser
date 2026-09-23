@@ -30,6 +30,8 @@ export const ROOT_TYPES = Object.freeze(Object.values(ROOT_TYPE))
  * @property {string} name
  * @property {boolean} isDir
  * @property {boolean} isFile
+ * @property {number} [size]    可用时提供，避免消费方再补一次 stat
+ * @property {number} [mtimeMs] 可用时提供（远程 lastmod），缺失为 0
  */
 
 /**

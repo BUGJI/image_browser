@@ -132,7 +132,9 @@ async function runAiSearch(q) {
   } catch (e) {
     aiResults.value = null
     searchQuery.value = ''
-    ElMessage.warning(t(AI_ERROR_KEYS[e?.code] || 'app.aiSearchFailed', { error: e?.message || '' }))
+    ElMessage.warning(
+      t(AI_ERROR_KEYS[e?.code] || 'app.aiSearchFailed', { error: e?.message || '' })
+    )
   } finally {
     aiSearchBusy.value = false
   }
@@ -215,7 +217,8 @@ const {
   imageTallCap: { default: true, normalize: asBool(true) },
   zoomMax: {
     default: 2,
-    normalize: asNumber(2, 1),
+    // 与开发者选项的 ZOOM_MAX_MAX 保持一致：上限 8，避免历史超大值导致列宽过窄
+    normalize: asNumber(2, 1, 8),
     onChange: (v) => {
       if (itemZoom.value > v) {
         itemZoom.value = v
@@ -225,10 +228,6 @@ const {
   },
   rememberZoom: { default: false, normalize: asBool(false) }
 })
-
-const quickCopyLabel = computed(() =>
-  t(quickCopyType.value === 'file' ? 'lightbox.copyFileAction' : 'lightbox.copyImageAction')
-)
 
 // 「我的收藏」视图（仅当前根目录）
 const favItems = computed(() =>
@@ -287,15 +286,12 @@ watch(
   }
 )
 // 标签在别处（设置页/另一张图）被删除时，自动退出标签视图
-watch(
-  [() => tagsStore.activeTagId, () => tagsStore.tags],
-  ([id]) => {
-    if (id != null && tagActive.value && !tagsStore.findTag(id)) {
-      tagActive.value = false
-      tagsStore.leaveTag()
-    }
+watch([() => tagsStore.activeTagId, () => tagsStore.tags], ([id]) => {
+  if (id != null && tagActive.value && !tagsStore.findTag(id)) {
+    tagActive.value = false
+    tagsStore.leaveTag()
   }
-)
+})
 
 // 切换到文件夹 / 切换根目录时，退出 AI 结果视图
 watch(
@@ -562,7 +558,9 @@ onBeforeUnmount(() => {
           <!-- 未注册任何根目录 -->
           <div v-else class="welcome">
             <el-empty :description="t('app.noRoots')">
-              <el-button type="primary" @click="openSettings">{{ t('app.goToSettings') }}</el-button>
+              <el-button type="primary" @click="openSettings">{{
+                t('app.goToSettings')
+              }}</el-button>
               <p class="welcome-tip">{{ t('app.setupTip') }}</p>
             </el-empty>
           </div>
@@ -592,7 +590,8 @@ onBeforeUnmount(() => {
   min-width: 0;
   background: var(--app-bg);
   color: var(--app-text);
-  overflow: auto;
+  /* 只保留瀑布流内部单一滚动条，避免外层再出现滚动条（工具栏绝对定位不受影响） */
+  overflow: hidden;
 }
 
 .welcome {
@@ -607,5 +606,4 @@ onBeforeUnmount(() => {
   color: var(--app-text-secondary);
   font-size: 13px;
 }
-
 </style>

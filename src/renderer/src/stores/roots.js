@@ -11,9 +11,7 @@ export const useRootsStore = defineStore('roots', () => {
   // 左侧目录树中选中的文件夹（任意层级）
   const selectedFolder = ref(null) // { name, path }
 
-  const currentRoot = computed(
-    () => roots.value.find((r) => r.id === currentRootId.value) || null
-  )
+  const currentRoot = computed(() => roots.value.find((r) => r.id === currentRootId.value) || null)
 
   async function loadRoots() {
     roots.value = await window.api.rootsList()
@@ -49,5 +47,16 @@ export const useRootsStore = defineStore('roots', () => {
     return refreshInFlight
   }
 
-  return { roots, currentRootId, currentRoot, selectedFolder, loaded, loadRoots, loadCurrent, setCurrent, selectFolder, refresh }
+  return {
+    roots,
+    currentRootId,
+    currentRoot,
+    selectedFolder,
+    loaded,
+    loadRoots,
+    loadCurrent,
+    setCurrent,
+    selectFolder,
+    refresh
+  }
 })

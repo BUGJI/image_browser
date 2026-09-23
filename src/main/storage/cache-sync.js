@@ -53,6 +53,32 @@ function remoteCachePaths(root) {
   return { dir, db: joinPath(dir, 'cache.db') }
 }
 
+/** 记录「上次成功同步的远程 cache.db 指纹」的本地副档文件路径 */
+function fingerprintPath(root) {
+  return join(resolveCacheDir(root), 'remote.cache.sync.json')
+}
+
+async function readRemoteFingerprint(root) {
+  try {
+    const fp = JSON.parse(await fsp.readFile(fingerprintPath(root), 'utf8'))
+    if (fp && typeof fp.size === 'number' && typeof fp.mtimeMs === 'number') return fp
+  } catch {
+    /* 无副档 / 解析失败：视为未记录 */
+  }
+  return null
+}
+
+async function writeRemoteFingerprint(root, stat) {
+  try {
+    await fsp.writeFile(
+      fingerprintPath(root),
+      JSON.stringify({ size: stat.size || 0, mtimeMs: stat.mtimeMs || 0, at: Date.now() })
+    )
+  } catch {
+    /* 写副档失败不影响主流程 */
+  }
+}
+
 /**
  * 确保本地工作库与远程缓存一致。返回 { remote, pulled?, equal?, policy? }。
  */
@@ -80,6 +106,15 @@ async function doEnsureRemoteCache(root) {
   }
   if (!remoteStat || !remoteStat.isFile) return { remote: false }
 
+  // 指纹命中（远程 cache.db 的 size/mtime 与上次同步一致）→ 跳过整库下载。
+  // 仅在远程提供 mtime 且本地工作库存在时判定，避免 size 巧合或本地库被清空后误判。
+  if (remoteStat.mtimeMs > 0 && existsSync(localDb)) {
+    const fp = await readRemoteFingerprint(root)
+    if (fp && fp.size === (remoteStat.size || 0) && fp.mtimeMs === remoteStat.mtimeMs) {
+      return { remote: true, equal: true, skipped: true }
+    }
+  }
+
   let buf
   try {
     buf = await provider.readFile(remoteDb)
@@ -96,6 +131,9 @@ async function doEnsureRemoteCache(root) {
   const localMeta = existsSync(localDb)
     ? readMeta(localDb, ['root_cache_sha', 'last_task_at'])
     : null
+
+  // 已成功下载远程 cache.db：记录其指纹，下次未变化即可跳过下载
+  await writeRemoteFingerprint(root, remoteStat)
 
   // 一致：无需覆盖
   if (

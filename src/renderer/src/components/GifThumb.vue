@@ -34,7 +34,7 @@ const props = defineProps({
   // 滚动中且处于缓冲区时为 true：暂不加载/解码首帧，等滚动空闲再补（给滚动让路）
   deferLoad: { type: Boolean, default: false }
 })
-const emit = defineEmits(['load'])
+const emit = defineEmits(['load', 'error'])
 
 const gifUrl = computed(() => buildImageUrl(props.rootId, props.item.absPath, 'orig'))
 const diskPoster = computed(() =>
@@ -117,6 +117,7 @@ ensurePoster()
     @mouseenter="onEnter"
     @mouseleave="onLeave"
     @load="emit('load', $event)"
+    @error="emit('error', $event)"
   />
   <div v-else class="gif-thumb-pending" @mouseenter="onEnter" @mouseleave="onLeave" />
 </template>

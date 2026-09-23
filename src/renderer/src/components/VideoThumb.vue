@@ -26,7 +26,7 @@ const props = defineProps({
   // 滚动中且处于缓冲区时为 true：暂不加载/取首帧，等滚动空闲再补（给滚动让路）
   deferLoad: { type: Boolean, default: false }
 })
-const emit = defineEmits(['load'])
+const emit = defineEmits(['load', 'error'])
 
 const videoUrl = computed(() => buildImageUrl(props.rootId, props.item.absPath, 'orig'))
 
@@ -109,6 +109,7 @@ watch(showVideo, (show) => {
     playsinline
     preload="auto"
     @loadeddata="onVideoReady"
+    @error="emit('error', $event)"
     @mouseenter="onEnter"
     @mouseleave="onLeave"
   />
@@ -120,6 +121,7 @@ watch(showVideo, (show) => {
     decoding="async"
     :fetchpriority="nativePriority"
     @load="emitLoad($event)"
+    @error="emit('error', $event)"
     @mouseenter="onEnter"
     @mouseleave="onLeave"
   />

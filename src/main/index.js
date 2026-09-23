@@ -1,4 +1,14 @@
-import { app, ipcMain, BrowserWindow, dialog, clipboard, nativeImage, protocol, net, shell } from 'electron'
+import {
+  app,
+  ipcMain,
+  BrowserWindow,
+  dialog,
+  clipboard,
+  nativeImage,
+  protocol,
+  net,
+  shell
+} from 'electron'
 import { execFile } from 'child_process'
 import { existsSync } from 'fs'
 import { join } from 'path'
@@ -6,12 +16,7 @@ import { electronApp, optimizer } from '@electron-toolkit/utils'
 import { initDb, queryOne } from './db'
 import { initSettingsTable, getSetting, setSetting } from './settings'
 import { initSecretsTable } from './secrets'
-import {
-  createMainWindow,
-  createSettingsWindow,
-  getMainWindow,
-  broadcast
-} from './windows'
+import { createMainWindow, createSettingsWindow, getMainWindow, broadcast } from './windows'
 import {
   createTray,
   attachWindowCloseBehavior,
@@ -30,14 +35,11 @@ import {
   reorderRoots
 } from './roots'
 import { getProvider, isRemoteRoot, invalidateProvider } from './storage'
+import { isInsideRoot } from './storage/path-utils'
 import { registerRemoteProviders } from './storage/remote'
 import { testWebdavConnection } from './storage/webdav'
 import { setRootSecret } from './secrets'
-import {
-  initFavoritesTable,
-  listFavorites,
-  toggleFavorite
-} from './favorites'
+import { initFavoritesTable, listFavorites, toggleFavorite } from './favorites'
 import {
   initTagsTable,
   listTags,
@@ -50,11 +52,7 @@ import {
   listTagImages
 } from './tags'
 import { scanDirTree, ScanAbortedError } from './fs-scan.mjs'
-import {
-  registerCacheIpc,
-  registerImageProtocol,
-  handleImagesList
-} from './cache'
+import { registerCacheIpc, registerImageProtocol, handleImagesList } from './cache'
 import { registerAiIpc } from './ai'
 import { registerOcrIpc } from './ocr'
 import { initLogger } from './logger'
@@ -311,9 +309,10 @@ function registerIpc() {
   // --- OCR 图内文字搜索（PaddleOCR，可选依赖）---
   registerOcrIpc({ ipcMain })
 
-  // 图片列表：优先缓存索引，无缓存回退即时扫描；searchQuery 非空时跨根目录搜索
-  ipcMain.handle('images:list', (_e, rootId, folderPath, searchQuery) =>
-    handleImagesList(rootId, folderPath, searchQuery)
+  // 图片列表：优先缓存索引，无缓存回退即时扫描；searchQuery 非空时跨根目录搜索。
+  // opts { offset, limit } 支持分页，返回 { items, total }
+  ipcMain.handle('images:list', (_e, rootId, folderPath, searchQuery, opts) =>
+    handleImagesList(rootId, folderPath, searchQuery, opts)
   )
 
   // 复制图片到剪贴板（渲染端 canvas 导出 dataURL 后传入）
@@ -328,7 +327,10 @@ function registerIpc() {
   // nativeImage 解码不了的格式（GIF/WebP 等）自动转 PNG）
   ipcMain.handle('clipboard:write-image-path', async (_e, absPath) => {
     const root = findRootForPath(absPath)
-    const provider = root ? getProvider(root) : getProvider('local')
+    if (!root || !isInsideRoot(root.path, absPath)) {
+      throw new Error('文件不在已注册的根目录内')
+    }
+    const provider = getProvider(root)
     const buf = await readClipboardImageBuffer(absPath, provider)
     if (!buf) throw new Error('无法读取或解码该图片（文件可能已被移动或格式不受支持）')
     const img = nativeImage.createFromBuffer(buf)
@@ -341,7 +343,10 @@ function registerIpc() {
   // Electron 未提供写文件列表的 API，借 Windows PowerShell 的 Clipboard.SetFileDropList 实现。
   ipcMain.handle('clipboard:copy-file', (_e, absPath) => {
     const root = findRootForPath(absPath)
-    if (root && isRemoteRoot(root)) {
+    if (!root || !isInsideRoot(root.path, absPath)) {
+      throw new Error('文件不在已注册的根目录内')
+    }
+    if (isRemoteRoot(root)) {
       throw new Error('远程文件暂不支持复制为文件')
     }
     return copyFileToClipboard(absPath)
@@ -364,10 +369,10 @@ function copyFileToClipboard(absPath) {
     // 单引号包裹路径，路径内的单引号按 PS 规则双写转义
     const esc = absPath.replace(/'/g, "''")
     const script = [
-      "Add-Type -AssemblyName System.Windows.Forms",
+      'Add-Type -AssemblyName System.Windows.Forms',
       "$c = New-Object 'System.Collections.Specialized.StringCollection'",
       `[void]$c.Add('${esc}')`,
-      "[System.Windows.Forms.Clipboard]::SetFileDropList($c)"
+      '[System.Windows.Forms.Clipboard]::SetFileDropList($c)'
     ].join('; ')
     const b64 = Buffer.from(script, 'utf16le').toString('base64')
     execFile(

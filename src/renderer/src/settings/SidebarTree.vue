@@ -72,10 +72,10 @@ function handleNodeClick(data) {
       highlight-current
       @node-click="handleNodeClick"
     >
-      <template #default="{ data }">
+      <template #default="{ data: node }">
         <span class="tree-node">
-          <el-icon v-if="data.icon" :size="15"><component :is="data.icon" /></el-icon>
-          <span>{{ data.label }}</span>
+          <el-icon v-if="node.icon" :size="15"><component :is="node.icon" /></el-icon>
+          <span>{{ node.label }}</span>
         </span>
       </template>
     </el-tree>

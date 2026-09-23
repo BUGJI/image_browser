@@ -60,7 +60,9 @@ export function isWritableRoot(root) {
 export function getProvider(root) {
   const type = typeof root === 'string' ? root : root?.type || ROOT_TYPE.LOCAL
   if (type === ROOT_TYPE.LOCAL) {
-    return isWritableRoot(typeof root === 'string' ? { writable: 1 } : root) ? localWritable : localReadonly
+    return isWritableRoot(typeof root === 'string' ? { writable: 1 } : root)
+      ? localWritable
+      : localReadonly
   }
   const factory = remoteFactories.get(type)
   if (!factory) throw new Error(`未注册的存储类型: ${type}`)

@@ -89,9 +89,18 @@ export function createWebdavProvider(root) {
       const items = await client.getDirectoryContents(cp(dir))
       const arr = Array.isArray(items) ? items : items?.data || []
       return arr.map((i) => ({
-        name: i.basename || String(i.filename || '').split('/').filter(Boolean).pop() || '',
+        name:
+          i.basename ||
+          String(i.filename || '')
+            .split('/')
+            .filter(Boolean)
+            .pop() ||
+          '',
         isDir: i.type === 'directory',
-        isFile: i.type === 'file'
+        isFile: i.type === 'file',
+        // 透传 size/lastmod，扫描时无需再对每个文件发一次 stat 请求
+        size: typeof i.size === 'number' ? i.size : undefined,
+        mtimeMs: i.lastmod ? Date.parse(i.lastmod) || 0 : undefined
       }))
     },
 
