@@ -1,7 +1,6 @@
 <script setup>
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Setting, Folder, Search, StarFilled, CollectionTag } from '@element-plus/icons-vue'
 import { useRootsStore } from '../stores/roots'
 import { useTagsStore } from '../stores/tags'
 
@@ -33,8 +32,13 @@ let offSettingsChanged = null
 const treeData = ref([])
 const scanning = ref(false)
 const searchText = ref('')
-const treeKey = ref(0) // 搜索词变化时重建树，让 default-expanded-keys 生效
+const treeKey = ref(0) // 模式切换/根目录变更时重建树，让 default-expanded-keys 生效
 let scanSeq = 0 // 丢弃过期扫描结果
+
+// 目录树缓存（按根路径）：切换根目录时先用缓存即时渲染，再按需后台刷新，
+// 避免大目录每次切根都白屏等待全量扫描。TTL 内直接复用，不重复后台扫描。
+const TREE_CACHE_TTL = 30000
+const treeCache = new Map() // rootPath -> { tree, at }
 
 // 展开状态持久化（每个根目录独立保存，localStorage）
 const treeRef = ref(null)
@@ -70,23 +74,40 @@ function displayName(root) {
 
 async function scanTree() {
   const root = rootsStore.currentRoot
-  treeData.value = []
-  if (!root) return
-  scanning.value = true
+  if (!root) {
+    treeData.value = []
+    return
+  }
   const seq = ++scanSeq
+  const cached = treeCache.get(root.path)
 
+  if (cached) {
+    // 命中缓存：立即渲染，避免白屏；TTL 内不再后台重扫
+    treeData.value = cached.tree ? [cached.tree] : []
+    persistedExpanded.value = loadExpanded()
+    applyPersistedExpanded()
+    if (Date.now() - cached.at < TREE_CACHE_TTL) {
+      scanning.value = false
+      return
+    }
+  } else {
+    treeData.value = []
+  }
+
+  scanning.value = true
   try {
     const tree = await window.api.scanTree(root.path)
     if (seq !== scanSeq) {
       // 用户已切换目录，旧扫描结果作废
       return
     }
+    treeCache.set(root.path, { tree, at: Date.now() })
     treeData.value = tree ? [tree] : []
     persistedExpanded.value = loadExpanded()
     applyPersistedExpanded()
   } catch (e) {
     console.warn('目录树扫描失败', e)
-    treeData.value = []
+    if (!cached) treeData.value = []
   } finally {
     if (seq === scanSeq) scanning.value = false
   }
@@ -102,11 +123,19 @@ async function buildAllRoots() {
   for (const root of rootsStore.roots) {
     let children = []
     if (root.id === curId) {
-      try {
-        const tree = await window.api.scanTree(root.path)
-        if (seq === scanSeq) children = tree && tree.children ? tree.children : []
-      } catch {
-        children = []
+      const cached = treeCache.get(root.path)
+      if (cached) {
+        children = cached.tree && cached.tree.children ? cached.tree.children : []
+      } else {
+        try {
+          const tree = await window.api.scanTree(root.path)
+          if (seq === scanSeq) {
+            treeCache.set(root.path, { tree, at: Date.now() })
+            children = tree && tree.children ? tree.children : []
+          }
+        } catch {
+          children = []
+        }
       }
     }
     rows.push({
@@ -168,6 +197,8 @@ watch(allRoots, (on) => {
 watch(
   () => rootsStore.roots.map((r) => `${r.id}|${r.path}|${r.alias || ''}`).join('##'),
   () => {
+    // 根目录增删/路径变更后缓存可能失效，整体清空
+    treeCache.clear()
     if (allRoots.value) {
       buildAllRoots()
       treeKey.value++
@@ -276,9 +307,20 @@ function applyPersistedExpanded() {
   })
 }
 
-// 搜索词变化 → 重建树刷新展开状态
+// 搜索词变化：数据过滤由 displayedTree 响应式完成（不重建整棵树），
+// 这里只把过滤后命中的节点展开，让结果可见。
 watch(searchText, () => {
-  treeKey.value++
+  nextTick(() => {
+    const tree = treeRef.value
+    if (!tree) return
+    for (const path of expandedKeys.value) {
+      try {
+        tree.getNode(path)?.expand()
+      } catch {
+        /* 节点可能尚未渲染，忽略 */
+      }
+    }
+  })
 })
 
 // 切根/初始化时加载对应根目录的标签列表
@@ -536,11 +578,11 @@ onBeforeUnmount(() => {
 }
 
 .dir-tree :deep(.el-tree--highlight-current .el-tree-node.is-current > .el-tree-node__content) {
-  background: #d9ecff;
+  background: var(--el-color-primary-light-9);
 }
 
 html.dark .dir-tree :deep(.el-tree--highlight-current .el-tree-node.is-current > .el-tree-node__content) {
-  background: #2c4a6e;
+  background: var(--el-color-primary-light-3);
 }
 
 .tree-node {
@@ -557,7 +599,7 @@ html.dark .dir-tree :deep(.el-tree--highlight-current .el-tree-node.is-current >
 }
 
 .tree-node-tags-group .tree-node-icon {
-  color: #409eff;
+  color: var(--el-color-primary);
 }
 
 .tree-node-tag .tree-node-icon {
@@ -628,7 +670,7 @@ html.dark .dir-tree :deep(.el-tree--highlight-current .el-tree-node.is-current >
 
 .root-option-path {
   font-size: 11px;
-  color: #aaa;
+  color: var(--app-text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

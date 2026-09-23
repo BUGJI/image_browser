@@ -1,6 +1,17 @@
 import { resolve } from 'path'
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import vue from '@vitejs/plugin-vue'
+import Components from 'unplugin-vue-components/vite'
+import AutoImport from 'unplugin-auto-import/vite'
+import { ElementPlusResolver } from 'unplugin-vue-components/resolvers'
+import * as ElementPlusIcons from '@element-plus/icons-vue'
+
+// 图标按需自动引入：模板里用到的 <Search />、<StarFilled /> 等自动 import。
+// Element Plus 图标在 @element-plus/icons-vue 中以组件名导出，这里按导出名精确匹配。
+const EP_ICON_NAMES = new Set(Object.keys(ElementPlusIcons))
+function ElementPlusIconResolver(name) {
+  if (EP_ICON_NAMES.has(name)) return { name, from: '@element-plus/icons-vue' }
+}
 
 export default defineConfig({
   main: {
@@ -38,6 +49,12 @@ export default defineConfig({
         }
       }
     },
-    plugins: [vue()]
+    plugins: [
+      vue(),
+      // 按需引入 Element Plus 组件 / v-loading 等指令 / 组件样式，
+      // 并自动引入 ElMessage、ElMessageBox 等函数式组件（含样式）。
+      AutoImport({ resolvers: [ElementPlusResolver()], dts: false }),
+      Components({ resolvers: [ElementPlusResolver(), ElementPlusIconResolver], dts: false })
+    ]
   }
 })

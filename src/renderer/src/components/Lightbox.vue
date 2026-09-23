@@ -1,8 +1,6 @@
 <script setup>
 import { ref, watch, onMounted, onBeforeUnmount, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ElMessage } from 'element-plus'
-import { Close, ArrowLeft, ArrowRight, CopyDocument, Files, Star, StarFilled, CollectionTag } from '@element-plus/icons-vue'
 import { buildImageUrl, isVideoName } from '../utils/image-url'
 import { loadShortcuts, eventMatches } from '../utils/shortcuts'
 import { useFavoritesStore } from '../stores/favorites'
@@ -138,7 +136,25 @@ watch(
 watch(cur, (v) => {
   emit('change', v)
   resetForImage()
+  preloadNeighbors()
 })
+
+// 预加载相邻图片（原图），切换时秒开；视频不预载（较重）。
+// 保留 Image 引用避免被回收，使浏览器缓存对下一张生效。
+let preloaded = []
+function preloadNeighbors() {
+  const list = props.items
+  const next = []
+  for (const i of [cur.value - 1, cur.value + 1]) {
+    const it = list[i]
+    if (!it || isVideoName(it.name)) continue
+    const el = new Image()
+    el.decoding = 'async'
+    el.src = buildImageUrl(props.rootId, it.absPath, 'orig')
+    next.push(el)
+  }
+  preloaded = next
+}
 
 function prev() {
   if (cur.value > 0) cur.value--
@@ -167,7 +183,17 @@ function onVideoReady() {
   videoRef.value?.play?.().catch(() => {})
 }
 
+// 焦点在输入类元素（如标签 el-select 的搜索框）时，不拦截按键，
+// 否则打字时方向键会切图、Esc 会关灯箱、Ctrl+C 会被复制逻辑抢走。
+function isEditableTarget(t) {
+  const el = t
+  if (!el || !el.tagName) return false
+  const tag = el.tagName
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable === true
+}
+
 function onKeydown(e) {
+  if (isEditableTarget(e.target)) return
   if (eventMatches(e, shortcuts.value.copyFile)) {
     e.preventDefault()
     copyFile()
@@ -333,11 +359,13 @@ onMounted(async () => {
   window.addEventListener('keydown', onKeydown)
   window.addEventListener('mousemove', onWinMouseMove)
   window.addEventListener('mouseup', onWinMouseUp)
+  preloadNeighbors()
 })
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
   window.removeEventListener('mousemove', onWinMouseMove)
   window.removeEventListener('mouseup', onWinMouseUp)
+  preloaded = []
 })
 </script>
 
@@ -431,22 +459,34 @@ onBeforeUnmount(() => {
               <el-icon :size="16"><CopyDocument /></el-icon>
             </button>
           </el-tooltip>
-          <button class="lb-btn" @click="close">
+          <button class="lb-btn" :title="t('lightbox.close')" :aria-label="t('lightbox.close')" @click="close">
             <el-icon :size="16"><Close /></el-icon>
           </button>
         </div>
       </div>
 
-      <button v-if="cur > 0" class="lb-nav lb-nav-left" @click="prev">
+      <button
+        v-if="cur > 0"
+        class="lb-nav lb-nav-left"
+        :title="t('lightbox.prev')"
+        :aria-label="t('lightbox.prev')"
+        @click="prev"
+      >
         <el-icon :size="26"><ArrowLeft /></el-icon>
       </button>
-      <button v-if="cur < items.length - 1" class="lb-nav lb-nav-right" @click="next">
+      <button
+        v-if="cur < items.length - 1"
+        class="lb-nav lb-nav-right"
+        :title="t('lightbox.next')"
+        :aria-label="t('lightbox.next')"
+        @click="next"
+      >
         <el-icon :size="26"><ArrowRight /></el-icon>
       </button>
 
       <div class="lightbox-stage" @click.self="close" @wheel="onWheel">
         <div v-show="loading" class="lightbox-loading">
-          <el-icon class="is-loading" :size="30"><VideoPlay /></el-icon>
+          <el-icon class="is-loading" :size="30"><Loading /></el-icon>
           <span>{{ t('lightbox.loadingOrig') }}</span>
         </div>
         <div v-if="loadError" class="lightbox-error">
@@ -582,7 +622,7 @@ onBeforeUnmount(() => {
 }
 
 .lb-btn-tag-active {
-  color: #409eff;
+  color: var(--el-color-primary);
   background: rgba(64, 158, 255, 0.18);
 }
 
@@ -635,11 +675,12 @@ onBeforeUnmount(() => {
   box-shadow: 0 12px 48px rgba(0, 0, 0, 0.6);
   user-select: none;
   -webkit-user-drag: none;
-  will-change: transform;
 }
 
 .lightbox-img.is-pannable {
   cursor: grab;
+  /* 仅在放大可平移时提升合成层，避免常驻占用 */
+  will-change: transform;
 }
 
 .lightbox-video {

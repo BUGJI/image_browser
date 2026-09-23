@@ -112,7 +112,10 @@ export default {
     tagSelectPlaceholder: 'Pick a tag or type a new one…',
     tagSelectTip: 'Choose from existing tags, or type a new name and press Enter to create it. Changes are saved instantly.',
     loadingOrig: 'Loading original…',
-    navHint: '←/→ navigate · Esc close'
+    navHint: '←/→ navigate · Esc close',
+    close: 'Close',
+    prev: 'Previous',
+    next: 'Next'
   },
   closeAsk: {
     title: 'Close Image Browser',

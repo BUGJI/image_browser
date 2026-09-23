@@ -269,7 +269,8 @@ async function makeThumb(absPath, thumbDir, relThumb, { thumbWidth = DEFAULT_THU
     await fsp.mkdir(dirname(outPath), { recursive: true })
     await fsp.writeFile(outPath, webpBuf)
     phases.write = Date.now() - t1
-    return orig
+    // 一并回传产物字节数，主进程入库后 folder SHA 计算即可免去全量 stat
+    return { ...orig, size: webpBuf.length }
   } catch {
     return null
   }
@@ -317,6 +318,7 @@ if (HOST_CHANNEL) {
             relThumb,
             width: result.width,
             height: result.height,
+            size: result.size,
             name: job.name
           })
         } else {

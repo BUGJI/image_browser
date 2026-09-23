@@ -30,7 +30,9 @@ const props = defineProps({
   // 透传给根 <img> 的原生 loading 属性（网格缓冲懒加载策略）
   nativeLoading: { type: String, default: 'eager' },
   // 透传给根 <img> 的 fetchpriority 属性（可视区优先解码）
-  nativePriority: { type: String, default: 'auto' }
+  nativePriority: { type: String, default: 'auto' },
+  // 滚动中且处于缓冲区时为 true：暂不加载/解码首帧，等滚动空闲再补（给滚动让路）
+  deferLoad: { type: Boolean, default: false }
 })
 const emit = defineEmits(['load'])
 
@@ -52,6 +54,7 @@ const showGif = computed(
 
 /** 当前 <img> 的 src；'' 时组件渲染占位块（不显示破损图标） */
 const src = computed(() => {
+  if (props.deferLoad) return '' // 滚动中的缓冲区：先不加载，滚动空闲后再补
   if (showGif.value) return gifUrl.value
   if (posterState.value === 'failed') return gifUrl.value // 解码失败兜底：宁可动图也有内容
   return posterUrl.value
@@ -59,7 +62,7 @@ const src = computed(() => {
 
 let resolveSeq = 0
 async function ensurePoster() {
-  if (!needPoster.value) return
+  if (!needPoster.value || props.deferLoad) return
   const seq = ++resolveSeq
   // 磁盘来源且已有缩略图：直接复用缓存（不走实时解码，最快）
   if (props.thumbSource === 'disk' && diskPoster.value) {
@@ -84,6 +87,13 @@ watch(() => props.item?.hasThumb, ensurePoster)
 watch(needPoster, (need) => {
   if (need) ensurePoster()
 })
+// 滚动停止（deferLoad 解除）后补生成首帧
+watch(
+  () => props.deferLoad,
+  (d) => {
+    if (!d) ensurePoster()
+  }
+)
 
 function onEnter() {
   if (props.playMode === 'hover' && needPoster.value) hovering.value = true
@@ -115,6 +125,7 @@ ensurePoster()
 .gif-thumb-pending {
   width: 100%;
   height: 100%;
-  background: var(--panel-bg);
+  /* 透明：让父级瀑布流的占位骨架透出 */
+  background: transparent;
 }
 </style>

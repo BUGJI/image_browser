@@ -1,7 +1,6 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ElMessage, ElMessageBox } from 'element-plus'
 import { Download, FolderOpened, Delete } from '@element-plus/icons-vue'
 import { useNotificationsStore } from '../../stores/notifications'
 

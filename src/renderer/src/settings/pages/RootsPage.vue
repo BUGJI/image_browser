@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, reactive, onBeforeUnmount, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ElMessage, ElMessageBox } from 'element-plus'
+
 import { Plus, Edit, Delete, FolderOpened, ArrowUp, ArrowDown } from '@element-plus/icons-vue'
 import { useNotificationsStore } from '../../stores/notifications'
 import { useGifStore } from '../../stores/gif'

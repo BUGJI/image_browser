@@ -1,7 +1,16 @@
 <script setup>
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ElConfigProvider } from 'element-plus'
+import {
+  Setting,
+  FolderOpened,
+  Brush,
+  Key,
+  MagicStick,
+  Monitor,
+  Aim,
+  InfoFilled
+} from '@element-plus/icons-vue'
 import en from 'element-plus/es/locale/lang/en'
 import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import SidebarTree from './SidebarTree.vue'
@@ -54,12 +63,12 @@ watch(
 // 设置树结构：后续新增设置项在此扩展
 const treeData = computed(() => {
   const nodes = [
-    { id: 'general', label: t('settings.general'), icon: 'Setting' },
-    { id: 'roots', label: t('settings.roots'), icon: 'FolderOpened' },
+    { id: 'general', label: t('settings.general'), icon: Setting },
+    { id: 'roots', label: t('settings.roots'), icon: FolderOpened },
     {
       id: 'appearance',
       label: t('settings.appearance'),
-      icon: 'Brush',
+      icon: Brush,
       children: [
         { id: 'titlebar', label: t('settings.titlebar') },
         { id: 'sidebar', label: t('settings.sidebar') },
@@ -68,11 +77,11 @@ const treeData = computed(() => {
         { id: 'card', label: t('settings.cardPage') }
       ]
     },
-    { id: 'shortcuts', label: t('settings.shortcuts'), icon: 'Key' },
+    { id: 'shortcuts', label: t('settings.shortcuts'), icon: Key },
     {
       id: 'extensions',
       label: t('settings.extensions'),
-      icon: 'MagicStick',
+      icon: MagicStick,
       children: [
         { id: 'favorites', label: t('settings.favorites') },
         { id: 'tags', label: t('settings.tags') },
@@ -81,12 +90,12 @@ const treeData = computed(() => {
         { id: 'ocr-search', label: t('settings.ocrSearch') }
       ]
     },
-    { id: 'dev-options', label: t('settings.devOptions'), icon: 'Monitor' }
+    { id: 'dev-options', label: t('settings.devOptions'), icon: Monitor }
   ]
   if (showTest.value) {
-    nodes.push({ id: 'test', label: t('settings.test'), icon: 'Aim' })
+    nodes.push({ id: 'test', label: t('settings.test'), icon: Aim })
   }
-  nodes.push({ id: 'about', label: t('settings.about'), icon: 'InfoFilled' })
+  nodes.push({ id: 'about', label: t('settings.about'), icon: InfoFilled })
   return nodes
 })
 

@@ -1,4 +1,4 @@
-import { getDb } from './db'
+import { getDb, prep } from './db'
 
 /**
  * 图片收藏管理：favorites 表（每根目录独立的收藏集合）
@@ -20,11 +20,9 @@ export function initFavoritesTable() {
 
 export function listFavorites(rootId) {
   if (!rootId) return []
-  return getDb()
-    .prepare(
-      'SELECT root_id, abs_path AS absPath, name FROM favorites WHERE root_id = ? ORDER BY created_at DESC, id DESC'
-    )
-    .all(rootId)
+  return prep(
+    'SELECT root_id, abs_path AS absPath, name FROM favorites WHERE root_id = ? ORDER BY created_at DESC, id DESC'
+  ).all(rootId)
 }
 
 /**
@@ -37,22 +35,24 @@ export function toggleFavorite(rootId, item) {
     throw new Error('参数不完整，无法收藏')
   }
   const name = item?.name || path.split(/[\\/]+/).pop() || path
-  const existing = getDb()
-    .prepare('SELECT id FROM favorites WHERE root_id = ? AND abs_path = ?')
-    .get(rootId, path)
+  const existing = prep('SELECT id FROM favorites WHERE root_id = ? AND abs_path = ?').get(
+    rootId,
+    path
+  )
   if (existing) {
-    getDb().prepare('DELETE FROM favorites WHERE root_id = ? AND abs_path = ?').run(rootId, path)
+    prep('DELETE FROM favorites WHERE root_id = ? AND abs_path = ?').run(rootId, path)
     return { added: false }
   }
-  getDb()
-    .prepare(
-      'INSERT INTO favorites (root_id, abs_path, name, created_at) VALUES (?, ?, ?, ?)'
-    )
-    .run(rootId, path, name, new Date().toISOString())
+  prep('INSERT INTO favorites (root_id, abs_path, name, created_at) VALUES (?, ?, ?, ?)').run(
+    rootId,
+    path,
+    name,
+    new Date().toISOString()
+  )
   return { added: true }
 }
 
 /** 删除某根目录下的全部收藏（根目录被移除时清理） */
 export function removeFavoritesOfRoot(rootId) {
-  getDb().prepare('DELETE FROM favorites WHERE root_id = ?').run(rootId)
+  prep('DELETE FROM favorites WHERE root_id = ?').run(rootId)
 }
