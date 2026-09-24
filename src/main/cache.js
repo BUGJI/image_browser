@@ -42,7 +42,7 @@ import {
   DEFAULT_THUMB_QUALITY,
   DEFAULT_SCAN_BATCH
 } from './scan-constants.mjs'
-import { metaGet, metaSet } from './cache-db-utils.mjs'
+import { metaGet, metaSet, prep as prepCache } from './cache-db-utils.mjs'
 import { mapLimit } from './concurrency.mjs'
 
 /**
@@ -186,6 +186,8 @@ export function openRootCache(rootOrPath, { create = false } = {}) {
       updated_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_files_folder ON files(folder);
+    -- 覆盖索引：文件夹列表的 WHERE 前缀过滤与 ORDER BY folder, name COLLATE NOCASE 均可命中
+    CREATE INDEX IF NOT EXISTS idx_files_folder_name ON files(folder, name COLLATE NOCASE);
     CREATE TABLE IF NOT EXISTS folders (
       rel_path    TEXT PRIMARY KEY,   -- 相对根目录（/ 分隔，'' = 根）
       src_sha     TEXT,               -- 该目录直接子项（图片 + 子目录名）指纹
@@ -240,7 +242,7 @@ function resolveThumb(cache, root, absPath) {
   if (index.has(absPath)) return index.get(absPath)
 
   let thumb = null
-  const row = cache.db.prepare('SELECT thumb FROM files WHERE abs_path = ?').get(absPath)
+  const row = prepCache(cache.db, 'SELECT thumb FROM files WHERE abs_path = ?').get(absPath)
   if (row?.thumb) {
     const p = join(cache.thumbDir, row.thumb)
     if (existsSync(p)) thumb = p
@@ -684,13 +686,15 @@ function buildThumbQueue(jobs, sequential) {
     arr.push(job)
   }
   const lists = [...buckets.values()]
+  // 用游标代替 Array.shift()：shift 每次移位 O(k)，大量同目录任务会退化成 O(n²)
+  const cursors = new Array(lists.length).fill(0)
   const out = []
   let taken = true
   while (taken) {
     taken = false
     for (let i = 0; i < lists.length; i++) {
-      if (lists[i].length) {
-        out.push(lists[i].shift())
+      if (cursors[i] < lists[i].length) {
+        out.push(lists[i][cursors[i]++])
         taken = true
       }
     }
@@ -712,43 +716,43 @@ function ocrTextMatches(cache, query) {
     if (getSetting('ocrEnabled', 'false') !== 'true') return []
     const q = (query || '').trim()
     if (!q) return []
-    const has = cache.db
-      .prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'ocr_text'")
-      .get()
+    const has = prepCache(
+      cache.db,
+      "SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'ocr_text'"
+    ).get()
     if (!has) return []
-    const cnt = cache.db.prepare('SELECT COUNT(*) AS c FROM ocr_text').get()
+    const cnt = prepCache(cache.db, 'SELECT COUNT(*) AS c FROM ocr_text').get()
     if (!cnt || !cnt.c) return []
 
     // FTS5 trigram 快路径：查询 ≥3 个字符时走倒排索引，避免整表 LIKE 扫描。
     // trigram 无法命中 1~2 字符查询，故更短的查询回退 LIKE（语义完全一致）。
-    const hasFts = cache.db
-      .prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'ocr_fts'")
-      .get()
+    const hasFts = prepCache(
+      cache.db,
+      "SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'ocr_fts'"
+    ).get()
     if (hasFts && Array.from(q).length >= 3) {
       try {
         // 用双引号包成短语查询，转义内部引号，避免 FTS 语法字符被当作运算符
         const match = '"' + q.replace(/"/g, '""') + '"'
-        return cache.db
-          .prepare(
-            `SELECT f.abs_path, f.name, f.folder, f.width, f.height, f.thumb, 1 AS text_hit
+        return prepCache(
+          cache.db,
+          `SELECT f.abs_path, f.name, f.folder, f.width, f.height, f.thumb, 1 AS text_hit
              FROM ocr_fts JOIN ocr_text o ON o.rowid = ocr_fts.rowid
              JOIN files f ON f.abs_path = o.abs_path
              WHERE ocr_fts MATCH ?`
-          )
-          .all(match)
+        ).all(match)
       } catch {
         /* 索引异常时回退 LIKE */
       }
     }
 
     const pattern = '%' + likeEscape(q) + '%'
-    return cache.db
-      .prepare(
-        `SELECT f.abs_path, f.name, f.folder, f.width, f.height, f.thumb, 1 AS text_hit
+    return prepCache(
+      cache.db,
+      `SELECT f.abs_path, f.name, f.folder, f.width, f.height, f.thumb, 1 AS text_hit
          FROM ocr_text o JOIN files f ON f.abs_path = o.abs_path
          WHERE o.text LIKE ? ESCAPE '\\' COLLATE NOCASE`
-      )
-      .all(pattern)
+    ).all(pattern)
   } catch {
     return []
   }
@@ -1171,7 +1175,7 @@ export async function runCacheTask(root, mode, { onProgress = () => {}, shouldAb
   try {
     // --- 1. 扫描磁盘：本地走 Worker，远程走 Provider（主进程内） ---
     onProgress({ phase: 'scan', scanned: 0 })
-    const files = isRemoteRoot(root)
+    let files = isRemoteRoot(root)
       ? await scanImagesViaProvider(root, provider, cfg.scanBatch, onProgress, shouldAbort)
       : await new Promise((resolve, reject) => {
           const all = []
@@ -1207,11 +1211,12 @@ export async function runCacheTask(root, mode, { onProgress = () => {}, shouldAb
     onProgress({ phase: 'scan', scanned: files.length })
     console.log('[cache] scan done, files =', files.length)
 
-    const diskByAbs = new Map(files.map((f) => [f.absPath, f]))
+    let diskByAbs = new Map(files.map((f) => [f.absPath, f]))
 
     const nowMs = Date.now()
-    const existing = db.prepare('SELECT * FROM files').all()
-    const dbByAbs = new Map(existing.map((r) => [r.abs_path, r]))
+    // 只取差异阶段需要的列（避免 SELECT * 全列驻留）
+    let existing = db.prepare('SELECT id, abs_path, mtime, size, thumb FROM files').all()
+    let dbByAbs = new Map(existing.map((r) => [r.abs_path, r]))
 
     // 需要重新生成缩略图的（新增/变更/上次失败）
     const needThumb = []
@@ -1230,6 +1235,7 @@ export async function runCacheTask(root, mode, { onProgress = () => {}, shouldAb
       const deleteStmt = db.prepare('DELETE FROM files WHERE abs_path = ?')
 
       // 批量写入包进事务：逐条 autocommit 会触发大量 fsync，3 万图可卡住主进程上百秒
+      let goneThumbs = []
       db.exec('BEGIN')
       try {
         for (const f of files) {
@@ -1283,17 +1289,19 @@ export async function runCacheTask(root, mode, { onProgress = () => {}, shouldAb
           }
         }
 
-        // 磁盘上已消失的记录
+        // 磁盘上已消失的记录：先删索引，缩略图文件删除延后到事务提交后，
+        // 避免在事务内 await 文件 I/O（拉长写锁 / 大 WAL）
         const gone = existing.filter((r) => !diskByAbs.has(r.abs_path))
         for (const row of gone) {
           deleteStmt.run(row.abs_path)
-          if (row.thumb) {
-            await fsp.rm(join(thumbDir, row.thumb), { force: true })
-          }
+          if (row.thumb) goneThumbs.push(row.thumb)
           stats.removed++
         }
       } finally {
         db.exec('COMMIT')
+      }
+      for (const rel of goneThumbs) {
+        await fsp.rm(join(thumbDir, rel), { force: true })
       }
     }
     console.log(
@@ -1302,6 +1310,12 @@ export async function runCacheTask(root, mode, { onProgress = () => {}, shouldAb
       'needThumb =',
       needThumb.length
     )
+
+    // 差异阶段的大对象在缩略图生成前释放：重建十万级图库时可省下数十~上百 MB 常驻内存
+    files = null
+    diskByAbs = null
+    existing = null
+    dbByAbs = null
 
     // --- 2. 生成缩略图：优先外部转换器（image_compresser.exe），否则走 worker 池 ---
     // 外部转换器仅支持本地目录，远程根强制走内置 Worker
@@ -1668,16 +1682,15 @@ export function getCacheStats() {
     const { db } = cache
     let row = { total: 0, cached: 0, srcBytes: 0, thumbBytes: 0 }
     try {
-      row = db
-        .prepare(
-          `SELECT
+      row = prepCache(
+        db,
+        `SELECT
              COUNT(*) AS total,
              SUM(CASE WHEN thumb IS NOT NULL THEN 1 ELSE 0 END) AS cached,
              COALESCE(SUM(size), 0) AS srcBytes,
              COALESCE(SUM(CASE WHEN thumb IS NOT NULL THEN thumb_size ELSE 0 END), 0) AS thumbBytes
            FROM files`
-        )
-        .get()
+      ).get()
     } catch {
       /* 空库/旧库：返回零值 */
     }
@@ -1819,13 +1832,12 @@ export async function handleImagesList(rootId, folderAbsPath, searchQuery, opts 
   if (matcher) {
     if (cache) {
       const pattern = (matcher.anchored ? '' : '%') + matcher.like + (matcher.anchored ? '' : '%')
-      const nameRows = cache.db
-        .prepare(
-          `SELECT abs_path, rel_path, name, width, height, thumb, folder FROM files
+      const nameRows = prepCache(
+        cache.db,
+        `SELECT abs_path, rel_path, name, width, height, thumb, folder FROM files
            WHERE name LIKE ? ESCAPE '\\' COLLATE NOCASE
            ORDER BY folder, name COLLATE NOCASE`
-        )
-        .all(pattern)
+      ).all(pattern)
       const textRows = ocrTextMatches(cache, query)
       const merged = mergeSearchResults(nameRows, textRows, query.trim(), matcher.anchored)
       primeThumbIndex(
@@ -1862,11 +1874,13 @@ export async function handleImagesList(rootId, folderAbsPath, searchQuery, opts 
   // --- 普通文件夹列表 ---
   if (cache) {
     const rel = relFromRoot(root.path, folderAbsPath)
-    const where = rel === '' ? '' : "WHERE folder = ? OR folder LIKE ? ESCAPE '\\'"
-    const params = rel === '' ? [] : [rel, likeEscape(rel) + '/%']
+    // 用索引友好的前缀范围替代 `folder LIKE 'rel/%'`：默认排序规则下 LIKE 无法命中索引，
+    // 会退化为全表扫描 + 排序。folder 以 '/' 分隔，后代范围为 [rel+'/', rel+'0')。
+    const where = rel === '' ? '' : 'WHERE folder = ? OR (folder >= ? AND folder < ?)'
+    const params = rel === '' ? [] : [rel, rel + '/', rel + '0']
     // 先取总数：避免「缓存存在但某页为空」时误回退到即时扫描
     const total = Number(
-      cache.db.prepare(`SELECT COUNT(*) AS c FROM files ${where}`).get(...params).c
+      prepCache(cache.db, `SELECT COUNT(*) AS c FROM files ${where}`).get(...params).c
     )
     if (total > 0) {
       let sql =
@@ -1877,7 +1891,7 @@ export async function handleImagesList(rootId, folderAbsPath, searchQuery, opts 
         sql += ' LIMIT ? OFFSET ?'
         qp.push(limit, offset)
       }
-      const rows = cache.db.prepare(sql).all(...qp)
+      const rows = prepCache(cache.db, sql).all(...qp)
       primeThumbIndex(cache, root, rows)
       return {
         items: rows.map((r) => ({
@@ -1890,6 +1904,12 @@ export async function handleImagesList(rootId, folderAbsPath, searchQuery, opts 
         })),
         total
       }
+    }
+    // 索引已建立（该根成功跑过维护）时以缓存为准：空文件夹直接返回空。
+    // 否则每次访问空目录都会触发整盘递归扫描（大库/远程根下极慢）。
+    // 仅当从未成功维护过（无 last_task 记录）才回退即时扫描，供尚未建缓存的根首次浏览。
+    if (metaGet(cache.db, 'last_task', null)) {
+      return { items: [], total: 0 }
     }
   }
   return wrap(await listFolderQuick(folderAbsPath, provider))

@@ -17,7 +17,7 @@ import { useCacheMaintenance } from '../../utils/use-cache-maintenance'
 
 /**
  * 根目录管理：注册 / 编辑 / 删除 / 排序，并展示各根目录的缓存概况。
- * 每行提供一键「更新缓存」（增量加速）；其余维护模式在「开发者选项」。
+ * 每行提供一键「更新缓存」（增量加速）；其余维护模式在「浏览与性能」。
  */
 const { t } = useI18n()
 
@@ -242,7 +242,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="page">
+  <div class="page page--wide">
     <div class="page-head">
       <div>
         <h2>{{ t('settings.roots') }}</h2>
@@ -391,7 +391,7 @@ onBeforeUnmount(() => {
     <!-- 添加 / 编辑 弹窗 -->
     <el-dialog
       v-model="dialogVisible"
-      width="65%"
+      width="min(600px, 90vw)"
       :title="editingId == null ? t('roots.addDialogTitle') : t('roots.editDialogTitle')"
     >
       <el-form label-width="auto">
@@ -445,24 +445,6 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.page-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 20px;
-}
-
-.page h2 {
-  margin: 0 0 6px;
-  font-size: 20px;
-}
-
-.page-desc {
-  color: var(--app-text-secondary);
-  font-size: 13px;
-  margin: 0;
-}
-
 /* 缓存概况 */
 .stats-head {
   display: flex;

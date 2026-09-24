@@ -556,12 +556,12 @@ onBeforeUnmount(() => {
           />
 
           <!-- 未注册任何根目录 -->
-          <div v-else class="welcome">
+          <div v-else class="center-empty">
             <el-empty :description="t('app.noRoots')">
               <el-button type="primary" @click="openSettings">{{
                 t('app.goToSettings')
               }}</el-button>
-              <p class="welcome-tip">{{ t('app.setupTip') }}</p>
+              <p class="center-empty-tip">{{ t('app.setupTip') }}</p>
             </el-empty>
           </div>
         </main>
@@ -592,18 +592,5 @@ onBeforeUnmount(() => {
   color: var(--app-text);
   /* 只保留瀑布流内部单一滚动条，避免外层再出现滚动条（工具栏绝对定位不受影响） */
   overflow: hidden;
-}
-
-.welcome {
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.welcome-tip {
-  margin-top: 8px;
-  color: var(--app-text-secondary);
-  font-size: 13px;
 }
 </style>

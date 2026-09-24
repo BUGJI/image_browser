@@ -91,16 +91,82 @@ export function useWaterfallLayout(props) {
     // 列表整体替换：作废列分配状态，后续 append 前若未布局会退回全量
     curCols = 0
     colBottomArr = []
+    avgDirty = true
   }
 
   let curCols = 0 // 当前列数（决定是否保持列分配）
   let itemW = 0 // 当前列宽
   let colBottomArr = [] // 各列当前底部 y（全量/增量布局后保留，供 append 复用）
   let avgRatio = FALLBACK_RATIO // 未知比例占位用的平均比例
+  let avgDirty = true // 比例均值是否需要重算（避免每次缩放/重排都 O(n) 全量遍历）
   let lastScrollAt = 0 // 最近一次滚动时间戳（滚动空闲判定）
   let layoutTimer = null // 增量提交 debounce
   let layoutRaf = 0 // 全量重建 rAF 去重
   let layoutDirty = false // 是否有待提交的比例修正
+
+  // 列底部的二叉最小堆：找最短列从 O(cols) 降到 O(log cols)。
+  // 同高度时按列号升序，保持与旧线性扫描（取首个最小列）一致的结果。
+  function heapLess(a, b) {
+    return a.b < b.b || (a.b === b.b && a.c < b.c)
+  }
+  function heapPush(h, b, c) {
+    h.push({ b, c })
+    let i = h.length - 1
+    while (i > 0) {
+      const p = (i - 1) >> 1
+      if (!heapLess(h[i], h[p])) break
+      const t = h[i]
+      h[i] = h[p]
+      h[p] = t
+      i = p
+    }
+  }
+  function heapPop(h) {
+    const top = h[0]
+    const last = h.pop()
+    if (h.length) {
+      h[0] = last
+      let i = 0
+      for (;;) {
+        const l = i * 2 + 1
+        const r = l + 1
+        let m = i
+        if (l < h.length && heapLess(h[l], h[m])) m = l
+        if (r < h.length && heapLess(h[r], h[m])) m = r
+        if (m === i) break
+        const t = h[i]
+        h[i] = h[m]
+        h[m] = t
+        i = m
+      }
+    }
+    return top
+  }
+
+  function buildColHeap(bottoms) {
+    const h = []
+    for (let c = 0; c < bottoms.length; c++) heapPush(h, bottoms[c], c)
+    return h
+  }
+
+  /** 用最小堆把 items[fromIndex..] 依次摆放到最短列，bottoms 就地更新 */
+  function layoutWithHeap(fromIndex, bottoms) {
+    const heap = buildColHeap(bottoms)
+    const arr = items.value
+    for (let k = fromIndex; k < arr.length; k++) {
+      const item = arr[k]
+      const h = itemW * effectiveRatio(item)
+      const top = heapPop(heap)
+      item.x = top.c * (itemW + GAP)
+      item.y = top.b
+      item.w = itemW
+      item.h = h
+      item.col = top.c
+      const nb = top.b + h + GAP
+      bottoms[top.c] = nb
+      heapPush(heap, nb, top.c)
+    }
+  }
 
   function calcCols() {
     if (!containerW.value) return 1
@@ -149,40 +215,28 @@ export function useWaterfallLayout(props) {
       }
     }
     avgRatio = n ? sum / n : FALLBACK_RATIO
+    avgDirty = false
   }
 
   /** 全量布局：先用内存真实尺寸回填，再逐条分配最短列并写几何 */
   function doFullLayout() {
+    let dimsChanged = false
     for (const it of items.value) {
       if (it.width && it.height) continue
       const d = knownDims(props.rootId, it.absPath)
       if (d) {
         it.width = d.w
         it.height = d.h
+        dimsChanged = true
       }
     }
 
     curCols = calcCols()
     itemW = (containerW.value - GAP * (curCols - 1)) / curCols
-    recomputeAvg()
+    // 比例均值只在数据/尺寸变化时重算，缩放重排（items 未变）可直接复用
+    if (avgDirty || dimsChanged) recomputeAvg()
     colBottomArr = new Array(curCols).fill(0)
-    for (const item of items.value) {
-      const h = itemW * effectiveRatio(item)
-      let col = 0
-      let minH = Infinity
-      for (let i = 0; i < curCols; i++) {
-        if (colBottomArr[i] < minH) {
-          minH = colBottomArr[i]
-          col = i
-        }
-      }
-      item.x = col * (itemW + GAP)
-      item.y = colBottomArr[col]
-      item.w = itemW
-      item.h = h
-      item.col = col
-      colBottomArr[col] += h + GAP
-    }
+    layoutWithHeap(0, colBottomArr)
     totalHeight.value = Math.max(...colBottomArr, 0)
     rebuildVisIndex()
   }
@@ -193,7 +247,7 @@ export function useWaterfallLayout(props) {
       doFullLayout()
       return
     }
-    recomputeAvg()
+    if (avgDirty) recomputeAvg()
     colBottomArr = new Array(curCols).fill(0)
     for (const it of items.value) {
       const h = itemW * effectiveRatio(it)
@@ -256,6 +310,7 @@ export function useWaterfallLayout(props) {
       return
     }
     // 新项回填内存中已知的真实尺寸（缺失则用平均比例估算）
+    let dimsChanged = false
     for (let i = prevCount; i < items.value.length; i++) {
       const it = items.value[i]
       if (it.width && it.height) continue
@@ -263,27 +318,12 @@ export function useWaterfallLayout(props) {
       if (d) {
         it.width = d.w
         it.height = d.h
+        dimsChanged = true
       }
     }
-    // 只对新项做最短列分配，沿用当前列宽
-    for (let i = prevCount; i < items.value.length; i++) {
-      const item = items.value[i]
-      const h = itemW * effectiveRatio(item)
-      let col = 0
-      let minH = Infinity
-      for (let c = 0; c < curCols; c++) {
-        if (colBottomArr[c] < minH) {
-          minH = colBottomArr[c]
-          col = c
-        }
-      }
-      item.x = col * (itemW + GAP)
-      item.y = colBottomArr[col]
-      item.w = itemW
-      item.h = h
-      item.col = col
-      colBottomArr[col] += h + GAP
-    }
+    if (avgDirty || dimsChanged) recomputeAvg()
+    // 只对新项做最短列分配（最小堆），沿用当前列宽
+    layoutWithHeap(prevCount, colBottomArr)
     totalHeight.value = Math.max(...colBottomArr, 0)
     extendVisIndex(prevCount)
     layoutVersion.value++
@@ -343,6 +383,7 @@ export function useWaterfallLayout(props) {
   function onItemLoaded(item, w, h) {
     if (!w || !h) return
     rememberDims(props.rootId, item.absPath, w, h)
+    avgDirty = true
     const prevH = item.h
     item._loaded = { w, h }
     item.width = w

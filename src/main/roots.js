@@ -87,10 +87,20 @@ export function displayName(root) {
   return parts.length ? parts[parts.length - 1] : root.path
 }
 
+// 根目录注册极少数变更、却在高频路径（image:// 每次解析）被读取，故整表缓存于内存，
+// 任何写操作后调用 invalidateRootsCache() 失效。
+let rootsCache = null
+
+export function invalidateRootsCache() {
+  rootsCache = null
+}
+
 export function listRoots() {
-  return prep('SELECT * FROM roots ORDER BY sort_order ASC, created_at ASC, id ASC')
+  if (rootsCache) return rootsCache
+  rootsCache = prep('SELECT * FROM roots ORDER BY sort_order ASC, created_at ASC, id ASC')
     .all()
     .map(toRoot)
+  return rootsCache
 }
 
 /**
@@ -105,6 +115,7 @@ export function reorderRoots(ids) {
       if (Number.isFinite(id)) update.run(index + 1, now(), id)
     })
   })
+  invalidateRootsCache()
   return listRoots()
 }
 
@@ -112,13 +123,13 @@ export function getRoot(id) {
   // node:sqlite 对参数类型严格：null/undefined 无法绑定，直接按「找不到」处理
   const n = Number(id)
   if (!Number.isFinite(n) || n <= 0) return undefined
-  return toRoot(prep('SELECT * FROM roots WHERE id = ?').get(n))
+  return listRoots().find((r) => r.id === n)
 }
 
 /** 按路径查找根（路径唯一） */
 export function getRootByPath(path) {
   if (!path) return undefined
-  return toRoot(prep('SELECT * FROM roots WHERE path = ?').get(String(path)))
+  return listRoots().find((r) => r.path === String(path))
 }
 
 /**
@@ -173,6 +184,7 @@ export async function addRoot(path, alias = '', opts = {}) {
     ts,
     ts
   )
+  invalidateRootsCache()
   return getRoot(Number(info.lastInsertRowid))
 }
 
@@ -206,6 +218,7 @@ export async function updateRoot(id, path, alias = '', opts = {}) {
     now(),
     id
   )
+  invalidateRootsCache()
   return getRoot(id)
 }
 
@@ -221,4 +234,5 @@ export function removeRoot(id) {
       setSetting('currentRootId', '')
     }
   })
+  invalidateRootsCache()
 }

@@ -1,89 +1,88 @@
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useCacheMaintenance } from '../../utils/use-cache-maintenance'
+import { useSetting } from '../../utils/settings'
+import SettingCard from '../SettingCard.vue'
+import SettingRow from '../SettingRow.vue'
+import MaintainTools from '../MaintainTools.vue'
 
 const { t } = useI18n()
 
-// 性能页：跟手度调优。加载行为改动即时生效，缩略图宽度需重建缓存。
+// ---------- 网格滚动与预加载 ----------
+const GRID_PRELOAD_MAX = 3000
+const gridBufferLazy = useSetting('imageBufferLazy')
+const gridPreload = useSetting('imagePreload')
+const preloadText = computed(() =>
+  t('performance.preloadUnit', { n: Math.round(gridPreload.value) })
+)
 
-const PRELOAD_MIN = 0
-const PRELOAD_MAX = 2000
-const PRELOAD_STEP = 100
-const PRELOAD_DEFAULT = 900
+// ---------- 瀑布流卡片 ----------
+const ZOOM_MAX_MIN = 1
+// 上限 8：再大列宽过小、收益很低，且易触发极端列数导致的布局开销
+const ZOOM_MAX_MAX = 8
+const zoomMax = useSetting('zoomMax', {
+  message: (v) => t('performance.zoomMaxSaved', { n: v })
+})
+// 卡片比例限制（默认开）：宽高比限制在 1:5 ~ 2:1
+const imageTallCap = useSetting('imageTallCap')
 
-const WIDTH_MIN = 64
-const WIDTH_MAX = 4096
-const WIDTH_STEP = 32
-const WIDTH_DEFAULT = 512
+// ---------- 缩略图缓存 ----------
+const cacheSaved = { message: () => t('performance.cacheSaved') }
+const cacheThumbWidth = useSetting('cacheThumbWidth', cacheSaved)
+const widthText = computed(() => t('performance.thumbPx', { n: cacheThumbWidth.value }))
+const cacheThumbQuality = useSetting('cacheThumbQuality', cacheSaved)
+const cacheScanBatch = useSetting('cacheScanBatch', cacheSaved)
+const cacheThumbBatch = useSetting('cacheThumbBatch', cacheSaved)
 
-const bufferLazy = ref(true)
-const preload = ref(PRELOAD_DEFAULT)
-const thumbWidth = ref(WIDTH_DEFAULT)
+const THUMB_WORKERS_MAX = 64
+const THUMB_TIMEOUT_MIN = 10000
+const THUMB_TIMEOUT_MAX = 600000
+const THUMB_SLOW_MIN = 1000
+const THUMB_SLOW_MAX = 60000
+const thumbWorkers = useSetting('cacheThumbWorkers', cacheSaved)
+const thumbTimeout = useSetting('cacheThumbTimeout', cacheSaved)
+const thumbSlowMs = useSetting('cacheThumbSlowMs', cacheSaved)
 
-const preloadText = computed(() => t('performance.preloadUnit', { n: Math.round(preload.value) }))
-const widthText = computed(() => t('performance.thumbPx', { n: thumbWidth.value }))
-
-function clampNum(v, min, max, fallback) {
-  const n = Number(v)
-  if (!Number.isFinite(n)) return fallback
-  return Math.min(max, Math.max(min, n))
-}
-
-let offSettingsChanged = null
-
-onMounted(async () => {
-  const lb = await window.api.getSetting('imageBufferLazy', 'true')
-  bufferLazy.value = lb !== 'false'
-
-  preload.value = clampNum(
-    await window.api.getSetting('imagePreload', String(PRELOAD_DEFAULT)),
-    PRELOAD_MIN,
-    PRELOAD_MAX,
-    PRELOAD_DEFAULT
-  )
-
-  thumbWidth.value = clampNum(
-    await window.api.getSetting('cacheThumbWidth', String(WIDTH_DEFAULT)),
-    WIDTH_MIN,
-    WIDTH_MAX,
-    WIDTH_DEFAULT
-  )
-
-  // 主窗口/设置窗口都可能修改，保持同步
-  offSettingsChanged = window.api.onSettingsChanged(({ key, value }) => {
-    if (key === 'imageBufferLazy') bufferLazy.value = value !== 'false'
-    else if (key === 'imagePreload') {
-      preload.value = clampNum(value, PRELOAD_MIN, PRELOAD_MAX, PRELOAD_DEFAULT)
-    } else if (key === 'cacheThumbWidth') {
-      thumbWidth.value = clampNum(value, WIDTH_MIN, WIDTH_MAX, WIDTH_DEFAULT)
-    }
-  })
+// ---------- 缓存生成方式 ----------
+const sequentialRead = useSetting('cacheSequential')
+const useCli = useSetting('cacheUseCli')
+const cliExePath = useSetting('cacheCliExe', {
+  normalize: (v) => String(v ?? '').trim()
 })
 
-onBeforeUnmount(() => {
-  offSettingsChanged?.()
-})
+// ---------- 缓存维护工具 ----------
+const roots = ref([])
+const maintainRootId = ref(null)
+const {
+  busy: maintainBusy,
+  modes: MAINTAIN_MODES,
+  start: startMaintain,
+  attach: attachCacheProgress,
+  detach: detachCacheProgress
+} = useCacheMaintenance()
 
-async function save(key, value) {
+async function loadRoots() {
   try {
-    await window.api.setSetting(key, value)
-    ElMessage.success(t('common.saved'))
+    roots.value = await window.api.rootsList()
   } catch {
-    ElMessage.error(t('common.saveFailed'))
+    roots.value = []
   }
 }
 
-function onBufferLazyChange(v) {
-  save('imageBufferLazy', v ? 'true' : 'false')
+function maintain(mode) {
+  const root = roots.value.find((r) => r.id === maintainRootId.value)
+  if (root) startMaintain(root, mode)
 }
 
-function onPreloadChange(v) {
-  save('imagePreload', String(Math.round(v)))
-}
+onMounted(() => {
+  loadRoots()
+  attachCacheProgress()
+})
 
-function onThumbWidthChange(v) {
-  save('cacheThumbWidth', String(Math.round(v)))
-}
+onBeforeUnmount(() => {
+  detachCacheProgress()
+})
 </script>
 
 <template>
@@ -91,105 +90,183 @@ function onThumbWidthChange(v) {
     <h2>{{ t('settings.performance') }}</h2>
     <p class="page-desc">{{ t('performance.pageDesc') }}</p>
 
-    <el-card class="perf-card" shadow="never">
-      <template #header>{{ t('performance.scrollTitle') }}</template>
-
-      <div class="perf-row">
-        <div class="perf-label">
-          <div class="perf-name">{{ t('performance.bufferLazy') }}</div>
-          <div class="perf-desc">{{ t('performance.bufferLazyDesc') }}</div>
-        </div>
-        <el-switch v-model="bufferLazy" @change="onBufferLazyChange" />
-      </div>
+    <!-- 网格滚动与预加载 -->
+    <SettingCard
+      :title="t('performance.scrollTitle')"
+      :reset-keys="['imageBufferLazy', 'imagePreload']"
+    >
+      <SettingRow :name="t('performance.bufferLazy')" :desc="t('performance.bufferLazyDesc')">
+        <el-switch v-model="gridBufferLazy" />
+      </SettingRow>
 
       <el-divider />
 
-      <div class="perf-row">
-        <div class="perf-label">
-          <div class="perf-name">{{ t('performance.preload') }}</div>
-          <div class="perf-desc">{{ t('performance.preloadDesc') }}</div>
-          <div class="perf-value">{{ preloadText }}</div>
-        </div>
+      <SettingRow :name="t('performance.preload')" :desc="t('performance.preloadDesc')">
         <div class="perf-slider-wrap">
           <el-slider
-            v-model="preload"
-            :min="PRELOAD_MIN"
-            :max="PRELOAD_MAX"
-            :step="PRELOAD_STEP"
+            v-model="gridPreload"
+            :min="0"
+            :max="GRID_PRELOAD_MAX"
+            :step="100"
             :show-tooltip="false"
-            @change="onPreloadChange"
           />
         </div>
-      </div>
-    </el-card>
+        <template #extra>
+          <div class="perf-value">{{ preloadText }}</div>
+        </template>
+      </SettingRow>
+    </SettingCard>
 
-    <el-card class="perf-card" shadow="never">
-      <template #header>{{ t('performance.thumbTitle') }}</template>
+    <!-- 瀑布流卡片 -->
+    <SettingCard :title="t('performance.cardTitle')" :reset-keys="['zoomMax', 'imageTallCap']">
+      <SettingRow
+        :name="t('performance.zoomMax')"
+        :desc="t('performance.zoomMaxDesc', { min: ZOOM_MAX_MIN, max: ZOOM_MAX_MAX })"
+      >
+        <el-input-number v-model="zoomMax" :min="ZOOM_MAX_MIN" :max="ZOOM_MAX_MAX" size="default" />
+      </SettingRow>
 
-      <div class="perf-row">
-        <div class="perf-label">
-          <div class="perf-name">{{ t('performance.thumbTitle') }}</div>
-          <div class="perf-desc">{{ t('performance.thumbDesc') }}</div>
-          <div class="perf-value">{{ widthText }}</div>
-        </div>
+      <el-divider />
+
+      <SettingRow :name="t('performance.imageTallCap')" :desc="t('performance.imageTallCapDesc')">
+        <el-switch v-model="imageTallCap" />
+      </SettingRow>
+    </SettingCard>
+
+    <!-- 缩略图缓存 -->
+    <SettingCard
+      :title="t('performance.thumbTitle')"
+      :reset-keys="[
+        'cacheThumbWidth',
+        'cacheThumbQuality',
+        'cacheScanBatch',
+        'cacheThumbBatch',
+        'cacheThumbWorkers',
+        'cacheThumbTimeout',
+        'cacheThumbSlowMs'
+      ]"
+    >
+      <SettingRow :name="t('performance.thumbWidth')" :desc="t('performance.thumbDesc')">
         <el-input-number
-          v-model="thumbWidth"
-          :min="WIDTH_MIN"
-          :max="WIDTH_MAX"
-          :step="WIDTH_STEP"
+          v-model="cacheThumbWidth"
+          :min="64"
+          :max="4096"
+          :step="32"
           size="default"
-          @change="onThumbWidthChange"
         />
-      </div>
+        <template #extra>
+          <div class="perf-value">{{ widthText }}</div>
+        </template>
+      </SettingRow>
 
-      <div class="perf-footnote">{{ t('performance.thumbApplyHint') }}</div>
-      <div class="perf-footnote">{{ t('performance.advancedHint') }}</div>
-    </el-card>
+      <el-divider />
+
+      <SettingRow :name="t('performance.thumbQuality')" :desc="t('performance.thumbQualityDesc')">
+        <el-input-number v-model="cacheThumbQuality" :min="1" :max="100" size="default" />
+      </SettingRow>
+
+      <el-divider />
+
+      <SettingRow :name="t('performance.scanBatch')" :desc="t('performance.scanBatchDesc')">
+        <el-input-number v-model="cacheScanBatch" :min="10" :max="1000" :step="10" size="default" />
+      </SettingRow>
+
+      <el-divider />
+
+      <SettingRow :name="t('performance.thumbBatch')" :desc="t('performance.thumbBatchDesc')">
+        <el-input-number v-model="cacheThumbBatch" :min="10" :max="500" :step="10" size="default" />
+      </SettingRow>
+
+      <el-divider />
+
+      <SettingRow :name="t('performance.thumbWorkers')" :desc="t('performance.thumbWorkersDesc')">
+        <el-input-number
+          v-model="thumbWorkers"
+          :min="0"
+          :max="THUMB_WORKERS_MAX"
+          :step="1"
+          size="default"
+        />
+      </SettingRow>
+
+      <el-divider />
+
+      <SettingRow :name="t('performance.thumbTimeout')" :desc="t('performance.thumbTimeoutDesc')">
+        <el-input-number
+          v-model="thumbTimeout"
+          :min="THUMB_TIMEOUT_MIN"
+          :max="THUMB_TIMEOUT_MAX"
+          :step="10000"
+          size="default"
+        />
+      </SettingRow>
+
+      <el-divider />
+
+      <SettingRow :name="t('performance.thumbSlow')" :desc="t('performance.thumbSlowDesc')">
+        <el-input-number
+          v-model="thumbSlowMs"
+          :min="THUMB_SLOW_MIN"
+          :max="THUMB_SLOW_MAX"
+          :step="500"
+          size="default"
+        />
+      </SettingRow>
+
+      <p class="perf-footnote">{{ t('performance.thumbApplyHint') }}</p>
+    </SettingCard>
+
+    <!-- 缓存生成方式 -->
+    <SettingCard
+      :title="t('performance.cacheGenTitle')"
+      :desc="t('performance.cacheDesc')"
+      :reset-keys="['cacheSequential', 'cacheUseCli', 'cacheCliExe']"
+    >
+      <SettingRow :name="t('performance.cacheUseCli')" :desc="t('performance.cacheUseCliDesc')">
+        <el-switch v-model="useCli" />
+      </SettingRow>
+
+      <el-divider />
+
+      <SettingRow :name="t('performance.cacheCliExe')" :desc="t('performance.cacheCliExeDesc')">
+        <el-input
+          v-model="cliExePath"
+          :disabled="!useCli"
+          placeholder="image_compresser.exe"
+          clearable
+          size="default"
+          class="cli-exe-input"
+        />
+      </SettingRow>
+
+      <el-divider />
+
+      <SettingRow
+        :name="t('performance.cacheSequential')"
+        :desc="t('performance.cacheSequentialDesc')"
+      >
+        <el-switch v-model="sequentialRead" />
+      </SettingRow>
+    </SettingCard>
+
+    <!-- 缓存维护工具 -->
+    <MaintainTools
+      v-model="maintainRootId"
+      :title="t('roots.maintainTools')"
+      :desc="t('roots.maintainDesc')"
+      :running-text="t('roots.taskRunning')"
+      :roots="roots"
+      :busy="maintainBusy"
+      :modes="MAINTAIN_MODES"
+      :placeholder="t('roots.selectMaintainRoot')"
+      :select-root-first="t('roots.selectRootFirst')"
+      no-root-tooltip
+      @run="maintain"
+    />
   </div>
 </template>
 
 <style scoped>
-.page h2 {
-  margin: 0 0 6px;
-  font-size: 20px;
-}
-
-.page-desc {
-  color: #999;
-  font-size: 13px;
-  margin-bottom: 24px;
-  max-width: 720px;
-  line-height: 1.6;
-}
-
-.perf-card {
-  max-width: 720px;
-  margin-bottom: 24px;
-}
-
-.perf-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-}
-
-.perf-label {
-  min-width: 0;
-}
-
-.perf-name {
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.perf-desc {
-  margin-top: 4px;
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
-  line-height: 1.6;
-}
-
 .perf-value {
   margin-top: 6px;
   font-size: 12px;
@@ -198,14 +275,17 @@ function onThumbWidthChange(v) {
 }
 
 .perf-slider-wrap {
-  flex-shrink: 0;
   width: 240px;
 }
 
 .perf-footnote {
-  margin-top: 10px;
+  margin-top: 12px;
   font-size: 12px;
   color: var(--el-text-color-secondary);
   line-height: 1.6;
+}
+
+.cli-exe-input {
+  width: 300px;
 }
 </style>

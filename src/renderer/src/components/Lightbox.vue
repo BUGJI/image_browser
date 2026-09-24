@@ -41,6 +41,7 @@ const videoRef = ref(null)
 const loading = ref(true)
 const loadError = ref('')
 const copied = ref('') // '' | 'file' | 'image'
+let copiedTimer = 0
 
 // 快捷键配置（设置 - 快捷键 中可自定义）
 const shortcuts = ref({ copyFile: 'Ctrl+C', copyImage: 'Ctrl+Shift+C' })
@@ -148,20 +149,34 @@ watch(cur, () => {
 })
 
 // 预加载相邻图片（原图），切换时秒开；视频不预载（较重）。
-// 保留 Image 引用避免被回收，使浏览器缓存对下一张生效。
-let _preloaded = []
+// 用 absPath 索引避免重复请求；不再相邻的项显式取消（src=''），
+// 防止快速翻页堆积大量在途原图请求。保留 Image 引用使浏览器缓存对下一张生效。
+const _preloads = new Map() // absPath -> Image
 function preloadNeighbors() {
   const list = props.items
-  const next = []
+  const want = new Map()
   for (const i of [cur.value - 1, cur.value + 1]) {
     const it = list[i]
     if (!it || isVideoName(it.name)) continue
+    want.set(it.absPath, it)
+  }
+  for (const [abs, el] of _preloads) {
+    if (!want.has(abs)) {
+      try {
+        el.src = '' // 取消仍在途的加载
+      } catch {
+        /* ignore */
+      }
+      _preloads.delete(abs)
+    }
+  }
+  for (const [abs, it] of want) {
+    if (_preloads.has(abs)) continue
     const el = new Image()
     el.decoding = 'async'
     el.src = buildImageUrl(props.rootId, it.absPath, 'orig')
-    next.push(el)
+    _preloads.set(abs, el)
   }
-  _preloaded = next
 }
 
 function prev() {
@@ -256,7 +271,8 @@ function onKeydown(e) {
 async function flashCopied(type) {
   copied.value = type
   ElMessage.success(type === 'file' ? t('lightbox.copiedFile') : t('lightbox.copied'))
-  setTimeout(() => (copied.value = ''), 1500)
+  clearTimeout(copiedTimer)
+  copiedTimer = setTimeout(() => (copied.value = ''), 1500)
 }
 
 // 复制原文件：以「文件」形式放入剪贴板（可在文件管理器直接粘贴）
@@ -382,28 +398,50 @@ onMounted(async () => {
   previouslyFocused = document.activeElement
   await nextTick()
   maskRef.value?.focus?.()
-  shortcuts.value = await loadShortcuts()
-  const wa = await window.api?.getSetting('lightboxWheelAction', 'zoom')
-  wheelAction.value = ['zoom', 'navigate'].includes(wa) ? wa : 'zoom'
-  favoritesEnabled.value = (await window.api?.getSetting('favoritesEnabled', 'true')) !== 'false'
-  favLightboxBtn.value = (await window.api?.getSetting('favoritesLightboxBtn', 'true')) !== 'false'
-  tagsEnabled.value = (await window.api?.getSetting('tagsEnabled', 'true')) !== 'false'
-  tagsLightboxBtn.value = (await window.api?.getSetting('tagsLightboxBtn', 'true')) !== 'false'
-  webmAsGif.value = (await window.api?.getSetting('webmAsGif', 'false')) === 'true'
-  // 读取开发者选项里的灯箱缩放限制
-  const parseNum = async (key, fb) => {
-    const n = parseFloat((await window.api?.getSetting(key, String(fb))) || '')
+  // 所有设置项并发读取（原先为十几次串行 IPC，每次打开灯箱都付出往返延迟）
+  const api = window.api
+  const parseNum = (raw, fb) => {
+    const n = parseFloat(raw || '')
     return Number.isFinite(n) && n > 0 ? n : fb
   }
-  const min = await parseNum('lightboxZoomMin', 0.5)
-  const max = Math.max(await parseNum('lightboxZoomMax', 8), min)
-  const step = await parseNum('lightboxZoomStep', 1.2)
+  const [savedShortcuts, wa, favEnabled, favBtn, tagEnabled, tagBtn, webmGif, zmin, zmax, zstep] =
+    await Promise.all([
+      loadShortcuts(),
+      api?.getSetting('lightboxWheelAction', 'zoom'),
+      api?.getSetting('favoritesEnabled', 'true'),
+      api?.getSetting('favoritesLightboxBtn', 'true'),
+      api?.getSetting('tagsEnabled', 'true'),
+      api?.getSetting('tagsLightboxBtn', 'true'),
+      api?.getSetting('webmAsGif', 'false'),
+      api?.getSetting('lightboxZoomMin', '0.5'),
+      api?.getSetting('lightboxZoomMax', '8'),
+      api?.getSetting('lightboxZoomStep', '1.2')
+    ])
+  shortcuts.value = savedShortcuts
+  wheelAction.value = ['zoom', 'navigate'].includes(wa) ? wa : 'zoom'
+  favoritesEnabled.value = favEnabled !== 'false'
+  favLightboxBtn.value = favBtn !== 'false'
+  tagsEnabled.value = tagEnabled !== 'false'
+  tagsLightboxBtn.value = tagBtn !== 'false'
+  webmAsGif.value = webmGif === 'true'
+  // 读取开发者选项里的灯箱缩放限制
+  const min = parseNum(zmin, 0.5)
+  const max = Math.max(parseNum(zmax, 8), min)
+  const step = parseNum(zstep, 1.2)
   zoomCfg.value = { min, max, step }
   view.value = { scale: Math.min(Math.max(1, min), max), tx: 0, ty: 0 }
   preloadNeighbors()
 })
 onBeforeUnmount(() => {
-  _preloaded = []
+  for (const el of _preloads.values()) {
+    try {
+      el.src = ''
+    } catch {
+      /* ignore */
+    }
+  }
+  _preloads.clear()
+  if (copiedTimer) clearTimeout(copiedTimer)
   bodyScrollLocked.value = false
   previouslyFocused?.focus?.()
 })

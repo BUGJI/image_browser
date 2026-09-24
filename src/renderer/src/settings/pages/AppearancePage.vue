@@ -1,6 +1,8 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
+import SettingCard from '../SettingCard.vue'
+import SettingRow from '../SettingRow.vue'
 
 const { t } = useI18n()
 const titlebarMode = ref('custom')
@@ -37,18 +39,18 @@ async function saveTitlebar() {
     <h2>{{ t('settings.titlebar') }}</h2>
     <p class="page-desc">{{ t('appearance.pageDesc') }}</p>
 
-    <el-form label-width="120px" class="form">
-      <el-form-item :label="t('settings.titlebar')">
+    <SettingCard>
+      <SettingRow :name="t('settings.titlebar')">
         <el-radio-group v-model="titlebarMode">
           <el-radio value="custom">{{ t('appearance.customTitlebar') }}</el-radio>
           <el-radio value="system">{{ t('appearance.systemTitlebar') }}</el-radio>
         </el-radio-group>
-      </el-form-item>
+      </SettingRow>
 
-      <el-form-item>
+      <div class="actions">
         <el-button type="primary" @click="saveTitlebar">{{ t('common.save') }}</el-button>
-      </el-form-item>
-    </el-form>
+      </div>
+    </SettingCard>
 
     <el-alert type="info" :closable="false" class="tip">
       <p>{{ t('appearance.tip') }}</p>
@@ -57,22 +59,9 @@ async function saveTitlebar() {
 </template>
 
 <style scoped>
-.page h2 {
-  margin: 0 0 6px;
-  font-size: 20px;
-}
-
-.page-desc {
-  color: #999;
-  font-size: 13px;
-  margin-bottom: 24px;
-}
-
-.form {
-  max-width: 720px;
-}
-
-.tip {
-  max-width: 720px;
+.actions {
+  margin-top: 16px;
+  display: flex;
+  justify-content: flex-end;
 }
 </style>

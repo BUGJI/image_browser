@@ -11,10 +11,7 @@ export default [
       'node_modules/**',
       'resources/**',
       'build/**',
-      // 仓库内的临时调试脚本，不参与产品代码
-      'locate-dir.mjs',
-      'thumb-child.js',
-      'worker-thumb-test.mjs',
+      // 仓库内的构建脚本，不参与产品代码
       'scripts/gen_mock_imgs.py'
     ]
   },

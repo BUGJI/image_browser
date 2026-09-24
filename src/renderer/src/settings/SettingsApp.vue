@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount, defineAsyncComponent } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   Setting,
@@ -9,28 +9,31 @@ import {
   MagicStick,
   Monitor,
   Aim,
-  InfoFilled
+  InfoFilled,
+  Grid
 } from '@element-plus/icons-vue'
 import en from 'element-plus/es/locale/lang/en'
 import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import SidebarTree from './SidebarTree.vue'
-import GeneralPage from './pages/GeneralPage.vue'
-import RootsPage from './pages/RootsPage.vue'
-import FavoritesPage from './pages/FavoritesPage.vue'
-import TagsPage from './pages/TagsPage.vue'
-import AppearancePage from './pages/AppearancePage.vue'
-import ThemePage from './pages/ThemePage.vue'
-import SidebarPage from './pages/SidebarPage.vue'
-import AnimationsPage from './pages/AnimationsPage.vue'
-import AiSearchPage from './pages/AiSearchPage.vue'
-import OcrSearchPage from './pages/OcrSearchPage.vue'
-import AboutPage from './pages/AboutPage.vue'
-import TestPage from './pages/TestPage.vue'
-import DevOptionsPage from './pages/DevOptionsPage.vue'
-import ShortcutsPage from './pages/ShortcutsPage.vue'
-import GridPage from './pages/GridPage.vue'
-// PerformancePage 已隐藏备用：其选项并入 DevOptionsPage，需要时可重新接入
 import NotificationHost from '../components/NotificationHost.vue'
+
+// 设置页按需懒加载：避免设置窗口启动时一次性编译全部页面（含较重的测试/根目录/OCR 页）
+const GeneralPage = defineAsyncComponent(() => import('./pages/GeneralPage.vue'))
+const RootsPage = defineAsyncComponent(() => import('./pages/RootsPage.vue'))
+const FavoritesPage = defineAsyncComponent(() => import('./pages/FavoritesPage.vue'))
+const TagsPage = defineAsyncComponent(() => import('./pages/TagsPage.vue'))
+const AppearancePage = defineAsyncComponent(() => import('./pages/AppearancePage.vue'))
+const ThemePage = defineAsyncComponent(() => import('./pages/ThemePage.vue'))
+const SidebarPage = defineAsyncComponent(() => import('./pages/SidebarPage.vue'))
+const AnimationsPage = defineAsyncComponent(() => import('./pages/AnimationsPage.vue'))
+const AiSearchPage = defineAsyncComponent(() => import('./pages/AiSearchPage.vue'))
+const OcrSearchPage = defineAsyncComponent(() => import('./pages/OcrSearchPage.vue'))
+const AboutPage = defineAsyncComponent(() => import('./pages/AboutPage.vue'))
+const TestPage = defineAsyncComponent(() => import('./pages/TestPage.vue'))
+const DevOptionsPage = defineAsyncComponent(() => import('./pages/DevOptionsPage.vue'))
+const ShortcutsPage = defineAsyncComponent(() => import('./pages/ShortcutsPage.vue'))
+const GridPage = defineAsyncComponent(() => import('./pages/GridPage.vue'))
+const PerformancePage = defineAsyncComponent(() => import('./pages/PerformancePage.vue'))
 import { useThemeStore } from '../stores/theme'
 import { useLocaleStore } from '../stores/locale'
 import { useAnimationsStore } from '../stores/animations'
@@ -73,8 +76,16 @@ const treeData = computed(() => {
         { id: 'titlebar', label: t('settings.titlebar') },
         { id: 'sidebar', label: t('settings.sidebar') },
         { id: 'theme', label: t('settings.theme') },
-        { id: 'animations', label: t('settings.animations') },
-        { id: 'card', label: t('settings.cardPage') }
+        { id: 'animations', label: t('settings.animations') }
+      ]
+    },
+    {
+      id: 'browse',
+      label: t('settings.browse'),
+      icon: Grid,
+      children: [
+        { id: 'card', label: t('settings.cardPage') },
+        { id: 'performance', label: t('settings.performance') }
       ]
     },
     { id: 'shortcuts', label: t('settings.shortcuts'), icon: Key },
@@ -85,17 +96,16 @@ const treeData = computed(() => {
       children: [
         { id: 'favorites', label: t('settings.favorites') },
         { id: 'tags', label: t('settings.tags') },
-        // AI 搜索默认隐藏，开发者选项开启「显示隐藏功能」后出现
-        ...(showHidden.value ? [{ id: 'ai-search', label: t('settings.aiSearch') }] : []),
+        // AI 搜索默认隐藏：平时不显示，搜索命中时以「隐藏」标签临时出现
+        { id: 'ai-search', label: t('settings.aiSearch'), hidden: !showHidden.value },
         { id: 'ocr-search', label: t('settings.ocrSearch') }
       ]
     },
-    { id: 'dev-options', label: t('settings.devOptions'), icon: Monitor }
+    { id: 'dev-options', label: t('settings.devOptions'), icon: Monitor },
+    // 测试栏目默认隐藏，同上：仅搜索命中时出现
+    { id: 'test', label: t('settings.test'), icon: Aim, hidden: !showTest.value },
+    { id: 'about', label: t('settings.about'), icon: InfoFilled }
   ]
-  if (showTest.value) {
-    nodes.push({ id: 'test', label: t('settings.test'), icon: Aim })
-  }
-  nodes.push({ id: 'about', label: t('settings.about'), icon: InfoFilled })
   return nodes
 })
 
@@ -113,6 +123,7 @@ const pageMap = {
   test: TestPage,
   'dev-options': DevOptionsPage,
   card: GridPage,
+  performance: PerformancePage,
   shortcuts: ShortcutsPage,
   about: AboutPage
 }
@@ -189,15 +200,58 @@ onBeforeUnmount(() => {
 </style>
 
 <style>
-/* 设置窗口通用：数值输入框固定不收缩，避免被长文案挤压 */
+/* 内容列：宽屏居中并限制可读行宽；含宽表格的页面用 .page--wide 放宽。
+   各页不再各自声明 max-width（此前的 720px 已由此统一接管）。 */
+.settings-app .settings-content .page {
+  max-width: 720px;
+  margin-inline: auto;
+}
+
+.settings-app .settings-content .page.page--wide {
+  max-width: 1160px;
+}
+
+/* 设置页通用布局：页面标题/描述、分隔线间距、控件宽度统一在此定义，
+   各页不再重复声明。选择器带上 .settings-content 以提高优先级。 */
+.settings-app .settings-content .page h2 {
+  margin: 0 0 6px;
+  font-size: 20px;
+}
+
+.settings-app .settings-content .page-desc {
+  margin: 0 0 24px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--el-text-color-secondary);
+}
+
+.settings-app .settings-content .page-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+/* page-head 内的描述不再重复占底部间距 */
+.settings-app .settings-content .page-head .page-desc {
+  margin-bottom: 0;
+}
+
+.settings-app .settings-content .el-divider--horizontal {
+  margin: 14px 0;
+}
+
+/* 数值输入框固定不收缩，避免被长文案挤压 */
 .settings-app .el-input-number {
   width: 150px;
   min-width: 150px;
   flex: 0 0 auto;
 }
-.settings-app .dev-row .el-input-number,
-.settings-app .perf-row .el-input-number {
-  width: 150px;
-  min-width: 150px;
+
+/* 下拉选择框统一宽度 */
+.settings-app .setting-select {
+  width: 180px;
+  flex-shrink: 0;
 }
 </style>

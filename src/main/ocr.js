@@ -6,7 +6,7 @@ import { openRootCache } from './cache'
 import { broadcast } from './windows'
 import { ScanAbortedError } from './fs-scan.mjs'
 import { VIDEO_EXTS } from './scan-constants.mjs'
-import { metaSet } from './cache-db-utils.mjs'
+import { metaSet, prep as prepCache } from './cache-db-utils.mjs'
 import {
   isAddonInstalled,
   getAddonNodeModules,
@@ -109,9 +109,10 @@ function ensureOcrTable(db) {
  */
 function ensureOcrFts(db) {
   try {
-    const has = db
-      .prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'ocr_fts'")
-      .get()
+    const has = prepCache(
+      db,
+      "SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'ocr_fts'"
+    ).get()
     if (has) return
     db.exec(`
       CREATE VIRTUAL TABLE ocr_fts USING fts5(
@@ -231,10 +232,12 @@ export async function runOcrIndexTask(root, mode, { onProgress = () => {}, shoul
       if (shouldAbort?.()) abortedState.aborted = true
     }, 200)
 
-    // 每批与 worker 通信一次，批内逐条回写
+    // 每批与 worker 通信一次，批内结果包进一个事务回写（减少 WAL 提交次数）
     for (let i = 0; i < need.length; i += OCROCR_BATCH) {
       checkAbort()
       const batch = need.slice(i, i + OCROCR_BATCH)
+      let batchErr = null
+      db.exec('BEGIN')
       try {
         await runOcrBatch(worker, batch, {
           upsertStmt,
@@ -244,9 +247,18 @@ export async function runOcrIndexTask(root, mode, { onProgress = () => {}, shoul
             if (j.uninstalled) uninstalled = true
           }
         })
+        db.exec('COMMIT')
       } catch (err) {
+        batchErr = err
+        try {
+          db.exec('ROLLBACK')
+        } catch {
+          /* ignore */
+        }
+      }
+      if (batchErr) {
         // 单批超时：worker 已卡死，终止并重启，跳过本批继续后续，避免整任务永久挂起
-        if (err?.code === 'OCR_BATCH_TIMEOUT') {
+        if (batchErr?.code === 'OCR_BATCH_TIMEOUT') {
           stats.failed += batch.length
           await worker.terminate().catch(() => {})
           worker = spawnOcrWorker()
@@ -254,7 +266,7 @@ export async function runOcrIndexTask(root, mode, { onProgress = () => {}, shoul
           onProgress({ phase: 'ocr', done, total, current: batch[batch.length - 1].name })
           continue
         }
-        throw err
+        throw batchErr
       }
       done += batch.length
       onProgress({ phase: 'ocr', done, total, current: batch[batch.length - 1].name })

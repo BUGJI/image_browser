@@ -1,5 +1,7 @@
 <script setup>
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { Folder, StarFilled, CollectionTag } from '@element-plus/icons-vue'
 import WaterfallGrid from './WaterfallGrid.vue'
 
 /**
@@ -8,7 +10,7 @@ import WaterfallGrid from './WaterfallGrid.vue'
  */
 const { t } = useI18n()
 
-defineProps({
+const props = defineProps({
   rootId: { type: Number, required: true },
   rootName: { type: String, default: '' },
   rootPath: { type: String, default: '' },
@@ -26,6 +28,39 @@ defineProps({
   // WaterfallGrid 外观参数（zoom/refreshTick/quickCopy*/nameMode/.../mode）
   settings: { type: Object, required: true }
 })
+
+// 顶部横幅：文件夹 / 收藏 / 标签三种视图共用同一套结构，仅图标、标题、副标题不同
+const banner = computed(() => {
+  if (props.favActive) {
+    return {
+      icon: StarFilled,
+      iconClass: 'fav-banner-icon',
+      name: t('app.myFavorites'),
+      meta: `${t('app.favBannerRoot', { name: props.rootName })} · ${t('app.favCount', {
+        n: props.favoritesCount
+      })}`
+    }
+  }
+  if (props.tagActive) {
+    return {
+      icon: CollectionTag,
+      iconClass: 'tag-banner-icon',
+      name: props.activeTagName,
+      meta: `${t('app.favBannerRoot', { name: props.rootName })} · ${t('app.favCount', {
+        n: props.tagItems?.length ?? 0
+      })}`
+    }
+  }
+  if (props.selectedFolder && !props.isSearching) {
+    return {
+      icon: Folder,
+      iconClass: '',
+      name: props.selectedFolder.name,
+      meta: props.selectedFolder.path
+    }
+  }
+  return null
+})
 </script>
 
 <template>
@@ -37,43 +72,15 @@ defineProps({
       </div>
     </div>
     <div class="root-body">
-      <template v-if="selectedFolder && !isSearching && !favActive && !tagActive">
-        <div class="folder-banner">
-          <el-icon :size="18" class="folder-banner-icon"><Folder /></el-icon>
-          <div class="folder-banner-text">
-            <h3 class="folder-banner-name">{{ selectedFolder.name }}</h3>
-            <p class="folder-banner-path">{{ selectedFolder.path }}</p>
-          </div>
+      <div v-if="banner" class="folder-banner">
+        <el-icon :size="18" class="folder-banner-icon" :class="banner.iconClass">
+          <component :is="banner.icon" />
+        </el-icon>
+        <div class="folder-banner-text">
+          <h3 class="folder-banner-name">{{ banner.name }}</h3>
+          <p class="folder-banner-path">{{ banner.meta }}</p>
         </div>
-      </template>
-      <template v-else-if="favActive">
-        <div class="folder-banner">
-          <el-icon :size="18" class="folder-banner-icon fav-banner-icon">
-            <StarFilled />
-          </el-icon>
-          <div class="folder-banner-text">
-            <h3 class="folder-banner-name">{{ t('app.myFavorites') }}</h3>
-            <p class="folder-banner-path">
-              {{ t('app.favBannerRoot', { name: rootName }) }} ·
-              {{ t('app.favCount', { n: favoritesCount }) }}
-            </p>
-          </div>
-        </div>
-      </template>
-      <template v-else-if="tagActive">
-        <div class="folder-banner">
-          <el-icon :size="18" class="folder-banner-icon tag-banner-icon">
-            <CollectionTag />
-          </el-icon>
-          <div class="folder-banner-text">
-            <h3 class="folder-banner-name">{{ activeTagName }}</h3>
-            <p class="folder-banner-path">
-              {{ t('app.favBannerRoot', { name: rootName }) }} ·
-              {{ t('app.favCount', { n: tagItems?.length ?? 0 }) }}
-            </p>
-          </div>
-        </div>
-      </template>
+      </div>
       <div v-if="selectedFolder || isSearching || favActive || tagActive" class="folder-body">
         <WaterfallGrid
           :root-id="rootId"
@@ -86,9 +93,9 @@ defineProps({
           v-bind="settings"
         />
       </div>
-      <div v-else class="welcome">
+      <div v-else class="center-empty">
         <el-empty :description="t('app.selectFolderToBrowse')">
-          <p class="welcome-tip">{{ t('app.rootColon', { name: rootName }) }}</p>
+          <p class="center-empty-tip">{{ t('app.rootColon', { name: rootName }) }}</p>
         </el-empty>
       </div>
     </div>
@@ -103,8 +110,8 @@ defineProps({
 }
 
 .root-header {
-  /* 顶部留出悬浮工具栏的空间（工具栏 top:12px + 高 36px），避免标题被遮挡 */
-  padding: 60px var(--content-gutter) 12px;
+  /* 顶部留出悬浮工具栏的空间，避免标题被遮挡（高度见 --toolbar-reserve） */
+  padding: var(--toolbar-reserve) var(--content-gutter) 12px;
 }
 
 .root-title {
@@ -139,7 +146,7 @@ defineProps({
 }
 
 .folder-banner-icon {
-  color: #f7ba2a;
+  color: var(--app-folder-color);
   flex-shrink: 0;
 }
 
@@ -168,18 +175,5 @@ defineProps({
   display: flex;
   flex-direction: column;
   min-height: 0;
-}
-
-.welcome {
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.welcome-tip {
-  margin-top: 8px;
-  color: var(--app-text-secondary);
-  font-size: 13px;
 }
 </style>

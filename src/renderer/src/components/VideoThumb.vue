@@ -1,7 +1,7 @@
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import { buildImageUrl } from '../utils/image-url'
-import { getVideoPosterUrl } from '../utils/video-poster'
+import { getVideoPosterUrl, retainVideoPoster, releaseVideoPoster } from '../utils/video-poster'
 
 /**
  * 网格卡片里的视频缩略图组件（替代原生 <img>）
@@ -39,16 +39,34 @@ const showVideo = computed(
   () => props.playMode === 'all' || (props.playMode === 'hover' && hovering.value)
 )
 
+// 引用计数：实时取帧得到的 objectURL 在组件存活期间不可被海报缓存逐出回收
+let retainedAbs = ''
+function retainRealtime(abs) {
+  if (retainedAbs === abs) return
+  if (retainedAbs) releaseVideoPoster(props.rootId, retainedAbs)
+  retainedAbs = abs
+  if (abs) retainVideoPoster(props.rootId, abs)
+}
+function releaseRealtime() {
+  if (retainedAbs) {
+    releaseVideoPoster(props.rootId, retainedAbs)
+    retainedAbs = ''
+  }
+}
+onBeforeUnmount(releaseRealtime)
+
 let resolveSeq = 0
 async function ensurePoster() {
   if (!needPoster.value || props.deferLoad) return
   if (posterState.value === 'ready') return
   const seq = ++resolveSeq
   posterState.value = 'loading'
+  retainRealtime(props.item.absPath)
   const url = await getVideoPosterUrl(props.rootId, props.item.absPath)
   if (seq !== resolveSeq) return
   posterState.value = url ? 'ready' : 'failed'
   posterUrl.value = url
+  if (!url) releaseRealtime() // 失败回退 <video>，无需再保留
 }
 
 watch(() => props.playMode, ensurePoster)

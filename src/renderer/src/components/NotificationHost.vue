@@ -95,6 +95,8 @@ function onCancel(n) {
   flex-direction: column;
   gap: 10px;
   width: 340px;
+  /* 窄窗口下不溢出屏幕 */
+  max-width: calc(100vw - 32px);
   pointer-events: none;
 }
 

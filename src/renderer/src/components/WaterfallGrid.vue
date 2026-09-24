@@ -149,8 +149,47 @@ function initItems(list) {
     h: 0,
     col: 0,
     _loaded: null,
-    _ext: extOfName(it.name)
+    _failed: false,
+    _src: null,
+    _ext: extOfName(it.name),
+    _isVideo: isVideoName(it.name),
+    _isGif: isGifName(it.name)
   }))
+}
+
+/**
+ * v-memo 依赖：卡片 DOM 只由这些原始值决定。
+ * 命中同一数组时跳过该卡片的 VNode 重建，避免滚动 / 图片加载逐帧重渲染整屏卡片。
+ */
+function memoDeps(item) {
+  return [
+    item.x,
+    item.y,
+    item.w,
+    item.h,
+    item._src,
+    item._loaded,
+    item._failed,
+    item._isVideo,
+    item._isGif,
+    item._ext,
+    item.match,
+    favoritesStore.isFav(item.absPath),
+    isRatioCapped(item),
+    inViewport(item),
+    loadMode(item),
+    priorityMode(item),
+    deferLoad(item),
+    props.nameMode,
+    props.extMode,
+    props.favMode,
+    props.textMatchMode,
+    props.mode,
+    props.capTall,
+    gifStore.webmAsGif,
+    gifStore.playMode,
+    gifStore.thumbSource
+  ]
 }
 
 /** 当前列表对应的 imagesList 前三个参数（搜索模式忽略 folderPath）。
@@ -422,6 +461,7 @@ async function copyViaCanvas(e) {
       <div
         v-for="item in visibleItems"
         :key="item.absPath"
+        v-memo="memoDeps(item)"
         class="waterfall-item"
         :class="{
           'wf-name-none': props.nameMode === 'none',
@@ -450,7 +490,7 @@ async function copyViaCanvas(e) {
         <!-- 加载失败：移出媒体元素（否则浏览器会显示破损图标 + alt 文件名），改用占位 -->
         <template v-if="!item._failed">
           <VideoThumb
-            v-if="isVideoName(item.name)"
+            v-if="item._isVideo"
             :root-id="rootId"
             :item="item"
             :play-mode="gifStore.webmAsGif ? gifStore.playMode : 'none'"
@@ -461,7 +501,7 @@ async function copyViaCanvas(e) {
             @error="onImgError(item)"
           />
           <GifThumb
-            v-else-if="isGifName(item.name)"
+            v-else-if="item._isGif"
             :root-id="rootId"
             :item="item"
             :play-mode="gifStore.playMode"
@@ -490,7 +530,7 @@ async function copyViaCanvas(e) {
           <el-icon :size="22"><PictureFilled /></el-icon>
         </div>
         <span
-          v-if="isVideoName(item.name) && !gifStore.webmAsGif && !item._failed"
+          v-if="item._isVideo && !gifStore.webmAsGif && !item._failed"
           class="waterfall-play-badge"
         >
           <el-icon :size="20"><VideoPlay /></el-icon>
@@ -639,19 +679,7 @@ async function copyViaCanvas(e) {
   z-index: 1;
 }
 
-.waterfall-item img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-  transition: transform 0.25s ease;
-  background: transparent;
-}
-
-.waterfall-item:hover img {
-  transform: scale(1.03);
-}
-
+.waterfall-item img,
 .waterfall-item video {
   width: 100%;
   height: 100%;
@@ -661,15 +689,13 @@ async function copyViaCanvas(e) {
   transition: transform 0.25s ease;
 }
 
+.waterfall-item:hover img,
 .waterfall-item:hover video {
   transform: scale(1.03);
 }
 
 /* 比例限制开启时：整图等比显示（不被裁剪），卡片比例已限制在 1:5 ~ 2:1 */
-.waterfall-item img.fit-contain {
-  object-fit: contain;
-}
-
+.waterfall-item img.fit-contain,
 .waterfall-item video.fit-contain {
   object-fit: contain;
 }

@@ -4,21 +4,27 @@ import { createPinia } from 'pinia'
 import 'element-plus/theme-chalk/dark/css-vars.css'
 import App from './App.vue'
 import './assets/main.css'
-import { ensureDevMock } from './dev-mock'
 import { i18n } from './i18n'
 import { useLocaleStore } from './stores/locale'
 
-// 浏览器调试：无 window.api 时注入 mock（Electron 内不生效）
-ensureDevMock()
+async function bootstrap() {
+  // 浏览器调试：无 window.api 时注入 mock；仅在开发构建动态引入，生产包不含 dev-mock
+  if (import.meta.env.DEV) {
+    const { ensureDevMock } = await import('./dev-mock')
+    ensureDevMock()
+  }
 
-const app = createApp(App)
+  const app = createApp(App)
 
-const pinia = createPinia()
-app.use(pinia)
-app.use(i18n)
-// Element Plus 组件/图标按需自动引入（见 electron.vite.config.mjs）；
-// 组件库文案与 zIndex 由 App.vue 的 el-config-provider 提供。
-app.mount('#app')
+  const pinia = createPinia()
+  app.use(pinia)
+  app.use(i18n)
+  // Element Plus 组件/图标按需自动引入（见 electron.vite.config.mjs）；
+  // 组件库文案与 zIndex 由 App.vue 的 el-config-provider 提供。
+  app.mount('#app')
 
-// 挂载后恢复语言设置（el-config-provider 会响应式切换）
-useLocaleStore(pinia).load()
+  // 挂载后恢复语言设置（el-config-provider 会响应式切换）
+  useLocaleStore(pinia).load()
+}
+
+bootstrap()

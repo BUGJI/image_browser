@@ -27,7 +27,6 @@ import {
 import {
   initRootsTable,
   listRoots,
-  getRootByPath,
   findRootForPath,
   addRoot,
   updateRoot,
@@ -182,13 +181,24 @@ function registerIpc() {
     const { type, path, config, secret } = payload || {}
     try {
       if (type === 'webdav') {
+        const url = String(path || config?.url || '')
+        let parsed
+        try {
+          parsed = new URL(url)
+        } catch {
+          return { ok: false, message: '无效的服务器地址' }
+        }
+        // 只允许 http(s)，阻止 file:/自定义协议等潜在危险 scheme
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+          return { ok: false, message: '仅支持 http/https 协议的服务器地址' }
+        }
         return await testWebdavConnection({
-          url: path || config?.url,
+          url,
           username: config?.username,
           password: secret
         })
       }
-      const ok = existsSync(path)
+      const ok = typeof path === 'string' && path.length > 0 && existsSync(path)
       return { ok, message: ok ? '目录存在' : '目录不存在或不可访问' }
     } catch (err) {
       return { ok: false, message: String(err?.message || err) }
@@ -252,8 +262,10 @@ function registerIpc() {
 
   ipcMain.handle('fs:scan-tree', async (e, rootPath) => {
     if (!rootPath) return null
-    const root = getRootByPath(rootPath)
-    const provider = root ? getProvider(root) : getProvider('local')
+    // 仅允许扫描已注册根目录（含其子目录），禁止对任意磁盘路径做目录枚举
+    const root = findRootForPath(rootPath)
+    if (!root) throw new Error(`未注册的根目录：${rootPath}`)
+    const provider = getProvider(root)
     // 新扫描开始前中止上一次
     scanAbortController?.abort()
     const ac = new AbortController()

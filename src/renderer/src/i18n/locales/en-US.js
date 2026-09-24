@@ -11,7 +11,10 @@ export default {
     preparing: 'Preparing…',
     loading: 'Loading…',
     separator: ', ',
-    warning: 'Warning'
+    warning: 'Warning',
+    resetDefaults: 'Reset to defaults',
+    resetConfirm: 'Reset this group to the default values?',
+    resetDone: 'Defaults restored'
   },
   notifications: {
     active: 'Active',
@@ -141,6 +144,7 @@ export default {
     sidebar: 'Sidebar',
     theme: 'Theme setting',
     animations: 'Animations',
+    browse: 'Browsing & performance',
     devOptions: 'Developer options',
     performance: 'Performance',
     cardPage: 'Image card',
@@ -151,6 +155,7 @@ export default {
     test: 'Test',
     about: 'About',
     language: 'Language',
+    hiddenTag: 'Hidden',
     windowTitle: 'Settings - Image Browser'
   },
   settingsSidebar: {
@@ -536,12 +541,6 @@ export default {
     logging: 'Logging',
     loggingDesc:
       'Capture all main/renderer/worker logs (DEBUG / INFO / WARNING / ERROR), written to userData/logs/app-YYYYMMDD.log',
-    zoomTitle: 'Waterfall',
-    zoomMax: 'Slider max value',
-    zoomMaxDesc: 'Maximum value of the zoom slider on main screen ({min} ~ {max})',
-    imageTallCap: 'Limit card aspect ratio',
-    imageTallCapDesc:
-      'On: card aspect is capped between 1:5 and 2:1 (w:h); taller images are capped at 1:5 and wider images at 2:1, scaled to fit and shown whole (no huge blocks or thin strips). Off: keep the original ratio.',
     lightZoomTitle: 'Lightbox zoom',
     lightZoomDesc: 'These take effect the next time the lightbox opens.',
     lightZoomMin: 'Min zoom',
@@ -551,40 +550,9 @@ export default {
     lightZoomStep: 'Zoom step',
     lightZoomStepDesc: 'Multiplier applied per wheel notch (e.g. 1.2 = +20% per notch)',
     lightZoomSaved: 'Saved: lightbox zoom takes effect the next time it opens',
-    cacheTitle: 'Cache maintenance',
-    cacheDesc: 'These parameters apply the next time you run "Roots → Update/Rebuild cache".',
-    cacheUseCli: 'Build cache with external converter',
-    cacheUseCliDesc:
-      'When on, thumbnails are generated in one pass by image_compresser.exe instead of the built-in decoder. This bypasses every in-app decode/scheduling issue; set the exe path below (leave empty to auto-detect). Requires --resize; width/quality/workers are taken from the settings above.',
-    cacheCliExe: 'Converter path',
-    cacheCliExeDesc:
-      'Absolute path to image_compresser.exe. Empty = auto-detect at the project root / packaged extraResources.',
-    cacheSequential: 'Sequential reads while building cache',
-    cacheSequentialDesc:
-      'On (default): tasks are assigned in scan order, so each worker reads files from the same folder consecutively — friendlier to mechanical HDDs. Off: tasks are interleaved across folders, spreading heavy/stuck images out so the whole batch feels smoother (better for SSDs).',
-    thumbWidth: 'Max thumbnail width',
-    thumbWidthDesc: 'Upper bound of the webp thumbnail width (pixels, 64 ~ 4096)',
-    thumbQuality: 'Thumbnail quality',
-    thumbQualityDesc: 'webp encoding quality (1 ~ 100, higher = clearer / larger)',
-    scanBatch: 'Scan batch size',
-    scanBatchDesc:
-      'Number of files returned per batch when scanning (10 ~ 1000, smaller saves memory)',
-    thumbBatch: 'Thumbnail batch size',
-    thumbBatchDesc: 'Number of thumbnails handed to the worker each time (10 ~ 500)',
-    thumbWorkers: 'Concurrent thumbnail workers',
-    thumbWorkersDesc:
-      'How many workers decode/encode thumbnails in parallel. 0 = auto (bounded by both CPU cores and available RAM, since large decodes are memory-hungry); higher uses more CPU but can cause memory/GC thrash on huge images.',
-    thumbTimeout: 'Chunk timeout (ms)',
-    thumbTimeoutDesc:
-      'Max time one worker chunk may run before the remaining jobs in it are skipped (10000 ~ 600000).',
-    thumbSlow: 'Slow-image warning threshold (ms)',
-    thumbSlowDesc:
-      'Thumbnails that take longer than this print a [WARN] with the file path (1000 ~ 60000), for locating heavy images.',
     enabled: 'Developer options enabled',
     disabled: 'Developer options disabled',
     devtoolsReopened: 'Developer tools reopened',
-    zoomMaxSaved: 'Saved: max zoom {n}',
-    cacheSaved: 'Saved: takes effect on next cache maintenance',
     loggingOn: 'Logging enabled',
     loggingOff: 'Logging disabled'
   },
@@ -655,7 +623,7 @@ export default {
   },
   performance: {
     pageDesc:
-      'Tuning for smooth grid browsing. These trade a little decode/IO or storage for responsiveness; changes to loading behavior apply immediately, thumbnail size applies after rebuilding the cache.',
+      'Display and performance tuning for the waterfall grid: trade a little decode/IO or storage for responsiveness. Loading/display changes apply immediately; thumbnail parameters apply after running cache maintenance.',
     scrollTitle: 'Grid scrolling & preloading',
     bufferLazy: 'Lazy-load buffered images',
     bufferLazyDesc:
@@ -664,14 +632,48 @@ export default {
     preloadDesc:
       'How far above and below the viewport images are prepared ahead of time. Higher = fewer blank gaps on very fast scrolling but more concurrent loads; lower = less IO/decode pressure.',
     preloadUnit: '{n} px',
-    thumbTitle: 'Thumbnail cache size',
+    cardTitle: 'Waterfall cards',
+    zoomMax: 'Slider max value',
+    zoomMaxDesc: 'Maximum value of the zoom slider on main screen ({min} ~ {max})',
+    imageTallCap: 'Limit card aspect ratio',
+    imageTallCapDesc:
+      'On: card aspect is capped between 1:5 and 2:1 (w:h); taller images are capped at 1:5 and wider images at 2:1, scaled to fit and shown whole (no huge blocks or thin strips). Off: keep the original ratio.',
+    zoomMaxSaved: 'Saved: max zoom {n}',
+    thumbTitle: 'Thumbnail cache',
+    thumbWidth: 'Max thumbnail width',
     thumbDesc:
       'Width of cached webp thumbnails. Smaller thumbs decode faster and use less memory/disk; grid cards only need roughly 300–400 px at normal zoom and DPI. Set 256–384 for a more responsive feel.',
     thumbPx: '{n} px wide',
+    thumbQuality: 'Thumbnail quality',
+    thumbQualityDesc: 'webp encoding quality (1 ~ 100, higher = clearer / larger)',
+    scanBatch: 'Scan batch size',
+    scanBatchDesc:
+      'Number of files returned per batch when scanning (10 ~ 1000, smaller saves memory)',
+    thumbBatch: 'Thumbnail batch size',
+    thumbBatchDesc: 'Number of thumbnails handed to the worker each time (10 ~ 500)',
+    thumbWorkers: 'Concurrent thumbnail workers',
+    thumbWorkersDesc:
+      'How many workers decode/encode thumbnails in parallel. 0 = auto (bounded by both CPU cores and available RAM, since large decodes are memory-hungry); higher uses more CPU but can cause memory/GC thrash on huge images.',
+    thumbTimeout: 'Chunk timeout (ms)',
+    thumbTimeoutDesc:
+      'Max time one worker chunk may run before the remaining jobs in it are skipped (10000 ~ 600000).',
+    thumbSlow: 'Slow-image warning threshold (ms)',
+    thumbSlowDesc:
+      'Thumbnails that take longer than this print a [WARN] with the file path (1000 ~ 60000), for locating heavy images.',
     thumbApplyHint:
-      'Applies to newly generated thumbnails. Run "Roots → Update cache" (or "Rebuild cache") for it to take effect; already-cached thumbnails may keep serving for up to a day.',
-    advancedHint:
-      'Thumbnail quality and generation batch sizes can be fine-tuned in "Developer options"; cache maintenance runs from the "Roots" page.',
+      'Applies to newly generated thumbnails. Run "Incremental boost" (or "Full rebuild") in the cache tools below; already-cached thumbnails may keep serving for up to a day.',
+    cacheGenTitle: 'Cache generation',
+    cacheDesc: 'These parameters apply the next time you run the cache maintenance tools.',
+    cacheUseCli: 'Build cache with external converter',
+    cacheUseCliDesc:
+      'When on, thumbnails are generated in one pass by image_compresser.exe instead of the built-in decoder. This bypasses every in-app decode/scheduling issue; set the exe path below (leave empty to auto-detect). Requires --resize; width/quality/workers are taken from the settings above.',
+    cacheCliExe: 'Converter path',
+    cacheCliExeDesc:
+      'Absolute path to image_compresser.exe. Empty = auto-detect at the project root / packaged extraResources.',
+    cacheSequential: 'Sequential reads while building cache',
+    cacheSequentialDesc:
+      'On (default): tasks are assigned in scan order, so each worker reads files from the same folder consecutively — friendlier to mechanical HDDs. Off: tasks are interleaved across folders, spreading heavy/stuck images out so the whole batch feels smoother (better for SSDs).',
+    cacheSaved: 'Saved: takes effect on next cache maintenance',
     saved: 'Saved'
   },
   update: {

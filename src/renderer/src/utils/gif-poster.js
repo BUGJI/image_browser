@@ -19,10 +19,15 @@ const MAX_CACHE = 160
 const cache = new Map()
 /** key -> 进行中的 Promise<string>（并发去重） */
 const pending = new Map()
+/** key -> 正在引用该 objectURL 的组件数（引用计数 > 0 时不可逐出，避免回收在用 URL） */
+const inUse = new Map()
 
 function evict() {
-  while (cache.size > MAX_CACHE) {
-    const key = cache.keys().next().value
+  if (cache.size <= MAX_CACHE) return
+  // 逐出最久未使用且当前无组件引用的项；全被引用则允许暂时超限
+  for (const key of cache.keys()) {
+    if (cache.size <= MAX_CACHE) break
+    if (inUse.get(key)) continue
     const url = cache.get(key)
     cache.delete(key)
     if (url) {
@@ -33,6 +38,21 @@ function evict() {
       }
     }
   }
+}
+
+/** 标记某海报正被组件使用（必须在 getGifPosterUrl 前调用，与 release 成对） */
+export function retainGifPoster(rootId, absPath) {
+  const key = `${rootId}|${absPath}`
+  inUse.set(key, (inUse.get(key) || 0) + 1)
+}
+
+/** 释放引用（组件卸载 / 不再展示该海报时调用） */
+export function releaseGifPoster(rootId, absPath) {
+  const key = `${rootId}|${absPath}`
+  const n = inUse.get(key)
+  if (!n) return
+  if (n <= 1) inUse.delete(key)
+  else inUse.set(key, n - 1)
 }
 
 async function decodeFirstFrame(rootId, absPath) {

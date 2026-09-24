@@ -8,7 +8,8 @@ import { ref, shallowRef, triggerRef } from 'vue'
  */
 export const useFavoritesStore = defineStore('favorites', () => {
   const rootId = ref(null)
-  const list = ref([])
+  // shallowRef：收藏列表可能很大，避免深层响应式代理每一条记录的开销
+  const list = shallowRef([])
   // shallowRef + 原地增删 + triggerRef：避免每次收藏都替换整个 Set 而导致所有卡片重渲染
   const absPaths = shallowRef(new Set())
   const loaded = ref(false)

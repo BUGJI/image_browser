@@ -245,8 +245,8 @@ async function onVersionOverrideSave() {
 </script>
 
 <template>
-  <div class="test-page">
-    <h2 class="page-title">{{ t('settings.test') }}</h2>
+  <div class="page test-page">
+    <h2>{{ t('settings.test') }}</h2>
     <p class="page-desc">{{ t('test.pageDesc') }}</p>
 
     <el-card class="test-card" shadow="never">
@@ -390,21 +390,6 @@ async function onVersionOverrideSave() {
 </template>
 
 <style scoped>
-.test-page {
-  max-width: 720px;
-}
-
-.page-title {
-  margin: 0 0 6px;
-  font-size: 20px;
-}
-
-.page-desc {
-  margin: 0 0 16px;
-  color: #999;
-  font-size: 13px;
-}
-
 .test-card {
   margin-bottom: 16px;
 }
@@ -427,7 +412,7 @@ async function onVersionOverrideSave() {
   align-items: center;
   gap: 10px;
   padding: 8px 0;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--el-border-color-extra-light);
   font-size: 13px;
 }
 
@@ -439,14 +424,14 @@ async function onVersionOverrideSave() {
 .preview-msg {
   flex: 1;
   min-width: 0;
-  color: #666;
+  color: var(--el-text-color-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .preview-time {
-  color: #aaa;
+  color: var(--el-text-color-placeholder);
   font-size: 12px;
   flex-shrink: 0;
 }
@@ -454,7 +439,7 @@ async function onVersionOverrideSave() {
 /* AI 流程测试 */
 .test-desc {
   margin: 0 0 16px;
-  color: #999;
+  color: var(--el-text-color-secondary);
   font-size: 13px;
 }
 
@@ -522,7 +507,7 @@ async function onVersionOverrideSave() {
 
 .ai-result-label {
   font-size: 12px;
-  color: #999;
+  color: var(--el-text-color-secondary);
   margin-bottom: 4px;
 }
 

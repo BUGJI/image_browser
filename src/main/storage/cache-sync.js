@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'fs'
+import { existsSync } from 'fs'
 import { promises as fsp } from 'fs'
 import { dirname, join } from 'path'
 import { DatabaseSync } from 'node:sqlite'
@@ -6,6 +6,7 @@ import { getProvider, isRemoteRoot } from './index'
 import { CACHE_DIR_NAME, resolveCacheDir } from './cache-location'
 import { getRemoteCacheConflict } from './cache-settings'
 import { joinPath, relFromRoot } from './path-utils'
+import { prep } from '../cache-db-utils.mjs'
 
 /**
  * 远程缓存同步：
@@ -29,13 +30,14 @@ function readMeta(dbPath, keys) {
   try {
     const db = new DatabaseSync(dbPath)
     try {
-      const has = db
-        .prepare("SELECT 1 AS ok FROM sqlite_master WHERE type='table' AND name='meta'")
-        .get()
+      const has = prep(
+        db,
+        "SELECT 1 AS ok FROM sqlite_master WHERE type='table' AND name='meta'"
+      ).get()
       if (!has) return null
       const out = {}
       for (const k of keys) {
-        const row = db.prepare('SELECT value FROM meta WHERE key = ?').get(k)
+        const row = prep(db, 'SELECT value FROM meta WHERE key = ?').get(k)
         out[k] = row ? row.value : null
       }
       return out
@@ -123,9 +125,9 @@ async function doEnsureRemoteCache(root) {
   }
   if (!buf || !buf.length) return { remote: false }
 
-  mkdirSync(localDir, { recursive: true })
+  await fsp.mkdir(localDir, { recursive: true })
   const tmpDb = join(localDir, 'remote.cache.download.db')
-  writeFileSync(tmpDb, buf)
+  await fsp.writeFile(tmpDb, buf)
 
   const remoteMeta = readMeta(tmpDb, ['root_cache_sha', 'last_task_at'])
   const localMeta = existsSync(localDb)
@@ -141,7 +143,7 @@ async function doEnsureRemoteCache(root) {
     remoteMeta?.root_cache_sha &&
     localMeta.root_cache_sha === remoteMeta.root_cache_sha
   ) {
-    rmSync(tmpDb, { force: true })
+    await fsp.rm(tmpDb, { force: true })
     return { remote: true, equal: true }
   }
 
@@ -160,16 +162,16 @@ async function doEnsureRemoteCache(root) {
     // 覆盖前关闭可能打开的本地连接
     closeCacheFn?.(root.path)
     try {
-      renameSync(tmpDb, localDb)
+      await fsp.rename(tmpDb, localDb)
     } catch {
       // Windows 上目标被占用时退化为复制
       await fsp.copyFile(tmpDb, localDb)
-      rmSync(tmpDb, { force: true })
+      await fsp.rm(tmpDb, { force: true })
     }
     return { remote: true, pulled: true, policy }
   }
 
-  rmSync(tmpDb, { force: true })
+  await fsp.rm(tmpDb, { force: true })
   return { remote: true, pulled: false, policy }
 }
 
@@ -183,7 +185,7 @@ export async function ensureRemoteThumb(root, cache, absPath) {
   if (!rel) return null
   let row = null
   try {
-    row = cache.db.prepare('SELECT thumb FROM files WHERE rel_path = ?').get(rel)
+    row = prep(cache.db, 'SELECT thumb FROM files WHERE rel_path = ?').get(rel)
   } catch {
     row = null
   }

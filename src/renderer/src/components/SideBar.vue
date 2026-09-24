@@ -539,7 +539,8 @@ onBeforeUnmount(() => {
 
 .sidebar-content {
   flex: 1;
-  overflow-y: auto;
+  /* 滚动交给内部 .dir-tree-wrap，避免外层再出现一条滚动条 */
+  overflow: hidden;
   padding: 8px;
   display: flex;
   flex-direction: column;
@@ -599,7 +600,7 @@ html.dark
 }
 
 .tree-node-icon {
-  color: #f7ba2a;
+  color: var(--app-folder-color);
   flex-shrink: 0;
 }
 
@@ -608,7 +609,7 @@ html.dark
 }
 
 .tree-node-tag .tree-node-icon {
-  color: #9aa4b2;
+  color: var(--app-text-secondary);
 }
 
 .tree-node-label {

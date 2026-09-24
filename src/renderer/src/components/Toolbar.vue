@@ -58,7 +58,7 @@ const browseModeTip = computed(() =>
       :show-after="150"
     >
       <div
-        class="quick-copy-toggle"
+        class="toolbar-pill quick-copy-toggle"
         :class="{ 'quick-copy-on': quickCopyEnabled }"
         @click="emit('toggle-quick-copy')"
       >
@@ -87,7 +87,7 @@ const browseModeTip = computed(() =>
     </div>
 
     <!-- AI 搜索开关（设置中启用后显示） -->
-    <div v-if="aiSearchEnabled" class="ai-search-toggle">
+    <div v-if="aiSearchEnabled" class="toolbar-pill ai-search-toggle">
       <el-icon v-if="aiSearchBusy" class="is-loading ai-search-loading" :size="14">
         <Loading />
       </el-icon>
@@ -100,7 +100,7 @@ const browseModeTip = computed(() =>
       <span class="ai-search-label">{{ t('app.aiSearchToggle') }}</span>
     </div>
 
-    <div class="zoom-control">
+    <div class="toolbar-pill zoom-control">
       <el-tooltip :content="t('app.zoomTip')" placement="bottom" :show-after="200">
         <span class="zoom-icon"
           ><el-icon :size="14"><Picture /></el-icon
@@ -164,7 +164,8 @@ const browseModeTip = computed(() =>
   justify-content: flex-end;
   align-items: center;
   gap: 8px;
-  padding: 0 20px 0 0;
+  /* 与标题/横幅/瀑布流共用同一留白，保证右边缘对齐 */
+  padding: 0 var(--content-gutter) 0 0;
   pointer-events: none;
 }
 
@@ -193,8 +194,8 @@ const browseModeTip = computed(() =>
   font-size: 12px;
 }
 
-/* 快速复制开关 */
-.quick-copy-toggle {
+/* 悬浮栏内的胶囊控件（快速复制 / AI 开关 / 缩放）共用外观 */
+.toolbar-pill {
   pointer-events: auto;
   display: flex;
   align-items: center;
@@ -205,6 +206,10 @@ const browseModeTip = computed(() =>
   border-radius: 10px;
   background: var(--panel-bg);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+/* 快速复制开关 */
+.quick-copy-toggle {
   cursor: pointer;
   user-select: none;
   transition:
@@ -245,19 +250,6 @@ const browseModeTip = computed(() =>
 }
 
 /* AI 搜索开关 */
-.ai-search-toggle {
-  pointer-events: auto;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 36px;
-  padding: 0 12px;
-  border: 1px solid var(--panel-border);
-  border-radius: 10px;
-  background: var(--panel-bg);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-}
-
 .ai-search-label {
   font-size: 12px;
   color: var(--app-text-secondary);
@@ -269,19 +261,6 @@ const browseModeTip = computed(() =>
 }
 
 /* 缩放控件 */
-.zoom-control {
-  pointer-events: auto;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 36px;
-  padding: 0 12px;
-  border: 1px solid var(--panel-border);
-  border-radius: 10px;
-  background: var(--panel-bg);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-}
-
 .zoom-icon {
   display: flex;
   align-items: center;
@@ -301,9 +280,7 @@ const browseModeTip = computed(() =>
     display: none;
   }
 
-  .quick-copy-toggle,
-  .ai-search-toggle,
-  .zoom-control {
+  .toolbar-pill {
     padding: 0 8px;
   }
 

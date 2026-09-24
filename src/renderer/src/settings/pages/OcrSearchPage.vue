@@ -2,16 +2,16 @@
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Download, FolderOpened, Delete } from '@element-plus/icons-vue'
-import {
-  rootDisplayName as displayName,
-  indexButtonType as buttonType
-} from '../../utils/roots'
 import { useIndexMaintenance } from '../../utils/use-index-maintenance'
+import { useSetting } from '../../utils/settings'
+import SettingCard from '../SettingCard.vue'
+import SettingRow from '../SettingRow.vue'
+import MaintainTools from '../MaintainTools.vue'
 
 const { t } = useI18n()
 
 // OCR 图内文字搜索（PaddleOCR）
-const enabled = ref(false)
+const enabled = useSetting('ocrEnabled')
 // (@repeato/ocr 内置模型 + 运行时组件) 是否可用
 const available = ref(false)
 const running = ref(false)
@@ -29,7 +29,6 @@ const addonPhase = ref('')
 const addonProgress = ref(0)
 let _addonLastReceived = 0
 
-let offSettingsChanged = null
 let offAddonProgress = null
 
 const OCR_MAINTAIN_ACTIONS = computed(() => [
@@ -195,28 +194,13 @@ async function removeAddon() {
 }
 
 onMounted(async () => {
-  enabled.value = (await window.api.getSetting('ocrEnabled', 'false')) === 'true'
   await refreshStatus()
-
-  offSettingsChanged = window.api.onSettingsChanged(({ key, value }) => {
-    if (key === 'ocrEnabled') enabled.value = value === 'true'
-  })
   offAddonProgress = window.api.onOcrAddonProgress(onAddonProgress)
 })
 
 onBeforeUnmount(() => {
-  offSettingsChanged?.()
   offAddonProgress?.()
 })
-
-async function saveEnabled(v) {
-  try {
-    await window.api.setSetting('ocrEnabled', v ? 'true' : 'false')
-    ElMessage.success(t('common.saved'))
-  } catch {
-    ElMessage.error(t('common.saveFailed'))
-  }
-}
 </script>
 
 <template>
@@ -224,15 +208,11 @@ async function saveEnabled(v) {
     <h2>{{ t('settings.ocrSearch') }}</h2>
     <p class="page-desc">{{ t('ocrSearch.pageDesc') }}</p>
 
-    <el-card class="ocr-card" shadow="never">
-      <div class="master-row">
-        <div class="master-label">
-          <div class="master-name">{{ t('ocrSearch.enableMaster') }}</div>
-          <div class="master-desc">{{ t('ocrSearch.masterDesc') }}</div>
-        </div>
-        <el-switch v-model="enabled" @change="saveEnabled" />
-      </div>
-    </el-card>
+    <SettingCard>
+      <SettingRow :name="t('ocrSearch.enableMaster')" :desc="t('ocrSearch.masterDesc')">
+        <el-switch v-model="enabled" />
+      </SettingRow>
+    </SettingCard>
 
     <!-- 运行时组件管理（onnxruntime + sharp，按需下载） -->
     <el-card class="ocr-card" shadow="never">
@@ -309,55 +289,20 @@ async function saveEnabled(v) {
     </el-card>
 
     <!-- 文字索引维护工具 -->
-    <el-card class="ocr-card" shadow="never">
-      <template #header>
-        <div class="maintain-head">
-          <span>{{ t('ocrSearch.maintainTools') }}</span>
-          <el-tag v-if="maintainBusy" size="small" type="primary" effect="plain">
-            {{ t('ocrSearch.taskRunning') }}
-          </el-tag>
-        </div>
-      </template>
-      <p class="maintain-desc">{{ t('ocrSearch.maintainDesc') }}</p>
-
-      <div class="maintain-row maintain-dir-row">
-        <div class="maintain-dir-label">
-          <div class="maintain-dir-name">{{ t('ocrSearch.maintainDir') }}</div>
-          <div class="maintain-dir-desc">{{ t('ocrSearch.maintainDirDesc') }}</div>
-        </div>
-        <el-select
-          v-model="maintainRootId"
-          class="maintain-select"
-          :placeholder="t('ocrSearch.selectMaintainRoot')"
-          clearable
-          :disabled="!available || maintainBusy"
-        >
-          <el-option
-            v-for="root in maintainRoots"
-            :key="root.id"
-            :value="root.id"
-            :label="displayName(root)"
-          >
-            <el-tooltip :content="root.path" placement="left" :show-after="300">
-              <span>{{ displayName(root) }}</span>
-            </el-tooltip>
-          </el-option>
-        </el-select>
-      </div>
-
-      <div class="maintain-row">
-        <template v-for="item in OCR_MAINTAIN_ACTIONS" :key="item.mode">
-          <el-button
-            :type="buttonType(item.mode)"
-            plain
-            :disabled="!available || maintainBusy || maintainRootId == null"
-            @click="maintainIndex(item.mode)"
-          >
-            {{ item.label }}
-          </el-button>
-        </template>
-      </div>
-    </el-card>
+    <MaintainTools
+      v-model="maintainRootId"
+      :title="t('ocrSearch.maintainTools')"
+      :desc="t('ocrSearch.maintainDesc')"
+      :running-text="t('ocrSearch.taskRunning')"
+      :roots="maintainRoots"
+      :busy="maintainBusy"
+      :modes="OCR_MAINTAIN_ACTIONS"
+      :disabled="!available"
+      :placeholder="t('ocrSearch.selectMaintainRoot')"
+      :dir-name="t('ocrSearch.maintainDir')"
+      :dir-desc="t('ocrSearch.maintainDirDesc')"
+      @run="maintainIndex"
+    />
 
     <el-alert type="info" :closable="false" class="tip">
       <p>{{ t('ocrSearch.usageTip') }}</p>
@@ -366,42 +311,8 @@ async function saveEnabled(v) {
 </template>
 
 <style scoped>
-.page h2 {
-  margin: 0 0 6px;
-  font-size: 20px;
-}
-
-.page-desc {
-  color: #999;
-  font-size: 13px;
-  margin-bottom: 24px;
-}
-
 .ocr-card {
-  max-width: 720px;
   margin-bottom: 24px;
-}
-
-.master-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.master-name {
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.master-desc {
-  margin-top: 2px;
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
-}
-
-.tip {
-  max-width: 720px;
 }
 
 .addon-status {
@@ -426,49 +337,5 @@ async function saveEnabled(v) {
 
 .addon-actions {
   margin-bottom: 10px;
-}
-
-.maintain-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.maintain-desc {
-  margin: 0 0 12px;
-  color: #999;
-  font-size: 13px;
-}
-
-.maintain-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.maintain-dir-row {
-  margin-bottom: 14px;
-}
-
-.maintain-dir-label {
-  min-width: 0;
-  flex: 1;
-}
-
-.maintain-dir-name {
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.maintain-dir-desc {
-  margin-top: 2px;
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
-}
-
-.maintain-select {
-  width: 280px;
-  flex-shrink: 0;
 }
 </style>

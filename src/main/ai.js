@@ -7,7 +7,7 @@ import { openRootCache } from './cache'
 import { broadcast } from './windows'
 import { ScanAbortedError } from './fs-scan.mjs'
 import { MIME_BY_EXT, VIDEO_EXTS } from './scan-constants.mjs'
-import { metaSet } from './cache-db-utils.mjs'
+import { metaSet, prep as prepCache } from './cache-db-utils.mjs'
 import { mapLimit } from './concurrency.mjs'
 
 /**
@@ -232,6 +232,29 @@ export async function runAiIndexTask(root, mode, { onProgress = () => {}, should
     if (shouldAbort?.()) taskAc.abort()
   }, 200)
 
+  // 回写批量提交：逐条 autocommit 会产生大量 WAL 提交；累计若干条后在事务内一次写入。
+  // 网络请求在回调内 await，故不能在整段任务外包事务（会长时间持有写锁）。
+  const pendingWrites = []
+  const FLUSH_EVERY = 25
+  let dbError = null
+  const flushWrites = () => {
+    if (!pendingWrites.length) return
+    const batch = pendingWrites.splice(0, pendingWrites.length)
+    db.exec('BEGIN')
+    try {
+      for (const a of batch) upsertStmt.run(...a)
+      db.exec('COMMIT')
+    } catch (err) {
+      try {
+        db.exec('ROLLBACK')
+      } catch {
+        /* ignore */
+      }
+      dbError = err
+      throw err
+    }
+  }
+
   try {
     await mapLimit(need, CONCURRENCY, async (f) => {
       if (taskAc.signal.aborted || shouldAbort?.()) throw new ScanAbortedError()
@@ -239,7 +262,7 @@ export async function runAiIndexTask(root, mode, { onProgress = () => {}, should
         const imgPath = candidatePath(cache, f)
         const caption = await captionImage(cfg, imgPath, taskAc.signal)
         const vector = await embedText(cfg, caption, taskAc.signal)
-        upsertStmt.run(
+        pendingWrites.push([
           f.abs_path,
           f.name,
           f.folder,
@@ -250,11 +273,13 @@ export async function runAiIndexTask(root, mode, { onProgress = () => {}, should
           f.mtime,
           nowMs,
           nowMs
-        )
+        ])
+        if (pendingWrites.length >= FLUSH_EVERY) flushWrites()
         stats.embedded++
       } catch (err) {
         if (err instanceof ScanAbortedError) throw err
         if (taskAc.signal.aborted) throw new ScanAbortedError()
+        if (dbError) throw dbError // 写库失败：向上抛出，不当作单图失败吞掉
         stats.failed++
       } finally {
         done++
@@ -263,7 +288,15 @@ export async function runAiIndexTask(root, mode, { onProgress = () => {}, should
     })
   } finally {
     clearInterval(abortCheck)
+    if (!dbError) {
+      try {
+        flushWrites()
+      } catch (err) {
+        dbError = err
+      }
+    }
   }
+  if (dbError) throw dbError
 
   metaSet(db, 'ai_last_task', mode)
   metaSet(db, 'ai_last_task_at', new Date().toISOString())
@@ -298,7 +331,7 @@ export async function handleAiSearch(rootId, query) {
   }
   ensureAiTable(cache.db)
 
-  const rows = cache.db.prepare('SELECT abs_path, vector FROM ai_embeddings').all()
+  const rows = prepCache(cache.db, 'SELECT abs_path, vector FROM ai_embeddings').all()
   if (!rows.length) {
     const err = new Error('尚未建立向量索引')
     err.code = 'AI_NO_INDEX'
@@ -332,11 +365,10 @@ export async function handleAiSearch(rootId, query) {
     for (let i = 0; i < top.length; i += CHUNK) {
       const chunk = top.slice(i, i + CHUNK)
       const placeholders = chunk.map(() => '?').join(',')
-      const fileRows = cache.db
-        .prepare(
-          `SELECT abs_path, name, folder, width, height, thumb FROM files WHERE abs_path IN (${placeholders})`
-        )
-        .all(...chunk.map((t) => t.abs_path))
+      const fileRows = prepCache(
+        cache.db,
+        `SELECT abs_path, name, folder, width, height, thumb FROM files WHERE abs_path IN (${placeholders})`
+      ).all(...chunk.map((t) => t.abs_path))
       for (const f of fileRows) fileByAbs.set(f.abs_path, f)
     }
     for (const f of fileByAbs.values()) {
