@@ -1,6 +1,9 @@
 appId: com.openclaw.image-browser
 productName: image-browser
 electronDist: node_modules/electron/dist
+# 源代码经 Vite 打包，asar 归档 + 最大压缩减小安装体积
+asar: true
+compression: maximum
 directories:
   buildResources: build
 files:
@@ -10,22 +13,33 @@ files:
   - '!{.eslintignore,.eslintrc.cjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+  # 仓库内的构建脚本、CI、文档、source map 无需随包分发
+  - '!scripts/**'
+  - '!build/**/*.py'
+  - '!.github/**'
+  - '!docs/**'
+  - '!**/*.map'
+  - '!**/*.md'
+  - '!**/{test,tests,__tests__,example,examples,docs}/**'
   # OCR 运行时（onnxruntime + sharp）体积过大，不打进安装包，由「设置-模型管理」按需下载/导入
   - '!node_modules/onnxruntime-node/**'
   - '!node_modules/onnxruntime-web/**'
   - '!node_modules/sharp/**'
   - '!node_modules/@img/**'
+  # @repeato/ocr 的浏览器构建运行时不会加载，剔除以减小体积
+  - '!node_modules/@repeato/ocr/build/browser/**'
 asarUnpack:
   - resources/**
   - out/main/cache-worker.js
   - out/main/ocr-worker.js
   # @repeato/ocr（含模型）随包内置，模型文件需从 asar 解包以便 fs 读取
   - node_modules/@repeato/**
-extraResources:
-  - from: image_compresser.exe
-    to: image_compresser.exe
 win:
   executableName: image-browser
+  # 外部转换器仅 Windows 使用，按平台打包，避免进入 mac/linux 产物
+  extraResources:
+    - from: image_compresser.exe
+      to: image_compresser.exe
 nsis:
   artifactName: ${name}-${version}-setup.${ext}
   shortcutName: ${productName}

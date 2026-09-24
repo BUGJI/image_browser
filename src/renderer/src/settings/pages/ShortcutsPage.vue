@@ -1,5 +1,6 @@
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted } from 'vue'
+import { useEventListener } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 
 import {
@@ -9,6 +10,9 @@ import {
   eventToCombo,
   combosEqual
 } from '../../utils/shortcuts'
+import { useSetting } from '../../utils/settings'
+import SettingCard from '../SettingCard.vue'
+import SettingRow from '../SettingRow.vue'
 
 const { t } = useI18n()
 
@@ -25,8 +29,11 @@ const ACTIONS = [
 const shortcuts = ref({ ...DEFAULT_SHORTCUTS })
 const recording = ref('') // 正在捕获的动作 id，空表示无
 
+// 捕获快捷键需要先于其它处理器拿到事件，故用 capture；随组件卸载自动清理
+useEventListener(window, 'keydown', onCaptureKeydown, { capture: true })
+
 // 灯箱滚轮行为：zoom = 缩放图片；navigate = 切换上一张/下一张
-const wheelAction = ref('zoom')
+const wheelAction = useSetting('lightboxWheelAction')
 const WHEEL_OPTIONS = computed(() => [
   { value: 'zoom', label: t('shortcuts.wheelZoom'), desc: t('shortcuts.wheelZoomDesc') },
   { value: 'navigate', label: t('shortcuts.wheelNavigate'), desc: t('shortcuts.wheelNavigateDesc') }
@@ -34,23 +41,7 @@ const WHEEL_OPTIONS = computed(() => [
 
 onMounted(async () => {
   shortcuts.value = await loadShortcuts()
-  const wa = await window.api.getSetting('lightboxWheelAction', 'zoom')
-  wheelAction.value = ['zoom', 'navigate'].includes(wa) ? wa : 'zoom'
-  window.addEventListener('keydown', onCaptureKeydown, true)
 })
-
-onBeforeUnmount(() => {
-  window.removeEventListener('keydown', onCaptureKeydown, true)
-})
-
-async function onWheelActionChange(v) {
-  try {
-    await window.api.setSetting('lightboxWheelAction', v)
-    ElMessage.success(t('common.saved'))
-  } catch {
-    ElMessage.error(t('common.saveFailed'))
-  }
-}
 
 function startRecord(actionId) {
   recording.value = actionId
@@ -87,7 +78,9 @@ async function onCaptureKeydown(e) {
   e.stopPropagation()
 
   // 检查是否与另一动作冲突
-  const conflict = ACTIONS.find((a) => a.id !== recording.value && combosEqual(shortcuts.value[a.id], combo))
+  const conflict = ACTIONS.find(
+    (a) => a.id !== recording.value && combosEqual(shortcuts.value[a.id], combo)
+  )
   if (conflict) {
     ElMessage.warning(t('shortcuts.conflict', { action: conflict.label() }))
     return
@@ -97,10 +90,6 @@ async function onCaptureKeydown(e) {
   recording.value = ''
   await save()
 }
-
-function displayCombo(id) {
-  return shortcuts.value[id] || '-'
-}
 </script>
 
 <template>
@@ -108,8 +97,8 @@ function displayCombo(id) {
     <h2>{{ t('settings.shortcuts') }}</h2>
     <p class="page-desc">{{ t('shortcuts.pageDesc') }}</p>
 
-    <el-card class="shortcuts-card" shadow="never">
-      <div class="shortcut-row" v-for="a in ACTIONS" :key="a.id">
+    <SettingCard>
+      <div v-for="a in ACTIONS" :key="a.id" class="shortcut-row">
         <div class="shortcut-label">
           <div class="shortcut-name">{{ a.label() }}</div>
           <div class="shortcut-desc">{{ a.desc() }}</div>
@@ -120,11 +109,9 @@ function displayCombo(id) {
             :class="{ 'shortcut-key-recording': recording === a.id }"
             @click="startRecord(a.id)"
           >
-            <template v-if="recording === a.id">
-              {{ t('shortcuts.pressKeys') }}…
-            </template>
+            <template v-if="recording === a.id"> {{ t('shortcuts.pressKeys') }}… </template>
             <template v-else>
-              <kbd class="key-box" v-if="shortcuts[a.id]">{{ shortcuts[a.id] }}</kbd>
+              <kbd v-if="shortcuts[a.id]" class="key-box">{{ shortcuts[a.id] }}</kbd>
               <span v-else class="key-empty">{{ t('shortcuts.unbound') }}</span>
             </template>
           </button>
@@ -138,47 +125,22 @@ function displayCombo(id) {
       <div class="shortcut-actions">
         <el-button size="small" @click="resetDefaults">{{ t('shortcuts.reset') }}</el-button>
       </div>
-    </el-card>
+    </SettingCard>
 
-    <el-card class="shortcuts-card wheel-card" shadow="never">
-      <template #header>{{ t('shortcuts.wheelSection') }}</template>
-      <div class="shortcut-row">
-        <div class="shortcut-label">
-          <div class="shortcut-name">{{ t('shortcuts.wheelAction') }}</div>
-          <div class="shortcut-desc">{{ t('shortcuts.wheelActionDesc') }}</div>
-        </div>
-        <el-select v-model="wheelAction" class="wheel-select" @change="onWheelActionChange">
-          <el-option
-            v-for="o in WHEEL_OPTIONS"
-            :key="o.value"
-            :value="o.value"
-            :label="o.label"
-          />
+    <SettingCard :title="t('shortcuts.wheelSection')">
+      <SettingRow :name="t('shortcuts.wheelAction')" :desc="t('shortcuts.wheelActionDesc')">
+        <el-select v-model="wheelAction" class="setting-select">
+          <el-option v-for="o in WHEEL_OPTIONS" :key="o.value" :value="o.value" :label="o.label" />
         </el-select>
-      </div>
+      </SettingRow>
       <p class="wheel-tip">
         {{ WHEEL_OPTIONS.find((o) => o.value === wheelAction)?.desc }}
       </p>
-    </el-card>
+    </SettingCard>
   </div>
 </template>
 
 <style scoped>
-.page h2 {
-  margin: 0 0 6px;
-  font-size: 20px;
-}
-
-.page-desc {
-  color: #999;
-  font-size: 13px;
-  margin-bottom: 24px;
-}
-
-.shortcuts-card {
-  max-width: 720px;
-}
-
 .shortcut-row {
   display: flex;
   align-items: flex-start;
@@ -256,19 +218,10 @@ function displayCombo(id) {
   color: var(--el-text-color-placeholder);
 }
 
-.shortcuts-card + .wheel-card {
-  margin-top: 16px;
-}
-
-.wheel-select {
-  width: 180px;
-  flex-shrink: 0;
-}
-
 .wheel-tip {
   margin: 12px 0 0;
   font-size: 12px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
 }
 
 .tip {

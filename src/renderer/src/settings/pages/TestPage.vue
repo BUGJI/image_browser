@@ -90,7 +90,10 @@ async function runEmbed() {
 
 function vectorPreview(vec) {
   if (!Array.isArray(vec)) return ''
-  const head = vec.slice(0, 8).map((v) => v.toFixed(4)).join(', ')
+  const head = vec
+    .slice(0, 8)
+    .map((v) => v.toFixed(4))
+    .join(', ')
   return `[${head}, …]`
 }
 
@@ -131,12 +134,22 @@ function triggerConfirm() {
       {
         label: t('common.cancel'),
         kind: 'default',
-        onClick: () => store.add({ type: 'info', title: t('test.mockCancelled'), message: t('test.mockCancelMsg') })
+        onClick: () =>
+          store.add({
+            type: 'info',
+            title: t('test.mockCancelled'),
+            message: t('test.mockCancelMsg')
+          })
       },
       {
         label: t('common.confirm'),
         kind: 'primary',
-        onClick: () => store.add({ type: 'success', title: t('test.mockConfirmed'), message: t('test.mockConfirmClickMsg') })
+        onClick: () =>
+          store.add({
+            type: 'success',
+            title: t('test.mockConfirmed'),
+            message: t('test.mockConfirmClickMsg')
+          })
       }
     ]
   })
@@ -153,7 +166,12 @@ function triggerView() {
       {
         label: t('test.mockView'),
         kind: 'primary',
-        onClick: () => store.add({ type: 'success', title: t('test.mockViewCallback'), message: t('test.mockViewClickMsg') })
+        onClick: () =>
+          store.add({
+            type: 'success',
+            title: t('test.mockViewCallback'),
+            message: t('test.mockViewClickMsg')
+          })
       }
     ]
   })
@@ -165,11 +183,19 @@ function triggerInfo() {
 }
 
 function triggerSuccess() {
-  store.add({ type: 'success', title: t('test.mockSuccessTitle'), message: t('test.mockSuccessMsg') })
+  store.add({
+    type: 'success',
+    title: t('test.mockSuccessTitle'),
+    message: t('test.mockSuccessMsg')
+  })
 }
 
 function triggerWarning() {
-  store.add({ type: 'warning', title: t('test.mockWarningTitle'), message: t('test.mockWarningMsg') })
+  store.add({
+    type: 'warning',
+    title: t('test.mockWarningTitle'),
+    message: t('test.mockWarningMsg')
+  })
 }
 
 function triggerError() {
@@ -219,21 +245,25 @@ async function onVersionOverrideSave() {
 </script>
 
 <template>
-  <div class="test-page">
-    <h2 class="page-title">{{ t('settings.test') }}</h2>
+  <div class="page test-page">
+    <h2>{{ t('settings.test') }}</h2>
     <p class="page-desc">{{ t('test.pageDesc') }}</p>
 
     <el-card class="test-card" shadow="never">
       <template #header>{{ t('test.notifyTriggers') }}</template>
       <div class="trigger-grid">
-        <el-button type="primary" plain @click="triggerProgress">{{ t('test.progress') }}</el-button>
+        <el-button type="primary" plain @click="triggerProgress">{{
+          t('test.progress')
+        }}</el-button>
         <el-button @click="triggerConfirm">{{ t('test.confirm') }}</el-button>
         <el-button type="warning" plain @click="triggerView">{{ t('test.view') }}</el-button>
         <el-button @click="triggerInfo">{{ t('test.info') }}</el-button>
         <el-button type="success" plain @click="triggerSuccess">{{ t('test.success') }}</el-button>
         <el-button type="warning" @click="triggerWarning">{{ t('test.warning') }}</el-button>
         <el-button type="danger" @click="triggerError">{{ t('test.error') }}</el-button>
-        <el-button type="danger" plain @click="store.clearAll()">{{ t('test.clearAll') }}</el-button>
+        <el-button type="danger" plain @click="store.clearAll()">{{
+          t('test.clearAll')
+        }}</el-button>
       </div>
     </el-card>
 
@@ -276,7 +306,9 @@ async function onVersionOverrideSave() {
           </el-button>
           <template v-if="captionResult">
             <div class="ai-result">
-              <div class="ai-result-label">{{ t('test.aiPromptLabel') }}（{{ captionResult.model }}）</div>
+              <div class="ai-result-label">
+                {{ t('test.aiPromptLabel') }}（{{ captionResult.model }}）
+              </div>
               <pre class="ai-result-box">{{ captionResult.prompt }}</pre>
             </div>
             <div class="ai-result">
@@ -295,11 +327,7 @@ async function onVersionOverrideSave() {
         </div>
         <div class="ai-step-body">
           <div class="ai-embed-row">
-            <el-input
-              v-model="embedText"
-              :placeholder="t('test.aiEmbedPlaceholder')"
-              clearable
-            />
+            <el-input v-model="embedText" :placeholder="t('test.aiEmbedPlaceholder')" clearable />
             <el-button
               type="warning"
               :disabled="!embedText.trim()"
@@ -311,11 +339,15 @@ async function onVersionOverrideSave() {
           </div>
           <template v-if="embedResult">
             <div class="ai-result">
-              <div class="ai-result-label">{{ t('test.aiPromptLabel') }}（{{ embedResult.model }}）</div>
+              <div class="ai-result-label">
+                {{ t('test.aiPromptLabel') }}（{{ embedResult.model }}）
+              </div>
               <pre class="ai-result-box">{{ embedResult.prompt }}</pre>
             </div>
             <div class="ai-result">
-              <div class="ai-result-label">{{ t('test.aiVectorInfo', { dims: embedResult.dims }) }}</div>
+              <div class="ai-result-label">
+                {{ t('test.aiVectorInfo', { dims: embedResult.dims }) }}
+              </div>
               <pre class="ai-result-box">{{ vectorPreview(embedResult.vector) }}</pre>
             </div>
           </template>
@@ -342,11 +374,7 @@ async function onVersionOverrideSave() {
       <template #header>
         <span>{{ t('test.currentNotify', { count: store.items.length }) }}</span>
       </template>
-      <el-empty
-        v-if="!store.items.length"
-        :image-size="60"
-        :description="t('test.noNotify')"
-      />
+      <el-empty v-if="!store.items.length" :image-size="60" :description="t('test.noNotify')" />
       <div v-else class="preview-list">
         <div v-for="n in store.items" :key="n.id" class="preview-item">
           <span class="preview-title">{{ n.title }}</span>
@@ -362,21 +390,6 @@ async function onVersionOverrideSave() {
 </template>
 
 <style scoped>
-.test-page {
-  max-width: 720px;
-}
-
-.page-title {
-  margin: 0 0 6px;
-  font-size: 20px;
-}
-
-.page-desc {
-  margin: 0 0 16px;
-  color: #999;
-  font-size: 13px;
-}
-
 .test-card {
   margin-bottom: 16px;
 }
@@ -399,7 +412,7 @@ async function onVersionOverrideSave() {
   align-items: center;
   gap: 10px;
   padding: 8px 0;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--el-border-color-extra-light);
   font-size: 13px;
 }
 
@@ -411,14 +424,14 @@ async function onVersionOverrideSave() {
 .preview-msg {
   flex: 1;
   min-width: 0;
-  color: #666;
+  color: var(--el-text-color-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .preview-time {
-  color: #aaa;
+  color: var(--el-text-color-placeholder);
   font-size: 12px;
   flex-shrink: 0;
 }
@@ -426,7 +439,7 @@ async function onVersionOverrideSave() {
 /* AI 流程测试 */
 .test-desc {
   margin: 0 0 16px;
-  color: #999;
+  color: var(--el-text-color-secondary);
   font-size: 13px;
 }
 
@@ -494,7 +507,7 @@ async function onVersionOverrideSave() {
 
 .ai-result-label {
   font-size: 12px;
-  color: #999;
+  color: var(--el-text-color-secondary);
   margin-bottom: 4px;
 }
 

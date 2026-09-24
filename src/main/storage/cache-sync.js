@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'fs'
+import { existsSync } from 'fs'
 import { promises as fsp } from 'fs'
 import { dirname, join } from 'path'
 import { DatabaseSync } from 'node:sqlite'
@@ -6,6 +6,7 @@ import { getProvider, isRemoteRoot } from './index'
 import { CACHE_DIR_NAME, resolveCacheDir } from './cache-location'
 import { getRemoteCacheConflict } from './cache-settings'
 import { joinPath, relFromRoot } from './path-utils'
+import { prep } from '../cache-db-utils.mjs'
 
 /**
  * 远程缓存同步：
@@ -29,13 +30,14 @@ function readMeta(dbPath, keys) {
   try {
     const db = new DatabaseSync(dbPath)
     try {
-      const has = db
-        .prepare("SELECT 1 AS ok FROM sqlite_master WHERE type='table' AND name='meta'")
-        .get()
+      const has = prep(
+        db,
+        "SELECT 1 AS ok FROM sqlite_master WHERE type='table' AND name='meta'"
+      ).get()
       if (!has) return null
       const out = {}
       for (const k of keys) {
-        const row = db.prepare('SELECT value FROM meta WHERE key = ?').get(k)
+        const row = prep(db, 'SELECT value FROM meta WHERE key = ?').get(k)
         out[k] = row ? row.value : null
       }
       return out
@@ -51,6 +53,32 @@ function readMeta(dbPath, keys) {
 function remoteCachePaths(root) {
   const dir = joinPath(root.path, CACHE_DIR_NAME)
   return { dir, db: joinPath(dir, 'cache.db') }
+}
+
+/** 记录「上次成功同步的远程 cache.db 指纹」的本地副档文件路径 */
+function fingerprintPath(root) {
+  return join(resolveCacheDir(root), 'remote.cache.sync.json')
+}
+
+async function readRemoteFingerprint(root) {
+  try {
+    const fp = JSON.parse(await fsp.readFile(fingerprintPath(root), 'utf8'))
+    if (fp && typeof fp.size === 'number' && typeof fp.mtimeMs === 'number') return fp
+  } catch {
+    /* 无副档 / 解析失败：视为未记录 */
+  }
+  return null
+}
+
+async function writeRemoteFingerprint(root, stat) {
+  try {
+    await fsp.writeFile(
+      fingerprintPath(root),
+      JSON.stringify({ size: stat.size || 0, mtimeMs: stat.mtimeMs || 0, at: Date.now() })
+    )
+  } catch {
+    /* 写副档失败不影响主流程 */
+  }
 }
 
 /**
@@ -80,6 +108,15 @@ async function doEnsureRemoteCache(root) {
   }
   if (!remoteStat || !remoteStat.isFile) return { remote: false }
 
+  // 指纹命中（远程 cache.db 的 size/mtime 与上次同步一致）→ 跳过整库下载。
+  // 仅在远程提供 mtime 且本地工作库存在时判定，避免 size 巧合或本地库被清空后误判。
+  if (remoteStat.mtimeMs > 0 && existsSync(localDb)) {
+    const fp = await readRemoteFingerprint(root)
+    if (fp && fp.size === (remoteStat.size || 0) && fp.mtimeMs === remoteStat.mtimeMs) {
+      return { remote: true, equal: true, skipped: true }
+    }
+  }
+
   let buf
   try {
     buf = await provider.readFile(remoteDb)
@@ -88,14 +125,17 @@ async function doEnsureRemoteCache(root) {
   }
   if (!buf || !buf.length) return { remote: false }
 
-  mkdirSync(localDir, { recursive: true })
+  await fsp.mkdir(localDir, { recursive: true })
   const tmpDb = join(localDir, 'remote.cache.download.db')
-  writeFileSync(tmpDb, buf)
+  await fsp.writeFile(tmpDb, buf)
 
   const remoteMeta = readMeta(tmpDb, ['root_cache_sha', 'last_task_at'])
   const localMeta = existsSync(localDb)
     ? readMeta(localDb, ['root_cache_sha', 'last_task_at'])
     : null
+
+  // 已成功下载远程 cache.db：记录其指纹，下次未变化即可跳过下载
+  await writeRemoteFingerprint(root, remoteStat)
 
   // 一致：无需覆盖
   if (
@@ -103,7 +143,7 @@ async function doEnsureRemoteCache(root) {
     remoteMeta?.root_cache_sha &&
     localMeta.root_cache_sha === remoteMeta.root_cache_sha
   ) {
-    rmSync(tmpDb, { force: true })
+    await fsp.rm(tmpDb, { force: true })
     return { remote: true, equal: true }
   }
 
@@ -122,16 +162,16 @@ async function doEnsureRemoteCache(root) {
     // 覆盖前关闭可能打开的本地连接
     closeCacheFn?.(root.path)
     try {
-      renameSync(tmpDb, localDb)
+      await fsp.rename(tmpDb, localDb)
     } catch {
       // Windows 上目标被占用时退化为复制
       await fsp.copyFile(tmpDb, localDb)
-      rmSync(tmpDb, { force: true })
+      await fsp.rm(tmpDb, { force: true })
     }
     return { remote: true, pulled: true, policy }
   }
 
-  rmSync(tmpDb, { force: true })
+  await fsp.rm(tmpDb, { force: true })
   return { remote: true, pulled: false, policy }
 }
 
@@ -145,7 +185,7 @@ export async function ensureRemoteThumb(root, cache, absPath) {
   if (!rel) return null
   let row = null
   try {
-    row = cache.db.prepare('SELECT thumb FROM files WHERE rel_path = ?').get(rel)
+    row = prep(cache.db, 'SELECT thumb FROM files WHERE rel_path = ?').get(rel)
   } catch {
     row = null
   }

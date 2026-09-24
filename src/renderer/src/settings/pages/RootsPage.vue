@@ -1,162 +1,32 @@
 <script setup>
-import { ref, onMounted, reactive, onBeforeUnmount, computed } from 'vue'
+import { ref, onMounted, onBeforeUnmount, reactive, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import { Plus, Edit, Delete, FolderOpened, ArrowUp, ArrowDown } from '@element-plus/icons-vue'
-import { useNotificationsStore } from '../../stores/notifications'
-import { useGifStore } from '../../stores/gif'
+import {
+  Plus,
+  Edit,
+  Delete,
+  FolderOpened,
+  ArrowUp,
+  ArrowDown,
+  Refresh
+} from '@element-plus/icons-vue'
+import { rootDisplayName as displayName } from '../../utils/roots'
+import { formatBytes, formatCount, formatDateTime } from '../../utils/format'
+import { useCacheMaintenance } from '../../utils/use-cache-maintenance'
 
+/**
+ * 根目录管理：注册 / 编辑 / 删除 / 排序，并展示各根目录的缓存概况。
+ * 每行提供一键「更新缓存」（增量加速）；其余维护模式在「浏览与性能」。
+ */
 const { t } = useI18n()
-const gifStore = useGifStore()
+
 const roots = ref([])
 const loading = ref(false)
 
 const dialogVisible = ref(false)
 const editingId = ref(null) // null = 新增
 const saving = ref(false)
-
-// 维护工具：选中的根目录
-const maintainRootId = ref(null)
-const maintainBusy = ref(false)
-
-const notificationsStore = useNotificationsStore()
-const MAINTAIN_MODES = computed(() => [
-  { label: t('roots.updateCache'), mode: 'update' },
-  { label: t('roots.rebuildCache'), mode: 'rebuild' },
-  { label: t('roots.scanCache'), mode: 'scan-cache' },
-  { label: t('roots.cleanCache'), mode: 'clean' }
-])
-
-let offCacheProgress = null
-let cacheNotifyId = null
-let cacheRootId = null
-
-// 维护操作：接真实缓存引擎 + 进度通知
-function buttonType(mode) {
-  if (mode === 'update') return 'primary'
-  if (mode === 'rebuild') return 'warning'
-  if (mode === 'scan-cache') return 'info'
-  return 'danger'
-}
-
-function maintain(mode) {
-  const item = MAINTAIN_MODES.value.find((m) => m.mode === mode)
-  const root = roots.value.find((r) => r.id === maintainRootId.value)
-  if (!root) return
-
-  maintainBusy.value = true
-  cacheRootId = root.id
-  cacheNotifyId = notificationsStore.add({
-    type: 'progress',
-    title: `${item.label} · ${displayName(root)}`,
-    message: t('common.preparing'),
-    cancellable: true,
-    onCancel: () => window.api.cacheAbort()
-  })
-
-  window.api.cacheRun(root.id, mode).catch((err) => {
-    if (cacheNotifyId) {
-      notificationsStore.finish(cacheNotifyId, 'aborted', {
-        message: t('roots.startFailed', { error: String(err?.message || err) })
-      })
-    }
-    maintainBusy.value = false
-  })
-}
-
-function onCacheProgress(p) {
-  if (p.rootId !== cacheRootId) return
-  if (!cacheNotifyId) return
-
-  // thumb 进度事件的 done 是数字；任务完成标志是 done === true
-  const finished = p.done === true
-
-  if (p.error) {
-    notificationsStore.finish(cacheNotifyId, 'aborted', { message: p.error })
-    maintainBusy.value = false
-    return
-  }
-  if (p.aborted) {
-    notificationsStore.finish(cacheNotifyId, 'aborted', { message: t('notifications.aborted') })
-    maintainBusy.value = false
-    return
-  }
-  if (finished) {
-    const s = p.stats || {}
-    const added = s.added ?? 0
-    const updated = s.updated ?? 0
-    const removed = s.removed ?? 0
-    const parts = []
-    if (added) parts.push(t('notifications.statsAdded', { n: added }))
-    if (updated) parts.push(t('notifications.statsUpdated', { n: updated }))
-    if (removed) parts.push(t('notifications.statsRemoved', { n: removed }))
-    parts.push(t('notifications.statsThumbs', { n: s.thumbs ?? 0 }))
-    if (s.failed) parts.push(t('notifications.statsFailed', { n: s.failed }))
-    if (s.cleanedThumbs) parts.push(t('notifications.statsCleanedOrphans', { n: s.cleanedThumbs }))
-    notificationsStore.finish(cacheNotifyId, 'done', {
-      message: t('app.scanSummary', {
-        n: added + updated + removed,
-        parts: parts.join(t('common.separator'))
-      })
-    })
-    maintainBusy.value = false
-    return
-  }
-  if (p.phase === 'scan') {
-    notificationsStore.update(cacheNotifyId, { message: t('app.scanningFiles', { n: p.scanned }) })
-  } else if (p.phase === 'thumb') {
-    notificationsStore.updateProgress(cacheNotifyId, Math.round((p.done / p.total) * 100))
-    notificationsStore.update(cacheNotifyId, {
-      message: t('app.generatingThumbs', {
-        done: p.done,
-        total: p.total,
-        current: p.current || ''
-      })
-    })
-  }
-}
-
-onMounted(() => {
-  offCacheProgress = window.api.onCacheProgress(onCacheProgress)
-})
-
-onBeforeUnmount(() => {
-  offCacheProgress?.()
-})
-
-// ---------- 动图（GIF）设置 ----------
-// 实时来源开关：realtime ↔ disk
-const realtimeSource = computed({
-  get: () => gifStore.thumbSource === 'realtime',
-  set: (v) => setThumbSource(v ? 'realtime' : 'disk')
-})
-
-async function onPlayModeChange(v) {
-  try {
-    await gifStore.setPlayMode(v)
-    ElMessage.success(t('common.saved'))
-  } catch {
-    ElMessage.error(t('common.saveFailed'))
-  }
-}
-
-async function setThumbSource(v) {
-  try {
-    await gifStore.setThumbSource(v)
-    ElMessage.success(t('common.saved'))
-  } catch {
-    ElMessage.error(t('common.saveFailed'))
-  }
-}
-
-async function onWebmAsGifChange(v) {
-  try {
-    await gifStore.setWebmAsGif(v)
-    ElMessage.success(t('common.saved'))
-  } catch {
-    ElMessage.error(t('common.saveFailed'))
-  }
-}
 
 const form = reactive({
   type: 'local',
@@ -170,11 +40,60 @@ const form = reactive({
 const testing = ref(false)
 const isRemoteForm = computed(() => form.type !== 'local')
 
-function displayName(root) {
-  if (!root) return ''
-  if (root.alias && root.alias.trim()) return root.alias.trim()
-  const parts = root.path.split(/[\\/]+/).filter(Boolean)
-  return parts.length ? parts[parts.length - 1] : root.path
+// ---------- 缓存概况 ----------
+const stats = ref([])
+const statsLoading = ref(false)
+const statMap = computed(() => new Map(stats.value.map((s) => [s.rootId, s])))
+
+function statOf(rootId) {
+  return (
+    statMap.value.get(rootId) || {
+      hasCache: false,
+      total: 0,
+      cached: 0,
+      srcBytes: 0,
+      thumbBytes: 0,
+      folderCount: 0,
+      lastTaskAt: null
+    }
+  )
+}
+
+function cachePct(s) {
+  return s.total ? Math.round((s.cached / s.total) * 100) : 0
+}
+
+const totalMedia = computed(() => stats.value.reduce((a, s) => a + s.total, 0))
+const totalCached = computed(() => stats.value.reduce((a, s) => a + s.cached, 0))
+const totalSrcBytes = computed(() => stats.value.reduce((a, s) => a + s.srcBytes, 0))
+const totalThumbBytes = computed(() => stats.value.reduce((a, s) => a + s.thumbBytes, 0))
+const coveragePct = computed(() =>
+  totalMedia.value ? Math.round((totalCached.value / totalMedia.value) * 100) : 0
+)
+
+async function loadStats() {
+  statsLoading.value = true
+  try {
+    stats.value = (await window.api.cacheStats()) || []
+  } catch {
+    stats.value = []
+  } finally {
+    statsLoading.value = false
+  }
+}
+
+// ---------- 一键更新缓存（增量加速） ----------
+const {
+  busy: cacheBusy,
+  runningRootId: cacheRunningRootId,
+  start: startCache,
+  attach: attachCacheProgress,
+  detach: detachCacheProgress
+} = useCacheMaintenance()
+
+function updateCache(root) {
+  // 完成后刷新概况（缓存占用/覆盖率会变化）
+  startCache(root, 'update', { onDone: loadStats })
 }
 
 async function loadRoots() {
@@ -260,6 +179,7 @@ async function save() {
     }
     dialogVisible.value = false
     await loadRoots()
+    loadStats()
   } catch (err) {
     ElMessage.error(String(err?.message ?? err))
   } finally {
@@ -287,6 +207,7 @@ async function remove(root) {
     await window.api.rootsRemove(root.id)
     ElMessage.success(t('roots.deleted'))
     await loadRoots()
+    loadStats()
   } catch {
     // 用户取消
   }
@@ -309,17 +230,19 @@ async function moveRoot(index, delta) {
   }
 }
 
-// 是否在左侧目录树顶部显示「我的收藏」（已移至 设置 - 外观 - 侧栏，这里不再维护）
-
-onMounted(async () => {
-  // 动图设置：先读库再显示（radio 默认 all、来源默认 disk）
-  await gifStore.load()
+onMounted(() => {
   loadRoots()
+  loadStats()
+  attachCacheProgress()
+})
+
+onBeforeUnmount(() => {
+  detachCacheProgress()
 })
 </script>
 
 <template>
-  <div class="page">
+  <div class="page page--wide">
     <div class="page-head">
       <div>
         <h2>{{ t('settings.roots') }}</h2>
@@ -328,7 +251,42 @@ onMounted(async () => {
       <el-button type="primary" :icon="Plus" @click="openAdd">{{ t('roots.addRoot') }}</el-button>
     </div>
 
-    <el-table :data="roots" v-loading="loading" :empty-text="t('roots.emptyTable')">
+    <!-- 缓存概况 -->
+    <div class="stats-head">
+      <span class="stats-title">{{ t('roots.statsTitle') }}</span>
+      <el-button link :icon="Refresh" :loading="statsLoading" @click="loadStats">
+        {{ t('roots.statRefresh') }}
+      </el-button>
+    </div>
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="stat-label">{{ t('roots.statRoots') }}</div>
+        <div class="stat-value">{{ formatCount(roots.length) }}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">{{ t('roots.statMedia') }}</div>
+        <div class="stat-value">{{ formatCount(totalMedia) }}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">{{ t('roots.statCoverage') }}</div>
+        <div class="stat-value">{{ coveragePct }}%</div>
+        <el-progress
+          :percentage="coveragePct"
+          :show-text="false"
+          :stroke-width="6"
+          class="stat-progress"
+        />
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">{{ t('roots.statCacheSize') }}</div>
+        <div class="stat-value">{{ formatBytes(totalThumbBytes) }}</div>
+        <div class="stat-sub">
+          {{ t('roots.statSrcSize', { size: formatBytes(totalSrcBytes) }) }}
+        </div>
+      </div>
+    </div>
+
+    <el-table v-loading="loading" :data="roots" :empty-text="t('roots.emptyTable')">
       <el-table-column :label="t('roots.name')" min-width="140">
         <template #default="{ row }">
           <span class="name-cell">
@@ -343,8 +301,50 @@ onMounted(async () => {
           </span>
         </template>
       </el-table-column>
-      <el-table-column :label="t('roots.path')" min-width="220" show-overflow-tooltip>
+      <el-table-column :label="t('roots.path')" min-width="180" show-overflow-tooltip>
         <template #default="{ row }">{{ row.path }}</template>
+      </el-table-column>
+      <el-table-column :label="t('roots.colMedia')" width="96" align="right">
+        <template #default="{ row }">
+          <span v-if="statOf(row.id).hasCache">{{ formatCount(statOf(row.id).total) }}</span>
+          <span v-else class="muted">—</span>
+        </template>
+      </el-table-column>
+      <el-table-column :label="t('roots.colCacheState')" width="150">
+        <template #default="{ row }">
+          <div v-if="statOf(row.id).hasCache" class="cache-state">
+            <span class="cache-state-text">
+              {{ formatCount(statOf(row.id).cached) }} / {{ formatCount(statOf(row.id).total) }}
+            </span>
+            <el-progress
+              :percentage="cachePct(statOf(row.id))"
+              :show-text="false"
+              :stroke-width="5"
+            />
+          </div>
+          <el-tag v-else size="small" type="info" effect="plain">
+            {{ t('roots.statNoCache') }}
+          </el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column :label="t('roots.colCacheSize')" width="120" align="right">
+        <template #default="{ row }">
+          <el-tooltip
+            v-if="statOf(row.id).hasCache"
+            :content="t('roots.statSrcSize', { size: formatBytes(statOf(row.id).srcBytes) })"
+            placement="top"
+          >
+            <span>{{ formatBytes(statOf(row.id).thumbBytes) }}</span>
+          </el-tooltip>
+          <span v-else class="muted">—</span>
+        </template>
+      </el-table-column>
+      <el-table-column :label="t('roots.colLastTask')" width="170" show-overflow-tooltip>
+        <template #default="{ row }">
+          <span :class="{ muted: !statOf(row.id).lastTaskAt }">
+            {{ formatDateTime(statOf(row.id).lastTaskAt, t('roots.neverMaintained')) }}
+          </span>
+        </template>
       </el-table-column>
       <el-table-column :label="t('roots.order')" width="76" align="center">
         <template #default="{ $index }">
@@ -366,126 +366,32 @@ onMounted(async () => {
           </div>
         </template>
       </el-table-column>
-      <el-table-column :label="t('roots.actions')" width="130" align="center">
+      <el-table-column :label="t('roots.actions')" width="190" align="center">
         <template #default="{ row }">
-          <el-button link type="primary" :icon="Edit" @click="openEdit(row)">{{ t('common.edit') }}</el-button>
-          <el-button link type="danger" :icon="Delete" @click="remove(row)">{{ t('common.delete') }}</el-button>
+          <el-button
+            link
+            type="primary"
+            :icon="Refresh"
+            :loading="cacheRunningRootId === row.id"
+            :disabled="cacheBusy"
+            @click="updateCache(row)"
+          >
+            {{ t('roots.updateCacheNow') }}
+          </el-button>
+          <el-button link type="primary" :icon="Edit" @click="openEdit(row)">{{
+            t('common.edit')
+          }}</el-button>
+          <el-button link type="danger" :icon="Delete" @click="remove(row)">{{
+            t('common.delete')
+          }}</el-button>
         </template>
       </el-table-column>
     </el-table>
 
-    <!-- 维护工具 -->
-    <el-card class="maintain-card" shadow="never">
-      <template #header>
-        <div class="maintain-head">
-          <span>{{ t('roots.maintainTools') }}</span>
-          <el-tag v-if="maintainBusy" size="small" type="primary" effect="plain">{{ t('roots.taskRunning') }}</el-tag>
-        </div>
-      </template>
-      <p class="maintain-desc">{{ t('roots.maintainDesc') }}</p>
-      <div class="maintain-row">
-        <el-select
-          v-model="maintainRootId"
-          class="maintain-select"
-          :placeholder="t('roots.selectMaintainRoot')"
-          clearable
-          :disabled="maintainBusy"
-        >
-          <el-option
-            v-for="root in roots"
-            :key="root.id"
-            :value="root.id"
-            :label="displayName(root)"
-          >
-            <el-tooltip :content="root.path" placement="left" :show-after="300">
-              <span>{{ displayName(root) }}</span>
-            </el-tooltip>
-          </el-option>
-        </el-select>
-
-        <template v-for="item in MAINTAIN_MODES" :key="item.mode">
-          <el-tooltip
-            :disabled="maintainRootId != null"
-            :content="t('roots.selectRootFirst')"
-            placement="top"
-          >
-            <span>
-              <el-button
-                :type="buttonType(item.mode)"
-                plain
-                :disabled="maintainRootId == null || maintainBusy"
-                :loading="maintainBusy"
-                @click="maintain(item.mode)"
-              >
-                {{ item.label }}
-              </el-button>
-            </span>
-          </el-tooltip>
-        </template>
-      </div>
-    </el-card>
-
-    <!-- 动图（GIF）设置 -->
-    <el-card class="maintain-card" shadow="never">
-      <template #header>
-        <div class="maintain-head">
-          <span>{{ t('roots.gifSectionTitle') }}</span>
-        </div>
-      </template>
-      <p class="maintain-desc">{{ t('roots.gifSectionDesc') }}</p>
-
-      <div class="gif-block">
-        <div class="gif-label">{{ t('roots.gifPlayMode') }}</div>
-        <el-radio-group v-model="gifStore.playMode" class="gif-radio-group" @change="onPlayModeChange">
-          <div class="gif-radio-row">
-            <el-radio value="all">{{ t('roots.gifAll') }}</el-radio>
-            <span class="gif-radio-desc">{{ t('roots.gifAllDesc') }}</span>
-          </div>
-          <div class="gif-radio-row">
-            <el-radio value="hover">{{ t('roots.gifHover') }}</el-radio>
-            <span class="gif-radio-desc">{{ t('roots.gifHoverDesc') }}</span>
-          </div>
-          <div class="gif-radio-row">
-            <el-radio value="none">{{ t('roots.gifNone') }}</el-radio>
-            <span class="gif-radio-desc">{{ t('roots.gifNoneDesc') }}</span>
-          </div>
-        </el-radio-group>
-      </div>
-
-      <el-divider />
-
-      <div class="gif-block">
-        <div class="gif-label">
-          <span>{{ t('roots.gifThumbSource') }}</span>
-          <el-switch
-            v-model="realtimeSource"
-            class="gif-source-switch"
-            :active-text="t('roots.gifSourceRealtime')"
-            :inactive-text="t('roots.gifSourceDisk')"
-          />
-        </div>
-        <p class="gif-source-desc">{{ t('roots.gifSourceDesc') }}</p>
-      </div>
-
-      <el-divider />
-
-      <div class="gif-block">
-        <div class="gif-label">
-          <span>{{ t('roots.webmAsGif') }}</span>
-          <el-switch
-            v-model="gifStore.webmAsGif"
-            class="gif-source-switch"
-            @change="onWebmAsGifChange"
-          />
-        </div>
-        <p class="gif-source-desc">{{ t('roots.webmAsGifDesc') }}</p>
-      </div>
-    </el-card>
-
     <!-- 添加 / 编辑 弹窗 -->
     <el-dialog
       v-model="dialogVisible"
-      width="65%"
+      width="min(600px, 90vw)"
       :title="editingId == null ? t('roots.addDialogTitle') : t('roots.editDialogTitle')"
     >
       <el-form label-width="auto">
@@ -511,7 +417,9 @@ onMounted(async () => {
               v-model="form.password"
               type="password"
               show-password
-              :placeholder="editingId != null ? t('roots.passwordKeep') : t('roots.passwordPlaceholder')"
+              :placeholder="
+                editingId != null ? t('roots.passwordKeep') : t('roots.passwordPlaceholder')
+              "
             />
           </el-form-item>
         </template>
@@ -537,22 +445,55 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-.page-head {
+/* 缓存概况 */
+.stats-head {
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 24px;
+  margin-bottom: 8px;
 }
 
-.page h2 {
-  margin: 0 0 6px;
-  font-size: 20px;
+.stats-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--app-text);
 }
 
-.page-desc {
-  color: #999;
-  font-size: 13px;
-  margin: 0;
+.stats-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.stat-card {
+  padding: 14px 16px;
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  background: var(--panel-bg);
+}
+
+.stat-label {
+  font-size: 12px;
+  color: var(--app-text-secondary);
+}
+
+.stat-value {
+  margin-top: 4px;
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--app-text);
+  line-height: 1.2;
+}
+
+.stat-sub {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--app-text-secondary);
+}
+
+.stat-progress {
+  margin-top: 8px;
 }
 
 .name-cell {
@@ -563,6 +504,21 @@ onMounted(async () => {
 
 .name-icon {
   color: #f0a020;
+}
+
+.cache-state {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cache-state-text {
+  font-size: 12px;
+  color: var(--app-text-secondary);
+}
+
+.muted {
+  color: var(--app-text-secondary);
 }
 
 .order-cell {
@@ -580,89 +536,11 @@ onMounted(async () => {
 
 .form-tip {
   margin: 6px 0 0;
-  color: #aaa;
+  color: var(--app-text-secondary);
   font-size: 12px;
 }
 
 .form-tip.inline {
   margin: 0 0 0 10px;
-}
-
-/* 维护工具 */
-.maintain-card {
-  margin-top: 20px;
-}
-
-.maintain-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.maintain-desc {
-  margin: 0 0 12px;
-  color: #999;
-  font-size: 13px;
-}
-
-.maintain-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.maintain-select {
-  width: 260px;
-  flex-shrink: 0;
-}
-
-/* 动图（GIF）设置 */
-.gif-block {
-  max-width: 720px;
-}
-
-.gif-label {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--app-text);
-}
-
-.gif-radio-group {
-  display: block;
-  margin-top: 10px;
-}
-
-.gif-radio-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  margin-bottom: 8px;
-}
-
-.gif-radio-row .el-radio {
-  white-space: nowrap;
-  flex-shrink: 0;
-  margin-right: 0;
-}
-
-.gif-radio-desc {
-  color: #999;
-  font-size: 12px;
-  line-height: 20px;
-  padding-top: 2px;
-}
-
-.gif-source-switch {
-  margin-left: auto;
-}
-
-.gif-source-desc {
-  margin: 8px 0 0;
-  color: #999;
-  font-size: 12px;
 }
 </style>

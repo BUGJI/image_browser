@@ -187,8 +187,7 @@ export function listTagImages(rootId, tagId) {
      FROM image_tags it
      WHERE it.root_id = ? AND it.tag_id = ?
      ORDER BY it.rowid DESC`
-  )
-    .all(rootId, tagId)
+  ).all(rootId, tagId)
 }
 
 /** 某根目录下的全部标签数据（根目录被移除时清理） */

@@ -15,10 +15,18 @@ const emit = defineEmits(['node-click'])
 const treeRef = ref(null)
 const searchText = ref('')
 
+// 非搜索态：默认隐藏的节点（hidden）不显示
+function stripHidden(nodes) {
+  return nodes
+    .filter((n) => !n.hidden)
+    .map((n) => (n.children ? { ...n, children: stripHidden(n.children) } : n))
+}
+
 // 搜索过滤：节点自身命中，或子节点命中（保留祖先链）
+// 搜索态下隐藏节点也参与匹配，命中时临时显示并打「隐藏」标签
 const filteredData = computed(() => {
   const q = searchText.value.trim().toLowerCase()
-  if (!q) return props.data
+  if (!q) return stripHidden(props.data)
 
   const filterNodes = (nodes) =>
     nodes
@@ -72,10 +80,13 @@ function handleNodeClick(data) {
       highlight-current
       @node-click="handleNodeClick"
     >
-      <template #default="{ data }">
+      <template #default="{ data: node }">
         <span class="tree-node">
-          <el-icon v-if="data.icon" :size="15"><component :is="data.icon" /></el-icon>
-          <span>{{ data.label }}</span>
+          <el-icon v-if="node.icon" :size="15"><component :is="node.icon" /></el-icon>
+          <span>{{ node.label }}</span>
+          <el-tag v-if="node.hidden" size="small" type="info" effect="plain" class="hidden-tag">
+            {{ t('settings.hiddenTag') }}
+          </el-tag>
         </span>
       </template>
     </el-tree>

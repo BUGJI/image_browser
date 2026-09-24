@@ -25,11 +25,11 @@
 
 前往 **[GitHub Releases](https://github.com/BUGJI/image_browser/releases)** 下载最新版本：
 
-| 平台 | 安装包 |
-| --- | --- |
+| 平台    | 安装包                                                            |
+| ------- | ----------------------------------------------------------------- |
 | Windows | `image-browser-<version>-setup.exe`（NSIS 安装包）/ 免安装 `.zip` |
-| macOS | `.dmg`（需在 macOS 上构建） |
-| Linux | `.AppImage` / `.deb` |
+| macOS   | `.dmg`（需在 macOS 上构建）                                       |
+| Linux   | `.AppImage` / `.deb`                                              |
 
 ---
 
@@ -113,15 +113,15 @@ npm run dev
 
 ### 常用命令
 
-| 命令 | 说明 |
-| --- | --- |
-| `npm run dev` | 开发模式，热更新 |
-| `npm run start` | 预览已构建产物 |
-| `npm run build` | 仅构建产物到 `out/` |
-| `npm run build:win` | 打包 Windows 安装包（NSIS） |
-| `npm run build:win:zip` | 打包 Windows x64 绿色版（zip） |
-| `npm run build:mac` | 打包 macOS（需在 macOS 上执行） |
-| `npm run build:linux` | 打包 Linux（AppImage / deb） |
+| 命令                      | 说明                                                              |
+| ------------------------- | ----------------------------------------------------------------- |
+| `npm run dev`             | 开发模式，热更新                                                  |
+| `npm run start`           | 预览已构建产物                                                    |
+| `npm run build`           | 仅构建产物到 `out/`                                               |
+| `npm run build:win`       | 打包 Windows 安装包（NSIS）                                       |
+| `npm run build:win:zip`   | 打包 Windows x64 绿色版（zip）                                    |
+| `npm run build:mac`       | 打包 macOS（需在 macOS 上执行）                                   |
+| `npm run build:linux`     | 打包 Linux（AppImage / deb）                                      |
 | `npm run build:ocr-addon` | 生成 OCR 运行时组件包（win32-x64），作为 GitHub Releases 附件发布 |
 
 更多模块划分、IPC 与数据层设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。

@@ -35,10 +35,16 @@ html.dark {
 :root {
   --app-bg: #ffffff;
   --app-text: #1f2329;
-  --app-text-secondary: #8f959e;
+  --app-text-secondary: #5f6672;
   --panel-bg: #fafbfc;
   --panel-border: #e6e8eb;
   --panel-hover: #eef0f3;
+  /* 内容区左右留白：标题、横幅、瀑布流、悬浮工具栏共用，保证边缘对齐 */
+  --content-gutter: 28px;
+  /* 悬浮工具栏占位高度（顶部 12px + 控件 36px），RootView 标题据此下移避免遮挡 */
+  --toolbar-reserve: 60px;
+  /* 文件夹图标色（侧栏目录树 / 根视图横幅共用） */
+  --app-folder-color: #f7ba2a;
 }
 
 /* ---------- 主题切换过渡 ----------
@@ -56,6 +62,13 @@ html.theme-transition *::after {
     stroke 0.35s ease !important;
 }
 
+/* 位图元素不参与主题过渡：颜色不会变化，过渡只会徒增解码/重绘开销 */
+html.theme-transition img,
+html.theme-transition video,
+html.theme-transition canvas {
+  transition: none !important;
+}
+
 /* ---------- 组件动画禁用 ----------
  * 「动画 - 组件动画」关闭时由动画 store 给 html 加 no-element-anim，
  * 全局关掉 Element Plus 及页面内的过渡与动画（瞬时显示）。 */
@@ -69,25 +82,37 @@ html.no-element-anim *::after {
 html.dark {
   --app-bg: #1d1e1f;
   --app-text: #e5e6eb;
-  --app-text-secondary: #8f959e;
+  --app-text-secondary: #a8adb8;
   --panel-bg: #232426;
   --panel-border: #3a3b3d;
   --panel-hover: #2b2c2e;
 }
 
-/* 滚动条（暗色下更柔和） */
-html.dark ::-webkit-scrollbar {
+/* 滚动条：亮/暗统一风格（暗色下更柔和） */
+::-webkit-scrollbar {
   width: 10px;
   height: 10px;
 }
 
-html.dark ::-webkit-scrollbar-thumb {
-  background: #4a4b4d;
+::-webkit-scrollbar-thumb {
+  background: #c8ccd2;
   border-radius: 5px;
 }
 
-html.dark ::-webkit-scrollbar-track {
+::-webkit-scrollbar-thumb:hover {
+  background: #aeb4bc;
+}
+
+::-webkit-scrollbar-track {
   background: transparent;
+}
+
+html.dark ::-webkit-scrollbar-thumb {
+  background: #4a4b4d;
+}
+
+html.dark ::-webkit-scrollbar-thumb:hover {
+  background: #5a5b5d;
 }
 
 /* 纯黑模式（暗色变体，html.dark.pure-black）：把所有暗色背景/面板替换为 #000 */
@@ -118,4 +143,36 @@ html.dark.pure-black {
 
 html.dark.pure-black ::-webkit-scrollbar-thumb {
   background: #262626;
+}
+
+/* 空态占位：整块居中（主窗口无根目录 / 未选文件夹共用同一套样式） */
+.center-empty {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.center-empty-tip {
+  margin-top: 8px;
+  color: var(--app-text-secondary);
+  font-size: 13px;
+}
+
+/* 键盘焦点可见环（低特异性，便于组件覆盖；鼠标点击不显示） */
+:where(:focus-visible) {
+  outline: 2px solid var(--el-color-primary, #409eff);
+  outline-offset: 2px;
+}
+
+/* 尊重系统「减少动态效果」：停用过渡与循环动画 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
 }

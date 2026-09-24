@@ -2,6 +2,10 @@
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Plus, Edit, Delete, CollectionTag } from '@element-plus/icons-vue'
+import { rootDisplayName as displayName } from '../../utils/roots'
+import { useSetting } from '../../utils/settings'
+import SettingCard from '../SettingCard.vue'
+import SettingRow from '../SettingRow.vue'
 
 const { t } = useI18n()
 
@@ -11,11 +15,14 @@ const { t } = useI18n()
  */
 
 // 标签功能总开关（关闭后主界面标签入口与灯箱打标不可用，数据保留）
-const tagsEnabled = ref(true)
+const tagsEnabled = useSetting('tagsEnabled', {
+  message: (v) => (v ? t('tags.enabled') : t('tags.disabled')),
+  messageType: (v) => (v ? 'success' : 'info')
+})
 const disabled = computed(() => !tagsEnabled.value)
 
 // 灯箱右上角是否显示打标按钮
-const tagsLightboxBtn = ref(true)
+const tagsLightboxBtn = useSetting('tagsLightboxBtn')
 
 const roots = ref([])
 const tagRootId = ref(null)
@@ -27,32 +34,6 @@ const selected = ref([])
 const canMerge = computed(() => selected.value.length >= 2)
 
 let offTagsChanged = null
-
-async function onMasterChange(v) {
-  try {
-    await window.api.setSetting('tagsEnabled', v ? 'true' : 'false')
-    if (v) ElMessage.success(t('tags.enabled'))
-    else ElMessage.info(t('tags.disabled'))
-  } catch {
-    ElMessage.error(t('common.saveFailed'))
-  }
-}
-
-async function saveToggle(key, value) {
-  try {
-    await window.api.setSetting(key, value ? 'true' : 'false')
-    ElMessage.success(t('common.saved'))
-  } catch {
-    ElMessage.error(t('common.saveFailed'))
-  }
-}
-
-function displayName(root) {
-  if (!root) return ''
-  if (root.alias && root.alias.trim()) return root.alias.trim()
-  const parts = root.path.split(/[\\/]+/).filter(Boolean)
-  return parts.length ? parts[parts.length - 1] : root.path
-}
 
 async function loadRoots() {
   roots.value = await window.api.rootsList()
@@ -145,11 +126,15 @@ async function saveRename() {
 // ---------- 删除 ----------
 async function removeTag(row) {
   try {
-    await ElMessageBox.confirm(t('tags.deleteConfirm', { name: row.name, count: row.count }), t('common.delete'), {
-      confirmButtonText: t('common.delete'),
-      cancelButtonText: t('common.cancel'),
-      type: 'warning'
-    })
+    await ElMessageBox.confirm(
+      t('tags.deleteConfirm', { name: row.name, count: row.count }),
+      t('common.delete'),
+      {
+        confirmButtonText: t('common.delete'),
+        cancelButtonText: t('common.cancel'),
+        type: 'warning'
+      }
+    )
     tags.value = (await window.api.tagsDelete(tagRootId.value, row.id)) || []
     ElMessage.success(t('tags.deleted'))
   } catch {
@@ -185,8 +170,6 @@ async function confirmMerge() {
 }
 
 onMounted(async () => {
-  tagsEnabled.value = (await window.api.getSetting('tagsEnabled', 'true')) !== 'false'
-  tagsLightboxBtn.value = (await window.api.getSetting('tagsLightboxBtn', 'true')) !== 'false'
   await loadRoots()
   await loadTags()
   offTagsChanged = window.api.onTagsChanged(({ rootId }) => {
@@ -206,43 +189,37 @@ onBeforeUnmount(() => {
         <h2>{{ t('settings.tags') }}</h2>
         <p class="page-desc">{{ t('tags.pageDesc') }}</p>
       </div>
-      <el-button
-        type="primary"
-        :icon="Plus"
-        :disabled="disabled"
-        @click="openAdd"
-      >
+      <el-button type="primary" :icon="Plus" :disabled="disabled" @click="openAdd">
         {{ t('tags.addTag') }}
       </el-button>
     </div>
 
-    <el-card class="master-card" shadow="never">
-      <div class="master-row">
-        <div class="master-label">
-          <div class="master-name">{{ t('tags.enableMaster') }}</div>
-          <div class="master-desc">{{ t('tags.masterDesc') }}</div>
-        </div>
-        <el-switch v-model="tagsEnabled" @change="onMasterChange" />
-      </div>
-    </el-card>
+    <SettingCard>
+      <SettingRow :name="t('tags.enableMaster')" :desc="t('tags.masterDesc')">
+        <el-switch v-model="tagsEnabled" />
+      </SettingRow>
+    </SettingCard>
 
     <template v-if="tagsEnabled">
-      <el-card class="master-card" shadow="never">
-        <div class="master-row">
-          <div class="master-label">
-            <div class="master-name">{{ t('tags.lightboxBtn') }}</div>
-            <div class="master-desc">{{ t('tags.lightboxBtnDesc') }}</div>
-          </div>
-          <el-switch
-            v-model="tagsLightboxBtn"
-            @change="(v) => saveToggle('tagsLightboxBtn', v)"
-          />
-        </div>
-      </el-card>
+      <SettingCard>
+        <SettingRow :name="t('tags.lightboxBtn')" :desc="t('tags.lightboxBtnDesc')">
+          <el-switch v-model="tagsLightboxBtn" />
+        </SettingRow>
+      </SettingCard>
 
       <div class="toolbar">
-        <el-select v-model="tagRootId" class="root-select" :placeholder="t('tags.selectRoot')" clearable>
-          <el-option v-for="root in roots" :key="root.id" :value="root.id" :label="displayName(root)">
+        <el-select
+          v-model="tagRootId"
+          class="root-select"
+          :placeholder="t('tags.selectRoot')"
+          clearable
+        >
+          <el-option
+            v-for="root in roots"
+            :key="root.id"
+            :value="root.id"
+            :label="displayName(root)"
+          >
             <el-tooltip :content="root.path" placement="left" :show-after="300">
               <span>{{ displayName(root) }}</span>
             </el-tooltip>
@@ -261,8 +238,8 @@ onBeforeUnmount(() => {
       </div>
 
       <el-table
-        :data="tags"
         v-loading="loading"
+        :data="tags"
         :empty-text="t('tags.empty')"
         @selection-change="onSelectionChange"
       >
@@ -282,8 +259,12 @@ onBeforeUnmount(() => {
         </el-table-column>
         <el-table-column :label="t('roots.actions')" width="150" align="center">
           <template #default="{ row }">
-            <el-button link type="primary" :icon="Edit" @click="openRename(row)">{{ t('common.edit') }}</el-button>
-            <el-button link type="danger" :icon="Delete" @click="removeTag(row)">{{ t('common.delete') }}</el-button>
+            <el-button link type="primary" :icon="Edit" @click="openRename(row)">{{
+              t('common.edit')
+            }}</el-button>
+            <el-button link type="danger" :icon="Delete" @click="removeTag(row)">{{
+              t('common.delete')
+            }}</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -301,7 +282,9 @@ onBeforeUnmount(() => {
       />
       <template #footer>
         <el-button @click="addVisible = false">{{ t('common.cancel') }}</el-button>
-        <el-button type="primary" :loading="savingAdd" @click="saveAdd">{{ t('common.save') }}</el-button>
+        <el-button type="primary" :loading="savingAdd" @click="saveAdd">{{
+          t('common.save')
+        }}</el-button>
       </template>
     </el-dialog>
 
@@ -316,7 +299,9 @@ onBeforeUnmount(() => {
       />
       <template #footer>
         <el-button @click="renameVisible = false">{{ t('common.cancel') }}</el-button>
-        <el-button type="primary" :loading="savingRename" @click="saveRename">{{ t('common.save') }}</el-button>
+        <el-button type="primary" :loading="savingRename" @click="saveRename">{{
+          t('common.save')
+        }}</el-button>
       </template>
     </el-dialog>
 
@@ -325,69 +310,28 @@ onBeforeUnmount(() => {
       <div class="merge-form">
         <div class="merge-label">{{ t('tags.mergeTargetLabel') }}</div>
         <el-select v-model="mergeTargetId" class="merge-select">
-          <el-option
-            v-for="row in selected"
-            :key="row.id"
-            :value="row.id"
-            :label="row.name"
-          />
+          <el-option v-for="row in selected" :key="row.id" :value="row.id" :label="row.name" />
         </el-select>
         <p class="merge-tip">
-          {{ t('tags.mergeConfirmMsg', { n: selected.length - 1, target: (selected.find((r) => r.id === mergeTargetId) || {}).name || '' }) }}
+          {{
+            t('tags.mergeConfirmMsg', {
+              n: selected.length - 1,
+              target: (selected.find((r) => r.id === mergeTargetId) || {}).name || ''
+            })
+          }}
         </p>
       </div>
       <template #footer>
         <el-button @click="mergeVisible = false">{{ t('common.cancel') }}</el-button>
-        <el-button type="warning" :loading="merging" @click="confirmMerge">{{ t('tags.merge') }}</el-button>
+        <el-button type="warning" :loading="merging" @click="confirmMerge">{{
+          t('tags.merge')
+        }}</el-button>
       </template>
     </el-dialog>
   </div>
 </template>
 
 <style scoped>
-.page-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 20px;
-}
-
-.page h2 {
-  margin: 0 0 6px;
-  font-size: 20px;
-}
-
-.page-desc {
-  color: #999;
-  font-size: 13px;
-  margin: 0;
-}
-
-.master-card {
-  max-width: 720px;
-  margin-bottom: 20px;
-}
-
-.master-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.master-name {
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.master-desc {
-  margin-top: 4px;
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
-  line-height: 1.6;
-  max-width: 540px;
-}
-
 .toolbar {
   display: flex;
   align-items: center;

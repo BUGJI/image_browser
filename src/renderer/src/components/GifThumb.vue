@@ -1,7 +1,7 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, ref, watch, onBeforeUnmount } from 'vue'
 import { buildImageUrl } from '../utils/image-url'
-import { getGifPosterUrl } from '../utils/gif-poster'
+import { getGifPosterUrl, retainGifPoster, releaseGifPoster } from '../utils/gif-poster'
 
 /**
  * 网格卡片里的 GIF 缩略图组件（替代原生 <img>）
@@ -34,7 +34,7 @@ const props = defineProps({
   // 滚动中且处于缓冲区时为 true：暂不加载/解码首帧，等滚动空闲再补（给滚动让路）
   deferLoad: { type: Boolean, default: false }
 })
-const emit = defineEmits(['load'])
+const emit = defineEmits(['load', 'error'])
 
 const gifUrl = computed(() => buildImageUrl(props.rootId, props.item.absPath, 'orig'))
 const diskPoster = computed(() =>
@@ -60,12 +60,29 @@ const src = computed(() => {
   return posterUrl.value
 })
 
+// 引用计数：实时解码得到的 objectURL 在组件存活期间不可被海报缓存逐出回收
+let retainedAbs = ''
+function retainRealtime(abs) {
+  if (retainedAbs === abs) return
+  if (retainedAbs) releaseGifPoster(props.rootId, retainedAbs)
+  retainedAbs = abs
+  if (abs) retainGifPoster(props.rootId, abs)
+}
+function releaseRealtime() {
+  if (retainedAbs) {
+    releaseGifPoster(props.rootId, retainedAbs)
+    retainedAbs = ''
+  }
+}
+onBeforeUnmount(releaseRealtime)
+
 let resolveSeq = 0
 async function ensurePoster() {
   if (!needPoster.value || props.deferLoad) return
   const seq = ++resolveSeq
   // 磁盘来源且已有缩略图：直接复用缓存（不走实时解码，最快）
   if (props.thumbSource === 'disk' && diskPoster.value) {
+    releaseRealtime()
     posterState.value = 'ready'
     posterUrl.value = diskPoster.value
     return
@@ -74,10 +91,12 @@ async function ensurePoster() {
   // 实时解码（disk 模式下 hasThumb=false 也临时走这里兜底）
   posterState.value = 'loading'
   posterUrl.value = ''
+  retainRealtime(props.item.absPath)
   const url = await getGifPosterUrl(props.rootId, props.item.absPath)
   if (seq !== resolveSeq) return // 已有更新的解析请求，丢弃旧结果
   posterState.value = url ? 'ready' : 'failed'
   posterUrl.value = url
+  if (!url) releaseRealtime() // 失败回退动图，无需再保留
 }
 
 // 播放模式 / 来源 / 缩略图就绪情况变化时刷新海报
@@ -117,6 +136,7 @@ ensurePoster()
     @mouseenter="onEnter"
     @mouseleave="onLeave"
     @load="emit('load', $event)"
+    @error="emit('error', $event)"
   />
   <div v-else class="gif-thumb-pending" @mouseenter="onEnter" @mouseleave="onLeave" />
 </template>

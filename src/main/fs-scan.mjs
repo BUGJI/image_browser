@@ -1,6 +1,7 @@
 import { basename } from 'path'
 import { getProvider } from './storage/index.js'
 import { baseName, joinPath } from './storage/path-utils.js'
+import { isSkipDir } from './scan-constants.mjs'
 
 /**
  * 目录树扫描：只收集文件夹（不读文件）
@@ -8,13 +9,6 @@ import { baseName, joinPath } from './storage/path-utils.js'
  * - 支持进度回调 onProgress({ scanned }) 与中止 shouldAbort()
  * - 通过 StorageProvider 访问目录，兼容本地与远程根
  */
-
-// 跳过的系统/隐藏目录（NAS 常见垃圾目录）
-const SKIP_DIRS = new Set(['@eaDir', '#recycle', '.seekMeta', '.seekTrash', '.thumbnails', '.git', 'node_modules'])
-
-function isSkipDir(name) {
-  return name.startsWith('.') || SKIP_DIRS.has(name)
-}
 
 export class ScanAbortedError extends Error {
   constructor() {
@@ -31,10 +25,17 @@ export class ScanAbortedError extends Error {
  * @param {(info: {scanned: number}) => void} [opts.onProgress] 每处理一批目录回调
  * @param {() => boolean} [opts.shouldAbort] 返回 true 时抛出 ScanAbortedError
  */
-export async function scanDirTree(rootPath, { maxDepth = Infinity, onProgress, shouldAbort, provider } = {}) {
+export async function scanDirTree(
+  rootPath,
+  { maxDepth = Infinity, onProgress, shouldAbort, provider } = {}
+) {
   const pv = provider || getProvider('local')
   let scanned = 0
-  const root = { name: baseName(rootPath) || basename(rootPath) || rootPath, path: rootPath, children: [] }
+  const root = {
+    name: baseName(rootPath) || basename(rootPath) || rootPath,
+    path: rootPath,
+    children: []
+  }
   const stack = [{ dir: rootPath, node: root, depth: 0 }]
 
   while (stack.length) {

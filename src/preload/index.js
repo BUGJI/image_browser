@@ -1,5 +1,4 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import { electronAPI } from '@electron-toolkit/preload'
 
 // 通过 contextBridge 暴露给渲染进程的 API（主窗口 / 设置窗口共用）
 const api = {
@@ -132,6 +131,8 @@ const api = {
   cacheRun: (rootId, mode) => ipcRenderer.invoke('cache:run', rootId, mode),
   cacheAbort: () => ipcRenderer.invoke('cache:abort'),
   cacheStatus: () => ipcRenderer.invoke('cache:status'),
+  // 各根目录缓存概况（媒体数 / 已缓存数 / 原图与缩略图字节数 / 最近维护时间）
+  cacheStats: () => ipcRenderer.invoke('cache:stats'),
   // 缓存任务进度事件：{ rootId, rootPath, phase, scanned/done/total, done/aborted/error }
   onCacheProgress: (cb) => {
     const listener = (_e, payload) => cb(payload)
@@ -141,9 +142,10 @@ const api = {
 
   // --- 图片浏览 ---
   // 文件夹图片列表（优先缓存索引带尺寸/缩略图，无缓存回退即时扫描）；
-  // 传入 searchQuery 时跨整个根目录按文件名搜索（支持 * ? 通配符）
-  imagesList: (rootId, folderPath, searchQuery) =>
-    ipcRenderer.invoke('images:list', rootId, folderPath, searchQuery),
+  // 传入 searchQuery 时跨整个根目录按文件名搜索（支持 * ? 通配符）。
+  // opts { offset, limit } 分页，返回 { items, total }
+  imagesList: (rootId, folderPath, searchQuery, opts) =>
+    ipcRenderer.invoke('images:list', rootId, folderPath, searchQuery, opts),
 
   // --- AI 语义搜索 ---
   // 向量索引维护：mode: 'update' | 'rebuild' | 'clean'
@@ -199,12 +201,10 @@ const api = {
 
 if (process.contextIsolated) {
   try {
-    contextBridge.exposeInMainWorld('electron', electronAPI)
     contextBridge.exposeInMainWorld('api', api)
   } catch (error) {
     console.error(error)
   }
 } else {
-  window.electron = electronAPI
   window.api = api
 }

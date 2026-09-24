@@ -1,0 +1,7 @@
+out
+dist
+node_modules
+resources
+build/icon.png
+package-lock.json
+*.min.*

@@ -3,7 +3,10 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { InfoFilled } from '@element-plus/icons-vue'
 import { useNotificationsStore } from '../stores/notifications'
-import { NOTIFY_TYPE_ICON as TYPE_ICON, NOTIFY_TYPE_COLOR as TYPE_COLOR } from '../utils/notification-types'
+import {
+  NOTIFY_TYPE_ICON as TYPE_ICON,
+  NOTIFY_TYPE_COLOR as TYPE_COLOR
+} from '../utils/notification-types'
 
 /**
  * 通知中心：铃铛按钮 + 历史面板（popover）。
@@ -49,7 +52,11 @@ function fmtTime(ts) {
         :offset="[-4, 6]"
         class="notify-badge"
       >
-        <button class="toolbar-btn" :title="t('app.notifications')" :aria-label="t('app.notifications')">
+        <button
+          class="toolbar-btn"
+          :title="t('app.notifications')"
+          :aria-label="t('app.notifications')"
+        >
           <el-icon :size="16"><Bell /></el-icon>
         </button>
       </el-badge>

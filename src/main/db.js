@@ -13,16 +13,22 @@ let db = null
 // 仅在 db 连接重建时清空。
 const stmtCache = new Map()
 
+// 事务嵌套深度：>0 表示已处于事务中，内层改用 SAVEPOINT（node:sqlite 不允许嵌套 BEGIN）。
+let txDepth = 0
+
 export function initDb() {
   if (db) return db
 
   const dbPath = join(app.getPath('userData'), 'image-browser.db')
   db = new DatabaseSync(dbPath)
   stmtCache.clear()
+  txDepth = 0
 
   // WAL 模式：读写并发更好，适合桌面应用
   db.exec('PRAGMA journal_mode = WAL')
   db.exec('PRAGMA foreign_keys = ON')
+  db.exec('PRAGMA busy_timeout = 5000')
+  db.exec('PRAGMA synchronous = NORMAL')
 
   return db
 }
@@ -45,15 +51,6 @@ export function prep(sql) {
 }
 
 /**
- * 便捷查询：返回全部行
- * @param {string} sql
- * @param {unknown[]} params
- */
-export function queryAll(sql, params = []) {
-  return prep(sql).all(...params)
-}
-
-/**
  * 便捷查询：返回单行
  */
 export function queryOne(sql, params = []) {
@@ -61,33 +58,29 @@ export function queryOne(sql, params = []) {
 }
 
 /**
- * 便捷执行：INSERT / UPDATE / DELETE，返回 { changes, lastInsertRowid }
- */
-export function run(sql, params = []) {
-  const result = prep(sql).run(...params)
-  return { changes: result.changes, lastInsertRowid: Number(result.lastInsertRowid) }
-}
-
-/**
- * 事务包裹：fn 内抛错会自动回滚
+ * 事务包裹：fn 内抛错会自动回滚。
+ * 支持嵌套调用：外层 BEGIN/COMMIT，内层退化为 SAVEPOINT/RELEASE。
+ * （node:sqlite 在已开启的事务里再执行 BEGIN 会直接报错，故必须区分层级。）
  */
 export function transaction(fn) {
   const database = getDb()
-  database.exec('BEGIN')
+  const nested = txDepth > 0
+  const savepoint = `sp_${txDepth}`
+  txDepth++
+  database.exec(nested ? `SAVEPOINT ${savepoint}` : 'BEGIN')
   try {
     const result = fn()
-    database.exec('COMMIT')
+    database.exec(nested ? `RELEASE ${savepoint}` : 'COMMIT')
     return result
   } catch (err) {
-    database.exec('ROLLBACK')
+    if (nested) {
+      database.exec(`ROLLBACK TO ${savepoint}`)
+      database.exec(`RELEASE ${savepoint}`)
+    } else {
+      database.exec('ROLLBACK')
+    }
     throw err
-  }
-}
-
-export function closeDb() {
-  if (db) {
-    db.close()
-    db = null
-    stmtCache.clear()
+  } finally {
+    txDepth--
   }
 }

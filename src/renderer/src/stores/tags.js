@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, shallowRef } from 'vue'
 
 /**
  * 图片标签状态（按根目录独立）：
@@ -11,7 +11,8 @@ export const useTagsStore = defineStore('tags', () => {
   const tags = ref([])
   const loaded = ref(false)
   const activeTagId = ref(null)
-  const tagItems = ref([])
+  // shallowRef：标签视图图片列表可能很大，避免深层响应式代理开销
+  const tagItems = shallowRef([])
 
   const hasApi = () => !!window.api?.tagsList
 

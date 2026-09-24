@@ -19,7 +19,7 @@
  * 附件名 ocr-runtime-<platform>.zip。
  */
 
-import { promises as fsp, existsSync, readFileSync } from 'fs'
+import { promises as fsp, existsSync } from 'fs'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { execFileSync } from 'child_process'
@@ -38,7 +38,10 @@ function parseArgs() {
     const i = args.indexOf(flag)
     return i >= 0 && args[i + 1] ? args[i + 1] : def
   }
-  return { platform: get('--platform', `${process.platform}-${process.arch}`), out: get('--out', 'dist') }
+  return {
+    platform: get('--platform', `${process.platform}-${process.arch}`),
+    out: get('--out', 'dist')
+  }
 }
 
 const PLATFORM = parseArgs().platform

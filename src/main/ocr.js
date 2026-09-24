@@ -1,10 +1,12 @@
 import { Worker } from 'node:worker_threads'
-import { join } from 'path'
+import { join, extname } from 'path'
 import { createRequire } from 'module'
 import { getRoot } from './roots'
 import { openRootCache } from './cache'
 import { broadcast } from './windows'
 import { ScanAbortedError } from './fs-scan.mjs'
+import { VIDEO_EXTS } from './scan-constants.mjs'
+import { metaSet, prep as prepCache } from './cache-db-utils.mjs'
 import {
   isAddonInstalled,
   getAddonNodeModules,
@@ -37,9 +39,8 @@ import {
  */
 
 const OCROCR_BATCH = 20
-
-// 视频文件（如 .webm）不参与 OCR 文字识别
-const VIDEO_RE = /\.webm$/i
+// 单批 OCR 超时：worker 若卡死（坏图/ONNX 异常）不会永久挂起，超时后重启 worker 并跳过本批
+const OCR_BATCH_TIMEOUT = 120000
 
 /**
  * OCR 是否可用：@repeato/ocr（含模型）随包内置，
@@ -108,9 +109,10 @@ function ensureOcrTable(db) {
  */
 function ensureOcrFts(db) {
   try {
-    const has = db
-      .prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'ocr_fts'")
-      .get()
+    const has = prepCache(
+      db,
+      "SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'ocr_fts'"
+    ).get()
     if (has) return
     db.exec(`
       CREATE VIRTUAL TABLE ocr_fts USING fts5(
@@ -141,12 +143,6 @@ function ensureOcrFts(db) {
   }
 }
 
-function metaSet(db, key, value) {
-  db.prepare(
-    'INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
-  ).run(key, String(value))
-}
-
 /**
  * 执行 OCR 索引维护任务
  * @param {{id:number, path:string, alias?:string}} root
@@ -156,7 +152,9 @@ function metaSet(db, key, value) {
  */
 export async function runOcrIndexTask(root, mode, { onProgress = () => {}, shouldAbort } = {}) {
   if (!checkOcrAvailable()) {
-    const err = new Error('未安装 OCR 依赖（@repeato/ocr), 请先执行 `npm install @repeato/ocr sharp`')
+    const err = new Error(
+      '未安装 OCR 依赖（@repeato/ocr), 请先执行 `npm install @repeato/ocr sharp`'
+    )
     err.code = 'OCR_UNINSTALLED'
     throw err
   }
@@ -196,7 +194,8 @@ export async function runOcrIndexTask(root, mode, { onProgress = () => {}, shoul
 
   const need = []
   for (const f of files) {
-    if (VIDEO_RE.test(f.name)) continue
+    // 视频文件（如 .webm）不参与 OCR 文字识别
+    if (VIDEO_EXTS.has(extname(f.name).toLowerCase())) continue
     const prev = existingMap.get(f.abs_path)
     if (prev === undefined || prev !== f.mtime) need.push(f)
   }
@@ -220,7 +219,7 @@ export async function runOcrIndexTask(root, mode, { onProgress = () => {}, shoul
   let done = 0
   let uninstalled = false
 
-  const worker = spawnOcrWorker()
+  let worker = spawnOcrWorker()
   let abortedTimer = null
   const abortedState = { aborted: false }
   const checkAbort = () => {
@@ -233,18 +232,42 @@ export async function runOcrIndexTask(root, mode, { onProgress = () => {}, shoul
       if (shouldAbort?.()) abortedState.aborted = true
     }, 200)
 
-    // 每批与 worker 通信一次，批内逐条回写
+    // 每批与 worker 通信一次，批内结果包进一个事务回写（减少 WAL 提交次数）
     for (let i = 0; i < need.length; i += OCROCR_BATCH) {
       checkAbort()
       const batch = need.slice(i, i + OCROCR_BATCH)
-      await runOcrBatch(worker, batch, {
-        upsertStmt,
-        stats,
-        createdAt: nowMs,
-        onFailure: (j) => {
-          if (j.uninstalled) uninstalled = true
+      let batchErr = null
+      db.exec('BEGIN')
+      try {
+        await runOcrBatch(worker, batch, {
+          upsertStmt,
+          stats,
+          createdAt: nowMs,
+          onFailure: (j) => {
+            if (j.uninstalled) uninstalled = true
+          }
+        })
+        db.exec('COMMIT')
+      } catch (err) {
+        batchErr = err
+        try {
+          db.exec('ROLLBACK')
+        } catch {
+          /* ignore */
         }
-      })
+      }
+      if (batchErr) {
+        // 单批超时：worker 已卡死，终止并重启，跳过本批继续后续，避免整任务永久挂起
+        if (batchErr?.code === 'OCR_BATCH_TIMEOUT') {
+          stats.failed += batch.length
+          await worker.terminate().catch(() => {})
+          worker = spawnOcrWorker()
+          done += batch.length
+          onProgress({ phase: 'ocr', done, total, current: batch[batch.length - 1].name })
+          continue
+        }
+        throw batchErr
+      }
       done += batch.length
       onProgress({ phase: 'ocr', done, total, current: batch[batch.length - 1].name })
       if (uninstalled) break // 依赖缺失时整批全失败，无需继续空跑
@@ -277,12 +300,17 @@ export async function runOcrIndexTask(root, mode, { onProgress = () => {}, shoul
 /** 发送一批 OCR 任务给 worker，逐条回写结果；返回 Promise（批结束 resolve） */
 function runOcrBatch(worker, jobs, { upsertStmt, stats, onFailure, createdAt }) {
   return new Promise((resolve, reject) => {
-    let pending = jobs.length
     let settled = false
     const jobsByAbs = new Map(jobs.map((j) => [j.abs_path, j]))
+    const timeout = setTimeout(() => {
+      const err = new Error('OCR worker 批次超时')
+      err.code = 'OCR_BATCH_TIMEOUT'
+      finish(err)
+    }, OCR_BATCH_TIMEOUT)
     const finish = (err) => {
       if (settled) return
       settled = true
+      clearTimeout(timeout)
       cleanup()
       if (err) reject(err)
       else resolve()
@@ -294,11 +322,9 @@ function runOcrBatch(worker, jobs, { upsertStmt, stats, onFailure, createdAt }) 
           upsertStmt.run(m.id, job.name, job.folder, m.text, job.mtime, createdAt, createdAt)
         }
         stats.count++
-        pending--
       } else if (m.type === 'ocr-fail') {
         stats.failed++
         onFailure?.(m)
-        pending--
       } else if (m.type === 'ocr-done-all') {
         finish()
       } else if (m.type === 'error') {
@@ -326,13 +352,19 @@ function runOcrBatch(worker, jobs, { upsertStmt, stats, onFailure, createdAt }) 
 async function releaseWorker(worker) {
   return new Promise((resolve) => {
     const timer = setTimeout(() => {
-      worker.terminate().catch(() => {}).finally(resolve)
+      worker
+        .terminate()
+        .catch(() => {})
+        .finally(resolve)
     }, 3000)
     try {
       worker.postMessage({ type: 'release' })
     } catch {
       clearTimeout(timer)
-      worker.terminate().catch(() => {}).finally(resolve)
+      worker
+        .terminate()
+        .catch(() => {})
+        .finally(resolve)
       return
     }
     // 等 release 处理完再 terminate
@@ -435,6 +467,9 @@ export function registerOcrIpc({ ipcMain }) {
           console.error('[ocr] task failed:', err)
           send({ error: String(err?.message || err), code: err?.code })
         }
+      })
+      .finally(() => {
+        if (ocrTaskController === ac) ocrTaskController = null
       })
 
     return { started: true }

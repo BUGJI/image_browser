@@ -10,7 +10,11 @@ export default {
     operationFailed: '操作失败',
     preparing: '准备中…',
     loading: '加载中…',
-    separator: '，'
+    separator: '，',
+    warning: '警告',
+    resetDefaults: '恢复默认值',
+    resetConfirm: '确定将本组设置恢复为默认值？',
+    resetDone: '已恢复默认值'
   },
   notifications: {
     active: '进行中',
@@ -115,7 +119,8 @@ export default {
     navHint: '←/→ 切换 · Esc 关闭',
     close: '关闭',
     prev: '上一张',
-    next: '下一张'
+    next: '下一张',
+    dialogLabel: '图片查看器'
   },
   closeAsk: {
     title: '关闭程序',
@@ -134,6 +139,7 @@ export default {
     sidebar: '侧栏',
     theme: '主题设置',
     animations: '动画',
+    browse: '浏览与性能',
     devOptions: '开发者选项',
     performance: '性能',
     cardPage: '图片卡片',
@@ -144,6 +150,7 @@ export default {
     test: '测试',
     about: '关于',
     language: '语言',
+    hiddenTag: '隐藏',
     windowTitle: '设置 - Image Browser'
   },
   settingsSidebar: {
@@ -195,6 +202,20 @@ export default {
     moveUp: '上移',
     moveDown: '下移',
     reordered: '排序已保存',
+    statsTitle: '缓存概况',
+    statRefresh: '刷新',
+    statRoots: '根目录数',
+    statMedia: '已索引媒体',
+    statCoverage: '缩略图覆盖率',
+    statCacheSize: '缩略图占用',
+    statSrcSize: '原图 {size}',
+    statNoCache: '未建立缓存',
+    colMedia: '媒体数',
+    colCacheState: '缓存状态',
+    colCacheSize: '缓存占用',
+    colLastTask: '最近维护',
+    neverMaintained: '从未维护',
+    updateCacheNow: '更新缓存',
     maintainTools: '性能优化',
     taskRunning: '任务运行中',
     maintainDesc:
@@ -263,9 +284,11 @@ export default {
     showFavoritesDesc: '在左侧目录树顶部显示「我的收藏」入口（展示当前根目录下收藏的图片）'
   },
   tags: {
-    pageDesc: '管理当前根目录下的图片标签：可新建、重命名、删除或合并。标签在灯箱中打给图片，命中数即该标签下的图片数。',
+    pageDesc:
+      '管理当前根目录下的图片标签：可新建、重命名、删除或合并。标签在灯箱中打给图片，命中数即该标签下的图片数。',
     enableMaster: '启用标签',
-    masterDesc: '关闭后，主界面侧栏的「标签」入口与灯箱里的打标按钮将隐藏，已打的标签数据仍会保留。',
+    masterDesc:
+      '关闭后，主界面侧栏的「标签」入口与灯箱里的打标按钮将隐藏，已打的标签数据仍会保留。',
     enabled: '标签已启用',
     disabled: '标签已关闭',
     lightboxBtn: '在灯箱中显示打标按钮',
@@ -353,7 +376,8 @@ export default {
     pressKeys: '按下快捷键',
     unbound: '未绑定',
     conflict: '该组合已绑定给「{action}」，请换一个',
-    recordTip: '点击按键区域后直接按下新组合；普通字母/数字键需带修饰键（Ctrl/Alt/Shift），F2~F24 可单独使用。',
+    recordTip:
+      '点击按键区域后直接按下新组合；普通字母/数字键需带修饰键（Ctrl/Alt/Shift），F2~F24 可单独使用。',
     reset: '恢复默认',
     wheelSection: '灯箱滚轮',
     wheelAction: '滚轮行为',
@@ -408,7 +432,8 @@ export default {
     disabled: 'AI 搜索已关闭',
     maintainTools: '维护工具',
     taskRunning: '任务运行中',
-    maintainDesc: '为所选根目录的图片建立向量索引（视觉模型生成描述 + 向量模型转向量），供 AI 语义搜索使用。',
+    maintainDesc:
+      '为所选根目录的图片建立向量索引（视觉模型生成描述 + 向量模型转向量），供 AI 语义搜索使用。',
     maintainDir: '维护根目录',
     maintainDirDesc: '选择要维护的根目录',
     selectMaintainRoot: '选择要维护的根目录',
@@ -423,7 +448,8 @@ export default {
     statsEmbedded: '已向量化 {n} 张',
     statsRemoved: '清理 {n} 条失效',
     statsFailed: '失败 {n} 张',
-    usageTip: '使用流程：先在「维护工具」中为根目录建立向量索引，然后在主界面打开 AI 搜索开关，输入自然语言描述（如“海边的日落”）回车即可语义检索。'
+    usageTip:
+      '使用流程：先在「维护工具」中为根目录建立向量索引，然后在主界面打开 AI 搜索开关，输入自然语言描述（如“海边的日落”）回车即可语义检索。'
   },
   ocrSearch: {
     pageDesc: '用 PaddleOCR 识别图片内的文字，按「图内文字」快速搜索图片。',
@@ -432,7 +458,8 @@ export default {
     installed: 'OCR 运行时组件已安装，可正常建立图内文字索引。',
     notInstalled: '未安装 OCR 运行时组件，索引功能不可用。',
     runtimeTitle: '运行时组件',
-    runtimeDesc: '图内文字识别所需的运行组件，体积较大（约 60–100MB），不随应用附带，可在此按需下载或导入。',
+    runtimeDesc:
+      '图内文字识别所需的运行组件，体积较大（约 60–100MB），不随应用附带，可在此按需下载或导入。',
     runtimeInstalledTag: '已安装',
     runtimeMissingTag: '未安装',
     runtimeUnsupportedTag: '不支持',
@@ -466,7 +493,8 @@ export default {
     statsCount: '已识别 {n} 张',
     statsRemoved: '清理 {n} 条失效',
     statsFailed: '失败 {n} 张',
-    usageTip: '使用流程：先在「运行时组件」中下载/导入组件，再到「维护工具」为根目录建立文字索引；之后在搜索框输入图片内出现的文字回车，即可与文件名一起搜索定位。'
+    usageTip:
+      '使用流程：先在「运行时组件」中下载/导入组件，再到「维护工具」为根目录建立文字索引；之后在搜索框输入图片内出现的文字回车，即可与文件名一起搜索定位。'
   },
   devOptions: {
     pageDesc: '面向开发者的调试与实验性功能。',
@@ -481,14 +509,7 @@ export default {
     showHidden: '显示隐藏功能',
     showHiddenDesc: '开启后显示默认隐藏的功能入口（如 AI 搜索）',
     logging: '记录日志',
-    loggingDesc:
-      '捕获所有日志，自动写入 userData/logs/app-YYYYMMDD.log',
-    zoomTitle: '瀑布流',
-    zoomMax: '缩放滑块最大值',
-    zoomMaxDesc: '主界面缩放滑块的最大值（{min} ~ {max}）',
-    imageTallCap: '卡片比例限制',
-    imageTallCapDesc:
-      '开：缩略图卡片宽高比限制在 1:5 ~ 2:1（宽:高）之间，更长的图封顶 1:5、更宽的图封底 2:1，超出的等比缩放整图显示（不会撑爆区域或压成细条）；关：保持原比例显示。',
+    loggingDesc: '捕获所有日志，自动写入 userData/logs/app-YYYYMMDD.log',
     lightZoomTitle: '灯箱缩放',
     lightZoomDesc: '以下参数下次打开灯箱时生效。',
     lightZoomMin: '最小缩放倍数',
@@ -498,39 +519,9 @@ export default {
     lightZoomStep: '每档缩放倍率',
     lightZoomStepDesc: '滚轮每格放大/缩小的倍率（如 1.2 = 每次放大 20%）',
     lightZoomSaved: '已保存：灯箱缩放参数下次打开灯箱时生效',
-    cacheTitle: '缓存维护',
-    cacheDesc: '以下参数下次运行「根目录 → 更新/重建缓存」时生效。',
-    cacheUseCli: '使用外部转换器建立缓存',
-    cacheUseCliDesc:
-      '开启后缩略图改为一次调用 image_compresser.exe 生成（而非应用内解码），可绕开应用内一切解码/调度问题。exe 路径在下方填写（留空自动探测）。自动使用 --resize，宽高/质量/并发沿用上面的设置。',
-    cacheCliExe: '转换器路径',
-    cacheCliExeDesc:
-      'image_compresser.exe 的绝对路径。留空 = 自动在项目根目录 / 打包 extraResources 探测。',
-    cacheSequential: '建缓存时连续读取',
-    cacheSequentialDesc:
-      '开（默认）：任务按扫描顺序分配，每个 worker 连续读取同一目录的文件，对机械硬盘更友好。关：任务跨目录打散轮流分配，重图/卡顿分散到不同时刻，整体推进更平滑（更适合 SSD）。',
-    thumbWidth: '缩略图最大宽度',
-    thumbWidthDesc: '生成 webp 缩略图的宽边上限（像素，64 ~ 4096）',
-    thumbQuality: '缩略图质量',
-    thumbQualityDesc: 'webp 编码质量（1 ~ 100，越高越清晰/越大）',
-    scanBatch: '扫描批次数量',
-    scanBatchDesc: '扫描时每批返回的文件数（10 ~ 1000，越小越省内存）',
-    thumbBatch: '缩略图批次数量',
-    thumbBatchDesc: '每次交给 worker 生成的缩略图数量（10 ~ 500）',
-    thumbWorkers: '缩略图并发 worker 数',
-    thumbWorkersDesc:
-      '并行解码/编码缩略图的 worker 数量。0 = 自动（同时受 CPU 核数与可用内存约束，超大图解码很吃内存）；调大更吃 CPU/内存，内存不足会反而变慢（抖动）。',
-    thumbTimeout: '单段超时（毫秒）',
-    thumbTimeoutDesc:
-      '一个 worker 段最多运行多久，超时则跳过该段剩余任务（10000 ~ 600000）。',
-    thumbSlow: '重图告警阈值（毫秒）',
-    thumbSlowDesc:
-      '生成耗时超过该值的缩略图，会打印 [WARN] 及文件路径（1000 ~ 60000），便于定位重图。',
     enabled: '开发者选项已启用',
     disabled: '开发者选项已关闭',
     devtoolsReopened: '已重新打开开发者工具',
-    zoomMaxSaved: '已保存：缩放最大值 {n}',
-    cacheSaved: '已保存：下次运行缓存维护时生效',
     loggingOn: '日志记录已开启',
     loggingOff: '日志记录已关闭'
   },
@@ -599,7 +590,7 @@ export default {
   },
   performance: {
     pageDesc:
-      '让瀑布流浏览更跟手的调节项：以少量解码/IO 或磁盘空间换取响应速度。加载类改动即时生效，缩略图尺寸需重建缓存后生效。',
+      '瀑布流浏览的显示与性能调节：以少量解码/IO 或磁盘空间换取响应速度。加载/显示类改动即时生效，缩略图相关参数需运行缓存维护后生效。',
     scrollTitle: '网格滚动与预加载',
     bufferLazy: '缓冲区图片懒加载',
     bufferLazyDesc:
@@ -608,14 +599,46 @@ export default {
     preloadDesc:
       '在视口上下各提前多远准备图片。越大：超快滚动时越不容易出现空白，但同时加载更多；越小：IO/解码压力越小。',
     preloadUnit: '{n} px',
-    thumbTitle: '缩略图缓存尺寸',
+    cardTitle: '瀑布流卡片',
+    zoomMax: '缩放滑块最大值',
+    zoomMaxDesc: '主界面缩放滑块的最大值（{min} ~ {max}）',
+    imageTallCap: '卡片比例限制',
+    imageTallCapDesc:
+      '开：缩略图卡片宽高比限制在 1:5 ~ 2:1（宽:高）之间，更长的图封顶 1:5、更宽的图封底 2:1，超出的等比缩放整图显示（不会撑爆区域或压成细条）；关：保持原比例显示。',
+    zoomMaxSaved: '已保存：缩放最大值 {n}',
+    thumbTitle: '缩略图缓存',
+    thumbWidth: '缩略图最大宽度',
     thumbDesc:
       'webp 缩略图的目标宽度。越小解码越快、越省内存与磁盘；常见缩放/DPI 下网格卡片实际只需约 300–400px。追求跟手可设为 256–384。',
     thumbPx: '{n} px',
+    thumbQuality: '缩略图质量',
+    thumbQualityDesc: 'webp 编码质量（1 ~ 100，越高越清晰/越大）',
+    scanBatch: '扫描批次数量',
+    scanBatchDesc: '扫描时每批返回的文件数（10 ~ 1000，越小越省内存）',
+    thumbBatch: '缩略图批次数量',
+    thumbBatchDesc: '每次交给 worker 生成的缩略图数量（10 ~ 500）',
+    thumbWorkers: '缩略图并发 worker 数',
+    thumbWorkersDesc:
+      '并行解码/编码缩略图的 worker 数量。0 = 自动（同时受 CPU 核数与可用内存约束，超大图解码很吃内存）；调大更吃 CPU/内存，内存不足会反而变慢（抖动）。',
+    thumbTimeout: '单段超时（毫秒）',
+    thumbTimeoutDesc: '一个 worker 段最多运行多久，超时则跳过该段剩余任务（10000 ~ 600000）。',
+    thumbSlow: '重图告警阈值（毫秒）',
+    thumbSlowDesc:
+      '生成耗时超过该值的缩略图，会打印 [WARN] 及文件路径（1000 ~ 60000），便于定位重图。',
     thumbApplyHint:
-      '仅对新生成的缩略图生效。设置后到「根目录」对该根执行一次「更新缓存」或「重建缓存」即可；已缓存的旧图最长 1 天内仍可能沿用旧尺寸。',
-    advancedHint:
-      '缩略图质量、生成批大小等可在「开发者选项」微调；缓存维护入口在「根目录」页。',
+      '仅对新生成的缩略图生效。改动后到下方「缓存维护工具」对根目录执行一次「增量加速」或「整库重建」即可；已缓存的旧图最长 1 天内仍可能沿用旧尺寸。',
+    cacheGenTitle: '缓存生成方式',
+    cacheDesc: '以下参数下次运行「缓存维护工具」时生效。',
+    cacheUseCli: '使用外部转换器建立缓存',
+    cacheUseCliDesc:
+      '开启后缩略图改为一次调用 image_compresser.exe 生成（而非应用内解码），可绕开应用内一切解码/调度问题。exe 路径在下方填写（留空自动探测）。自动使用 --resize，宽高/质量/并发沿用上面的设置。',
+    cacheCliExe: '转换器路径',
+    cacheCliExeDesc:
+      'image_compresser.exe 的绝对路径。留空 = 自动在项目根目录 / 打包 extraResources 探测。',
+    cacheSequential: '建缓存时连续读取',
+    cacheSequentialDesc:
+      '开（默认）：任务按扫描顺序分配，每个 worker 连续读取同一目录的文件，对机械硬盘更友好。关：任务跨目录打散轮流分配，重图/卡顿分散到不同时刻，整体推进更平滑（更适合 SSD）。',
+    cacheSaved: '已保存：下次运行缓存维护时生效',
     saved: '已保存'
   },
   update: {

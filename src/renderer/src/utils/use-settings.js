@@ -6,12 +6,16 @@ export const asBool = (def) => (raw) => (def ? raw !== 'false' : raw === 'true')
 /** 枚举归一化：不在白名单内回退默认值 */
 export const asEnum = (allowed, def) => (raw) => (allowed.includes(raw) ? raw : def)
 
-/** 数值归一化：非法值回退默认；可选最小值钳制 */
-export const asNumber = (def, min = null) => (raw) => {
-  const n = parseFloat(raw)
-  if (!Number.isFinite(n)) return def
-  return min != null ? Math.max(min, n) : n
-}
+/** 数值归一化：非法值回退默认；可选最小 / 最大值钳制 */
+export const asNumber =
+  (def, min = null, max = null) =>
+  (raw) => {
+    let n = parseFloat(raw)
+    if (!Number.isFinite(n)) return def
+    if (min != null) n = Math.max(min, n)
+    if (max != null) n = Math.min(max, n)
+    return n
+  }
 
 /**
  * 声明式窗口设置：把「默认值 + 归一化 + 变更副作用」集中在一处，
@@ -28,11 +32,14 @@ export function useSettings(entries) {
     refs[key] = ref(cfg.normalize(String(cfg.default)))
   }
 
+  // 并行读取：条目较多时避免串行 IPC 往返拖慢启动
   async function load() {
-    for (const [key, cfg] of Object.entries(entries)) {
-      const raw = await window.api.getSetting(key, String(cfg.default))
-      refs[key].value = cfg.normalize(raw)
-    }
+    await Promise.all(
+      Object.entries(entries).map(async ([key, cfg]) => {
+        const raw = await window.api.getSetting(key, String(cfg.default))
+        refs[key].value = cfg.normalize(raw)
+      })
+    )
   }
 
   function handleChange(key, value) {

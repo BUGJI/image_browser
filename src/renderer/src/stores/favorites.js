@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, shallowRef, triggerRef } from 'vue'
 
 /**
  * 图片收藏状态（按根目录）
@@ -8,8 +8,10 @@ import { ref } from 'vue'
  */
 export const useFavoritesStore = defineStore('favorites', () => {
   const rootId = ref(null)
-  const list = ref([])
-  const absPaths = ref(new Set())
+  // shallowRef：收藏列表可能很大，避免深层响应式代理每一条记录的开销
+  const list = shallowRef([])
+  // shallowRef + 原地增删 + triggerRef：避免每次收藏都替换整个 Set 而导致所有卡片重渲染
+  const absPaths = shallowRef(new Set())
   const loaded = ref(false)
 
   async function load(root) {
@@ -42,24 +44,27 @@ export const useFavoritesStore = defineStore('favorites', () => {
     if (!root?.id || !item?.absPath) return false
     if (!window.api?.favToggle) {
       // 浏览器调试环境不支持，仅在内存模拟
-      const next = new Set(absPaths.value)
-      if (next.has(item.absPath)) next.delete(item.absPath)
-      else next.add(item.absPath)
-      absPaths.value = next
-      return next.has(item.absPath)
+      const set = absPaths.value
+      if (set.has(item.absPath)) set.delete(item.absPath)
+      else set.add(item.absPath)
+      triggerRef(absPaths)
+      return set.has(item.absPath)
     }
     const res = await window.api.favToggle(root.id, { absPath: item.absPath, name: item.name })
     const { added } = res || {}
-    const next = new Set(absPaths.value)
+    const set = absPaths.value
     if (added) {
-      next.add(item.absPath)
+      set.add(item.absPath)
       // 保持“我的收藏”视图实时更新
-      list.value = [{ rootId: root.id, absPath: item.absPath, name: item.name || '' }, ...list.value]
+      list.value = [
+        { rootId: root.id, absPath: item.absPath, name: item.name || '' },
+        ...list.value
+      ]
     } else {
-      next.delete(item.absPath)
+      set.delete(item.absPath)
       list.value = list.value.filter((r) => r.absPath !== item.absPath)
     }
-    absPaths.value = next
+    triggerRef(absPaths)
     return added
   }
 

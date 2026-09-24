@@ -85,19 +85,19 @@ image_browser/
 
 ### API 一览
 
-| 分组 | 方法 |
-| --- | --- |
-| 系统信息 | `getDbVersion()`、`versions` |
-| 窗口控制 | `windowMinimize()`、`windowToggleMaximize()`、`windowClose()`、`windowCloseResult()`、`onAskClose()`、`onMaximizedChange()` |
-| 设置窗口 | `openSettings()` |
-| 设置读写 | `getSetting()`、`setSetting()`、`onSettingsChanged()` |
-| 应用 | `appRelaunch()`、`checkUpdate()`、`toggleDevtools()`、`restartDevtools()`、`loggingSet()` |
-| 根目录 | `rootsList()`、`rootsAdd()`、`rootsUpdate()`、`rootsRemove()`、`rootsReorder()`、`rootsGetCurrent()`、`rootsSetCurrent()`、`onRootsChanged()`、`onRootsCurrentChanged()` |
-| 目录扫描 | `selectDirectory()`、`scanTree()`、`scanAbort()`、`onScanProgress()` |
-| 缓存维护 | `cacheRun(rootId, mode)`、`cacheAbort()`、`cacheStatus()`、`onCacheProgress()` |
-| 图片浏览 | `imagesList()`、`copyImageDataUrl()`、`copyImagePath()` |
-| AI 语义搜索 | `aiIndex(rootId, mode)`、`aiAbort()`、`aiStatus()`、`aiSearch(rootId, query)`、`aiTestConnection()`、`aiTestCaption()`、`aiTestEmbed()`、`onAiProgress()` |
-| OCR 图内文字搜索 | `ocrCheck()`、`ocrIndex(rootId, mode)`、`ocrAbort()`、`ocrStatus()`、`ocrSearch(rootId, query)`、`onOcrProgress()` |
+| 分组             | 方法                                                                                                                                                                     |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 系统信息         | `getDbVersion()`、`versions`                                                                                                                                             |
+| 窗口控制         | `windowMinimize()`、`windowToggleMaximize()`、`windowClose()`、`windowCloseResult()`、`onAskClose()`、`onMaximizedChange()`                                              |
+| 设置窗口         | `openSettings()`                                                                                                                                                         |
+| 设置读写         | `getSetting()`、`setSetting()`、`onSettingsChanged()`                                                                                                                    |
+| 应用             | `appRelaunch()`、`checkUpdate()`、`toggleDevtools()`、`restartDevtools()`、`loggingSet()`                                                                                |
+| 根目录           | `rootsList()`、`rootsAdd()`、`rootsUpdate()`、`rootsRemove()`、`rootsReorder()`、`rootsGetCurrent()`、`rootsSetCurrent()`、`onRootsChanged()`、`onRootsCurrentChanged()` |
+| 目录扫描         | `selectDirectory()`、`scanTree()`、`scanAbort()`、`onScanProgress()`                                                                                                     |
+| 缓存维护         | `cacheRun(rootId, mode)`、`cacheAbort()`、`cacheStatus()`、`onCacheProgress()`                                                                                           |
+| 图片浏览         | `imagesList()`、`copyImageDataUrl()`、`copyImagePath()`                                                                                                                  |
+| AI 语义搜索      | `aiIndex(rootId, mode)`、`aiAbort()`、`aiStatus()`、`aiSearch(rootId, query)`、`aiTestConnection()`、`aiTestCaption()`、`aiTestEmbed()`、`onAiProgress()`                |
+| OCR 图内文字搜索 | `ocrCheck()`、`ocrIndex(rootId, mode)`、`ocrAbort()`、`ocrStatus()`、`ocrSearch(rootId, query)`、`onOcrProgress()`                                                       |
 
 **添加新 IPC 的路径**：`src/main/index.js` 用 `ipcMain.handle` 注册 → `src/preload/index.js` 在 `api` 中封装 → 渲染进程 `window.api.xxx()` 调用。跨窗口广播使用 `windows.js` 的 `broadcast(channel, payload)`。
 
@@ -127,12 +127,12 @@ image_browser/
 
 ### 四种维护模式
 
-| 模式 | 行为 |
-| --- | --- |
-| `update` | 增量：扫描新增 / 变更 / 删除，为新增与变更图片生成缩略图 |
-| `rebuild` | 全量：清空缓存目录与索引，重新扫描 + 全部重新生成 |
+| 模式         | 行为                                                                         |
+| ------------ | ---------------------------------------------------------------------------- |
+| `update`     | 增量：扫描新增 / 变更 / 删除，为新增与变更图片生成缩略图                     |
+| `rebuild`    | 全量：清空缓存目录与索引，重新扫描 + 全部重新生成                            |
 | `scan-cache` | 扫描 `image_cache/` 里已生成的缩略图计入索引（复用已有结果，清理孤儿缩略图） |
-| `clean` | 移除索引中磁盘上已不存在的记录，删除无引用的缩略图文件 |
+| `clean`      | 移除索引中磁盘上已不存在的记录，删除无引用的缩略图文件                       |
 
 ### 缩略图生成
 
@@ -142,12 +142,12 @@ image_browser/
 
 ### 配置项（开发者选项可调）
 
-| 设置 key | 默认值 | 说明 |
-| --- | --- | --- |
-| `cacheThumbWidth` | 512 | 缩略图宽度 |
-| `cacheThumbQuality` | 80 | WebP 质量（1-100） |
-| `cacheScanBatch` | 100 | 扫描分批大小 |
-| `cacheThumbBatch` | 100 | 缩略图每批任务数 |
+| 设置 key            | 默认值 | 说明               |
+| ------------------- | ------ | ------------------ |
+| `cacheThumbWidth`   | 512    | 缩略图宽度         |
+| `cacheThumbQuality` | 80     | WebP 质量（1-100） |
+| `cacheScanBatch`    | 100    | 扫描分批大小       |
+| `cacheThumbBatch`   | 100    | 缩略图每批任务数   |
 
 ## 自定义协议 image://
 

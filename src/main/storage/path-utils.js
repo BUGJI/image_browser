@@ -1,4 +1,4 @@
-import { basename, dirname, extname, join, relative } from 'path'
+import { basename, dirname, isAbsolute, join, relative } from 'path'
 
 /**
  * 路径工具：同时兼容本地文件系统路径与远程伪 URL 路径。
@@ -46,13 +46,28 @@ export function joinPath(base, ...parts) {
  */
 export function relFromRoot(rootPath, target) {
   if (!isRemotePath(rootPath)) {
-    return relative(rootPath, target).split(/[\\/]+/).join('/')
+    return relative(rootPath, target)
+      .split(/[\\/]+/)
+      .join('/')
   }
   const root = trimTrailingSlash(rootPath)
   const t = trimTrailingSlash(String(target))
   if (t === root) return ''
   if (t.startsWith(root + '/')) return t.slice(root.length + 1)
   return ''
+}
+
+/**
+ * 判断 target 是否位于 rootPath 之内（不含 rootPath 自身）。
+ * 兼容本地与远程；用于协议/剪贴板等入口的越界防护。
+ */
+export function isInsideRoot(rootPath, target) {
+  if (!rootPath || !target) return false
+  const rel = relFromRoot(rootPath, target)
+  if (!rel || rel.startsWith('..')) return false
+  // Windows 跨盘符时 relative() 返回绝对路径而非 `..` 前缀
+  if (isRemotePath(rootPath)) return true
+  return !isAbsolute(rel)
 }
 
 /**

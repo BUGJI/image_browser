@@ -3,6 +3,8 @@ import { ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { Promotion } from '@element-plus/icons-vue'
+import SettingCard from '../SettingCard.vue'
+import SettingRow from '../SettingRow.vue'
 
 const { t } = useI18n()
 
@@ -47,65 +49,25 @@ async function onCheckUpdate() {
     <h2>{{ t('settings.about') }}</h2>
     <p class="page-desc">{{ t('about.pageDesc') }}</p>
 
-    <el-card class="update-card" shadow="never">
-      <div class="update-row">
-        <div class="update-label">
-          <div class="update-name">{{ t('about.checkUpdate') }}</div>
-          <div class="update-desc">{{ t('about.updateDesc') }}</div>
-        </div>
+    <SettingCard>
+      <SettingRow :name="t('about.checkUpdate')" :desc="t('about.updateDesc')">
         <el-button type="primary" :icon="Promotion" :loading="checking" @click="onCheckUpdate">
           {{ checking ? t('about.checking') : t('about.checkUpdate') }}
         </el-button>
-      </div>
-    </el-card>
+      </SettingRow>
+    </SettingCard>
 
     <el-descriptions :column="1" border class="info-table">
-      <el-descriptions-item :label="t('about.version')">{{ appVersion || '-' }}</el-descriptions-item>
+      <el-descriptions-item :label="t('about.version')">{{
+        appVersion || '-'
+      }}</el-descriptions-item>
       <el-descriptions-item label="Electron">{{ info.electron }}</el-descriptions-item>
       <el-descriptions-item label="Chromium">{{ info.chrome }}</el-descriptions-item>
       <el-descriptions-item :label="t('about.node')">{{ info.node }}</el-descriptions-item>
       <el-descriptions-item :label="t('about.author')">BUGJI</el-descriptions-item>
-      <el-descriptions-item :label="t('about.stack')">Electron · Vue 3 · Pinia · Element Plus · node:sqlite</el-descriptions-item>
+      <el-descriptions-item :label="t('about.stack')"
+        >Electron · Vue 3 · Pinia · Element Plus · node:sqlite</el-descriptions-item
+      >
     </el-descriptions>
   </div>
 </template>
-
-<style scoped>
-.page h2 {
-  margin: 0 0 6px;
-  font-size: 20px;
-}
-
-.page-desc {
-  color: #999;
-  font-size: 13px;
-  margin-bottom: 24px;
-}
-
-.update-card {
-  max-width: 720px;
-  margin-bottom: 24px;
-}
-
-.update-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.update-name {
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.update-desc {
-  margin-top: 2px;
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
-}
-
-.info-table {
-  max-width: 720px;
-}
-</style>

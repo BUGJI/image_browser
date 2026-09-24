@@ -6,6 +6,9 @@ import { getSetting } from './settings'
 import { openRootCache } from './cache'
 import { broadcast } from './windows'
 import { ScanAbortedError } from './fs-scan.mjs'
+import { MIME_BY_EXT, VIDEO_EXTS } from './scan-constants.mjs'
+import { metaSet, prep as prepCache } from './cache-db-utils.mjs'
+import { mapLimit } from './concurrency.mjs'
 
 /**
  * AI 语义搜索（OpenAI 兼容接口）
@@ -21,6 +24,17 @@ import { ScanAbortedError } from './fs-scan.mjs'
  *   update  增量：为新增/变更（mtime 不同）的图片补建向量，移除已删除的
  *   rebuild 全量：清空 ai_embeddings，重新为全部图片建向量
  *   clean   清理：仅移除源文件已不存在的失效向量
+ *
+ * ⚠️ 现状说明（请勿在方案成熟前重构或删除本模块的向量存取逻辑）
+ *
+ * 当前的「图片描述 → 向量 → JSON TEXT 存储 → 全表余弦扫描」链路开销很大，
+ * 且设计本身存在问题（描述模型能力有限、向量数据类型与检索方式低效）。
+ * 经决定暂时保留现状、不再扩展本方向：等出现更成熟的「原生多模态向量模型 +
+ * 高效 ANN 检索」方案后，再统一改造本模块架构或另行实装，而不是在现有实现上
+ * 继续打补丁。
+ *
+ * 因此：可以修复 bug（网络/错误处理等），但不要改动向量存储格式与检索算法，
+ * 也不要删除本模块。相关已知瓶颈分别标注在 ensureAiTable 与 handleAiSearch。
  */
 
 const DEFAULT_BASE_URL = 'https://api.openai.com/v1'
@@ -29,21 +43,7 @@ const DEFAULT_VISION_MODEL = 'gpt-4o-mini'
 const DEFAULT_TOP_K = 20
 const CONCURRENCY = 3
 
-const MIME_BY_EXT = {
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.png': 'image/png',
-  '.gif': 'image/gif',
-  '.webp': 'image/webp',
-  '.bmp': 'image/bmp',
-  '.tif': 'image/tiff',
-  '.tiff': 'image/tiff'
-}
-
 const CAPTION_PROMPT = '用一句简洁的话描述这张图片的内容，包含主要物体、场景与动作。'
-
-// 视频文件（如 .webm）无法作为图片送视觉模型，跳过 AI 索引
-const VIDEO_RE = /\.webm$/i
 
 function getAiConfig() {
   const baseUrl = (getSetting('aiBaseUrl', '') || DEFAULT_BASE_URL).replace(/\/+$/, '')
@@ -125,6 +125,8 @@ function candidatePath(cache, f) {
   return f.abs_path
 }
 
+// 已知瓶颈（保留、暂不改动）：vector 以 JSON TEXT 存储，体积大且每次检索都要
+// JSON.parse。按模块头部「现状说明」，等待成熟方案后再改为 BLOB(Float32Array) + ANN。
 function ensureAiTable(db) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS ai_embeddings (
@@ -153,23 +155,6 @@ function cosine(a, b) {
   }
   if (na === 0 || nb === 0) return 0
   return dot / (Math.sqrt(na) * Math.sqrt(nb))
-}
-
-async function mapLimit(items, limit, fn) {
-  const queue = [...items]
-  const workers = Array.from({ length: Math.min(limit, queue.length) }, async () => {
-    while (queue.length) {
-      const item = queue.shift()
-      await fn(item)
-    }
-  })
-  await Promise.all(workers)
-}
-
-function metaSet(db, key, value) {
-  db.prepare(
-    'INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
-  ).run(key, String(value))
 }
 
 /**
@@ -218,7 +203,8 @@ export async function runAiIndexTask(root, mode, { onProgress = () => {}, should
 
   const need = []
   for (const f of files) {
-    if (VIDEO_RE.test(f.name)) continue
+    // 视频文件（如 .webm）无法作为图片送视觉模型，跳过 AI 索引
+    if (VIDEO_EXTS.has(extname(f.name).toLowerCase())) continue
     const prev = existingMap.get(f.abs_path)
     if (prev === undefined || prev !== f.mtime) need.push(f)
   }
@@ -246,6 +232,29 @@ export async function runAiIndexTask(root, mode, { onProgress = () => {}, should
     if (shouldAbort?.()) taskAc.abort()
   }, 200)
 
+  // 回写批量提交：逐条 autocommit 会产生大量 WAL 提交；累计若干条后在事务内一次写入。
+  // 网络请求在回调内 await，故不能在整段任务外包事务（会长时间持有写锁）。
+  const pendingWrites = []
+  const FLUSH_EVERY = 25
+  let dbError = null
+  const flushWrites = () => {
+    if (!pendingWrites.length) return
+    const batch = pendingWrites.splice(0, pendingWrites.length)
+    db.exec('BEGIN')
+    try {
+      for (const a of batch) upsertStmt.run(...a)
+      db.exec('COMMIT')
+    } catch (err) {
+      try {
+        db.exec('ROLLBACK')
+      } catch {
+        /* ignore */
+      }
+      dbError = err
+      throw err
+    }
+  }
+
   try {
     await mapLimit(need, CONCURRENCY, async (f) => {
       if (taskAc.signal.aborted || shouldAbort?.()) throw new ScanAbortedError()
@@ -253,14 +262,24 @@ export async function runAiIndexTask(root, mode, { onProgress = () => {}, should
         const imgPath = candidatePath(cache, f)
         const caption = await captionImage(cfg, imgPath, taskAc.signal)
         const vector = await embedText(cfg, caption, taskAc.signal)
-        upsertStmt.run(
-          f.abs_path, f.name, f.folder, caption, JSON.stringify(vector), vector.length,
-          cfg.model, f.mtime, nowMs, nowMs
-        )
+        pendingWrites.push([
+          f.abs_path,
+          f.name,
+          f.folder,
+          caption,
+          JSON.stringify(vector),
+          vector.length,
+          cfg.model,
+          f.mtime,
+          nowMs,
+          nowMs
+        ])
+        if (pendingWrites.length >= FLUSH_EVERY) flushWrites()
         stats.embedded++
       } catch (err) {
         if (err instanceof ScanAbortedError) throw err
         if (taskAc.signal.aborted) throw new ScanAbortedError()
+        if (dbError) throw dbError // 写库失败：向上抛出，不当作单图失败吞掉
         stats.failed++
       } finally {
         done++
@@ -269,7 +288,15 @@ export async function runAiIndexTask(root, mode, { onProgress = () => {}, should
     })
   } finally {
     clearInterval(abortCheck)
+    if (!dbError) {
+      try {
+        flushWrites()
+      } catch (err) {
+        dbError = err
+      }
+    }
   }
+  if (dbError) throw dbError
 
   metaSet(db, 'ai_last_task', mode)
   metaSet(db, 'ai_last_task_at', new Date().toISOString())
@@ -304,7 +331,7 @@ export async function handleAiSearch(rootId, query) {
   }
   ensureAiTable(cache.db)
 
-  const rows = cache.db.prepare('SELECT abs_path, vector FROM ai_embeddings').all()
+  const rows = prepCache(cache.db, 'SELECT abs_path, vector FROM ai_embeddings').all()
   if (!rows.length) {
     const err = new Error('尚未建立向量索引')
     err.code = 'AI_NO_INDEX'
@@ -312,6 +339,8 @@ export async function handleAiSearch(rootId, query) {
   }
 
   const qv = await embedText(cfg, query)
+  // 已知瓶颈（保留、暂不改动）：全表读取 + 逐条 JSON.parse + O(N·dims) 余弦扫描。
+  // 按模块头部「现状说明」，不在此改为 BLOB / ANN，等待成熟方案统一改造。
   const scored = []
   for (const r of rows) {
     let vec
@@ -327,22 +356,34 @@ export async function handleAiSearch(rootId, query) {
   scored.sort((a, b) => b.score - a.score)
 
   const top = scored.slice(0, cfg.topK)
-  const stmt = cache.db.prepare(
-    'SELECT abs_path, name, folder, width, height, thumb FROM files WHERE abs_path = ?'
-  )
   const results = []
-  for (const t of top) {
-    const f = stmt.get(t.abs_path)
-    if (!f) continue
-    results.push({
-      absPath: f.abs_path,
-      name: f.name,
-      folder: f.folder || '',
-      width: f.width,
-      height: f.height,
-      hasThumb: !!f.thumb,
-      score: Number(t.score.toFixed(4))
-    })
+  if (top.length) {
+    const scoreByAbs = new Map(top.map((t) => [t.abs_path, t.score]))
+    // 一次 IN 查询取回全部命中文件，替代逐条 SELECT（N+1）；分块以规避 SQL 变量数上限
+    const CHUNK = 400
+    const fileByAbs = new Map()
+    for (let i = 0; i < top.length; i += CHUNK) {
+      const chunk = top.slice(i, i + CHUNK)
+      const placeholders = chunk.map(() => '?').join(',')
+      const fileRows = prepCache(
+        cache.db,
+        `SELECT abs_path, name, folder, width, height, thumb FROM files WHERE abs_path IN (${placeholders})`
+      ).all(...chunk.map((t) => t.abs_path))
+      for (const f of fileRows) fileByAbs.set(f.abs_path, f)
+    }
+    for (const f of fileByAbs.values()) {
+      results.push({
+        absPath: f.abs_path,
+        name: f.name,
+        folder: f.folder || '',
+        width: f.width,
+        height: f.height,
+        hasThumb: !!f.thumb,
+        score: Number((scoreByAbs.get(f.abs_path) ?? 0).toFixed(4))
+      })
+    }
+    // IN 查询不保证顺序：按相似度降序恢复
+    results.sort((a, b) => b.score - a.score)
   }
   return results
 }
@@ -390,6 +431,9 @@ export function registerAiIpc({ ipcMain }) {
           send({ error: String(err?.message || err) })
         }
       })
+      .finally(() => {
+        if (aiTaskController === ac) aiTaskController = null
+      })
 
     return { started: true }
   })
@@ -400,7 +444,6 @@ export function registerAiIpc({ ipcMain }) {
   })
 
   ipcMain.handle('ai:status', () => {
-    const root = getRoot(aiTaskController?.rootId)
     return {
       running: !!aiTaskController && !aiTaskController.signal.aborted,
       rootId: aiTaskController?.rootId
@@ -453,7 +496,10 @@ export function registerAiIpc({ ipcMain }) {
     }
     if (!res.ok) {
       const body = await res.text().catch(() => '')
-      return { ok: false, message: `连接失败（HTTP ${res.status}）${body ? '：' + body.slice(0, 160) : ''}` }
+      return {
+        ok: false,
+        message: `连接失败（HTTP ${res.status}）${body ? '：' + body.slice(0, 160) : ''}`
+      }
     }
     let modelIds = []
     try {

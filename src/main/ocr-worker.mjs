@@ -69,12 +69,11 @@ async function getOcr() {
         mod = await import('@repeato/ocr')
       } catch (err) {
         // 这里要抛出一个可识别的错误，主进程据此判定「依赖未安装」
-        throw new Error('OCR_UNINSTALLED')
+        throw new Error('OCR_UNINSTALLED', { cause: err })
       }
       const Ocr = mod.default || mod
-      const OcrModule = (mod && mod.create
-        ? { create: mod.create, releaseAll: mod.releaseAll }
-        : Ocr) || Ocr
+      const OcrModule =
+        (mod && mod.create ? { create: mod.create, releaseAll: mod.releaseAll } : Ocr) || Ocr
       releaseAll = typeof OcrModule.releaseAll === 'function' ? OcrModule.releaseAll : null
       return OcrModule.create()
     })()

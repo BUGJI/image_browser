@@ -32,8 +32,12 @@ export async function checkForUpdates() {
   const current = getEffectiveVersion()
   const checkedAt = new Date().toISOString()
 
+  // 网络请求加超时，避免连接假死时检测永久挂起
+  const ac = new AbortController()
+  const timer = setTimeout(() => ac.abort(), 8000)
   try {
     const res = await fetch(LATEST_RELEASE_URL, {
+      signal: ac.signal,
       headers: {
         Accept: 'application/vnd.github+json',
         'User-Agent': `${REPO_OWNER}-${REPO_NAME}`
@@ -61,8 +65,10 @@ export async function checkForUpdates() {
       checkedAt
     }
   } catch (_err) {
-    // 网络失败 / 请求异常：静默降级为「已是最新」
+    // 网络失败 / 请求异常 / 超时：静默降级为「已是最新」
     return { hasUpdate: false, latestVersion: current, checkedAt }
+  } finally {
+    clearTimeout(timer)
   }
 }
 

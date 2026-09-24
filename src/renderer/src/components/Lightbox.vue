@@ -1,5 +1,6 @@
 <script setup>
-import { ref, watch, onMounted, onBeforeUnmount, computed } from 'vue'
+import { ref, watch, onMounted, onBeforeUnmount, computed, nextTick } from 'vue'
+import { useEventListener, useScrollLock } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 import { buildImageUrl, isVideoName } from '../utils/image-url'
 import { loadShortcuts, eventMatches } from '../utils/shortcuts'
@@ -23,12 +24,24 @@ const props = defineProps({
 
 const emit = defineEmits(['close', 'change'])
 
-const cur = ref(props.index)
+// 对话框语义与焦点管理：遮罩持有焦点、Tab 在灯箱内循环、关闭后归还焦点
+const maskRef = ref(null)
+let previouslyFocused = null
+// 打开期间锁定 body 滚动（避免背景随滚轮/方向键滚动）
+const bodyScrollLocked = useScrollLock(document.body, true)
+
+// 单一数据源：cur 直接映射父级 index，navigation 通过 emit('change') 回写，
+// 避免「内部 cur + props.index 双 watcher」导致每次切图重复 reset/preload。
+const cur = computed({
+  get: () => props.index,
+  set: (v) => emit('change', v)
+})
 const imgRef = ref(null)
 const videoRef = ref(null)
 const loading = ref(true)
 const loadError = ref('')
 const copied = ref('') // '' | 'file' | 'image'
+let copiedTimer = 0
 
 // 快捷键配置（设置 - 快捷键 中可自定义）
 const shortcuts = ref({ copyFile: 'Ctrl+C', copyImage: 'Ctrl+Shift+C' })
@@ -85,6 +98,11 @@ function onWinMouseUp() {
   panStart = null
 }
 
+// 全局监听随组件卸载自动清理（@vueuse/core）
+useEventListener(window, 'keydown', onKeydown)
+useEventListener(window, 'mousemove', onWinMouseMove)
+useEventListener(window, 'mouseup', onWinMouseUp)
+
 // 滚轮：navigate 模式节流连跳；zoom 模式缩放（视频交给原生控件，不拦截）
 let navCooldownAt = 0
 function onWheel(e) {
@@ -125,35 +143,40 @@ function resetForImage() {
   }
 }
 
-watch(
-  () => props.index,
-  (v) => {
-    cur.value = v
-    resetForImage()
-  }
-)
-
-watch(cur, (v) => {
-  emit('change', v)
+watch(cur, () => {
   resetForImage()
   preloadNeighbors()
 })
 
 // 预加载相邻图片（原图），切换时秒开；视频不预载（较重）。
-// 保留 Image 引用避免被回收，使浏览器缓存对下一张生效。
-let preloaded = []
+// 用 absPath 索引避免重复请求；不再相邻的项显式取消（src=''），
+// 防止快速翻页堆积大量在途原图请求。保留 Image 引用使浏览器缓存对下一张生效。
+const _preloads = new Map() // absPath -> Image
 function preloadNeighbors() {
   const list = props.items
-  const next = []
+  const want = new Map()
   for (const i of [cur.value - 1, cur.value + 1]) {
     const it = list[i]
     if (!it || isVideoName(it.name)) continue
+    want.set(it.absPath, it)
+  }
+  for (const [abs, el] of _preloads) {
+    if (!want.has(abs)) {
+      try {
+        el.src = '' // 取消仍在途的加载
+      } catch {
+        /* ignore */
+      }
+      _preloads.delete(abs)
+    }
+  }
+  for (const [abs, it] of want) {
+    if (_preloads.has(abs)) continue
     const el = new Image()
     el.decoding = 'async'
     el.src = buildImageUrl(props.rootId, it.absPath, 'orig')
-    next.push(el)
+    _preloads.set(abs, el)
   }
-  preloaded = next
 }
 
 function prev() {
@@ -192,7 +215,39 @@ function isEditableTarget(t) {
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable === true
 }
 
+const FOCUSABLE_SELECTOR =
+  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
+// 把 Tab 焦点限制在灯箱内（含首次进入：焦点落在遮罩上时纳入第一个可聚焦元素）。
+// 标签编辑弹层被 Teleport 到 body，单独纳入循环，避免键盘焦点被弹出。
+function trapTab(e) {
+  const roots = [maskRef.value, document.querySelector('.lightbox-tag-popper')].filter(Boolean)
+  if (!roots.length) return
+  const list = roots
+    .flatMap((r) => Array.from(r.querySelectorAll(FOCUSABLE_SELECTOR)))
+    .filter((el) => el.getClientRects().length > 0)
+  if (!list.length) return
+  const first = list[0]
+  const last = list[list.length - 1]
+  const active = document.activeElement
+  const inside = roots.some((r) => r.contains(active))
+  if (!inside) {
+    e.preventDefault()
+    first.focus()
+  } else if (e.shiftKey && active === first) {
+    e.preventDefault()
+    last.focus()
+  } else if (!e.shiftKey && active === last) {
+    e.preventDefault()
+    first.focus()
+  }
+}
+
 function onKeydown(e) {
+  if (e.key === 'Tab') {
+    trapTab(e)
+    return
+  }
   if (isEditableTarget(e.target)) return
   if (eventMatches(e, shortcuts.value.copyFile)) {
     e.preventDefault()
@@ -216,7 +271,8 @@ function onKeydown(e) {
 async function flashCopied(type) {
   copied.value = type
   ElMessage.success(type === 'file' ? t('lightbox.copiedFile') : t('lightbox.copied'))
-  setTimeout(() => (copied.value = ''), 1500)
+  clearTimeout(copiedTimer)
+  copiedTimer = setTimeout(() => (copied.value = ''), 1500)
 }
 
 // 复制原文件：以「文件」形式放入剪贴板（可在文件管理器直接粘贴）
@@ -338,40 +394,70 @@ async function onTagNamesChange(names) {
 }
 
 onMounted(async () => {
-  shortcuts.value = await loadShortcuts()
-  const wa = await window.api?.getSetting('lightboxWheelAction', 'zoom')
-  wheelAction.value = ['zoom', 'navigate'].includes(wa) ? wa : 'zoom'
-  favoritesEnabled.value = (await window.api?.getSetting('favoritesEnabled', 'true')) !== 'false'
-  favLightboxBtn.value = (await window.api?.getSetting('favoritesLightboxBtn', 'true')) !== 'false'
-  tagsEnabled.value = (await window.api?.getSetting('tagsEnabled', 'true')) !== 'false'
-  tagsLightboxBtn.value = (await window.api?.getSetting('tagsLightboxBtn', 'true')) !== 'false'
-  webmAsGif.value = (await window.api?.getSetting('webmAsGif', 'false')) === 'true'
-  // 读取开发者选项里的灯箱缩放限制
-  const parseNum = async (key, fb) => {
-    const n = parseFloat((await window.api?.getSetting(key, String(fb))) || '')
+  // 记住打开前的焦点，关闭时归还；并把初始焦点移入灯箱
+  previouslyFocused = document.activeElement
+  await nextTick()
+  maskRef.value?.focus?.()
+  // 所有设置项并发读取（原先为十几次串行 IPC，每次打开灯箱都付出往返延迟）
+  const api = window.api
+  const parseNum = (raw, fb) => {
+    const n = parseFloat(raw || '')
     return Number.isFinite(n) && n > 0 ? n : fb
   }
-  const min = await parseNum('lightboxZoomMin', 0.5)
-  const max = Math.max(await parseNum('lightboxZoomMax', 8), min)
-  const step = await parseNum('lightboxZoomStep', 1.2)
+  const [savedShortcuts, wa, favEnabled, favBtn, tagEnabled, tagBtn, webmGif, zmin, zmax, zstep] =
+    await Promise.all([
+      loadShortcuts(),
+      api?.getSetting('lightboxWheelAction', 'zoom'),
+      api?.getSetting('favoritesEnabled', 'true'),
+      api?.getSetting('favoritesLightboxBtn', 'true'),
+      api?.getSetting('tagsEnabled', 'true'),
+      api?.getSetting('tagsLightboxBtn', 'true'),
+      api?.getSetting('webmAsGif', 'false'),
+      api?.getSetting('lightboxZoomMin', '0.5'),
+      api?.getSetting('lightboxZoomMax', '8'),
+      api?.getSetting('lightboxZoomStep', '1.2')
+    ])
+  shortcuts.value = savedShortcuts
+  wheelAction.value = ['zoom', 'navigate'].includes(wa) ? wa : 'zoom'
+  favoritesEnabled.value = favEnabled !== 'false'
+  favLightboxBtn.value = favBtn !== 'false'
+  tagsEnabled.value = tagEnabled !== 'false'
+  tagsLightboxBtn.value = tagBtn !== 'false'
+  webmAsGif.value = webmGif === 'true'
+  // 读取开发者选项里的灯箱缩放限制
+  const min = parseNum(zmin, 0.5)
+  const max = Math.max(parseNum(zmax, 8), min)
+  const step = parseNum(zstep, 1.2)
   zoomCfg.value = { min, max, step }
   view.value = { scale: Math.min(Math.max(1, min), max), tx: 0, ty: 0 }
-  window.addEventListener('keydown', onKeydown)
-  window.addEventListener('mousemove', onWinMouseMove)
-  window.addEventListener('mouseup', onWinMouseUp)
   preloadNeighbors()
 })
 onBeforeUnmount(() => {
-  window.removeEventListener('keydown', onKeydown)
-  window.removeEventListener('mousemove', onWinMouseMove)
-  window.removeEventListener('mouseup', onWinMouseUp)
-  preloaded = []
+  for (const el of _preloads.values()) {
+    try {
+      el.src = ''
+    } catch {
+      /* ignore */
+    }
+  }
+  _preloads.clear()
+  if (copiedTimer) clearTimeout(copiedTimer)
+  bodyScrollLocked.value = false
+  previouslyFocused?.focus?.()
 })
 </script>
 
 <template>
   <Teleport to="body">
-    <div class="lightbox-mask" @click.self="close">
+    <div
+      ref="maskRef"
+      class="lightbox-mask"
+      role="dialog"
+      aria-modal="true"
+      :aria-label="t('lightbox.dialogLabel')"
+      tabindex="-1"
+      @click.self="close"
+    >
       <div class="lightbox-toolbar">
         <span class="lightbox-count">
           {{ cur + 1 }} / {{ items.length }}
@@ -447,7 +533,11 @@ onBeforeUnmount(() => {
             :content="t('lightbox.copyFileTip', { key: shortcuts.copyFile })"
             placement="bottom"
           >
-            <button class="lb-btn" :class="{ 'lb-btn-copied': copied === 'file' }" @click="copyFile">
+            <button
+              class="lb-btn"
+              :class="{ 'lb-btn-copied': copied === 'file' }"
+              @click="copyFile"
+            >
               <el-icon :size="16"><Files /></el-icon>
             </button>
           </el-tooltip>
@@ -455,11 +545,20 @@ onBeforeUnmount(() => {
             :content="t('lightbox.copyImageTip', { key: shortcuts.copyImage })"
             placement="bottom"
           >
-            <button class="lb-btn" :class="{ 'lb-btn-copied': copied === 'image' }" @click="onCopyImageClick">
+            <button
+              class="lb-btn"
+              :class="{ 'lb-btn-copied': copied === 'image' }"
+              @click="onCopyImageClick"
+            >
               <el-icon :size="16"><CopyDocument /></el-icon>
             </button>
           </el-tooltip>
-          <button class="lb-btn" :title="t('lightbox.close')" :aria-label="t('lightbox.close')" @click="close">
+          <button
+            class="lb-btn"
+            :title="t('lightbox.close')"
+            :aria-label="t('lightbox.close')"
+            @click="close"
+          >
             <el-icon :size="16"><Close /></el-icon>
           </button>
         </div>

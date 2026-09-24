@@ -2,25 +2,33 @@
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Download, FolderOpened, Delete } from '@element-plus/icons-vue'
-import { useNotificationsStore } from '../../stores/notifications'
+import { useIndexMaintenance } from '../../utils/use-index-maintenance'
+import { useSetting } from '../../utils/settings'
+import SettingCard from '../SettingCard.vue'
+import SettingRow from '../SettingRow.vue'
+import MaintainTools from '../MaintainTools.vue'
 
 const { t } = useI18n()
 
 // OCR 图内文字搜索（PaddleOCR）
-const enabled = ref(false)
+const enabled = useSetting('ocrEnabled')
 // (@repeato/ocr 内置模型 + 运行时组件) 是否可用
 const available = ref(false)
 const running = ref(false)
 
 // 运行时组件状态（onnxruntime + sharp，按需下载）
-const addon = ref({ installed: false, supported: true, platform: '', installing: false, sizeBytes: 0 })
+const addon = ref({
+  installed: false,
+  supported: true,
+  platform: '',
+  installing: false,
+  sizeBytes: 0
+})
 const addonBusy = ref(false)
 const addonPhase = ref('')
 const addonProgress = ref(0)
-let addonLastReceived = 0
+let _addonLastReceived = 0
 
-let offSettingsChanged = null
-let offOcrProgress = null
 let offAddonProgress = null
 
 const OCR_MAINTAIN_ACTIONS = computed(() => [
@@ -38,19 +46,31 @@ const phaseText = computed(() => {
   return map[addonPhase.value] || ''
 })
 
-const notificationsStore = useNotificationsStore()
-const maintainBusy = ref(false)
-const maintainRootId = ref(null)
-const maintainRoots = ref([])
-let ocrNotifyId = null
-let ocrRootId = null
-
-function displayName(root) {
-  if (!root) return ''
-  if (root.alias && root.alias.trim()) return root.alias.trim()
-  const parts = root.path.split(/[\\/]+/).filter(Boolean)
-  return parts.length ? parts[parts.length - 1] : root.path
-}
+// 文字索引维护工具（通用流程见 utils/use-index-maintenance）
+const { maintainBusy, maintainRootId, maintainRoots, maintainIndex } = useIndexMaintenance({
+  actions: OCR_MAINTAIN_ACTIONS,
+  api: {
+    index: (rootId, mode) => window.api.ocrIndex(rootId, mode),
+    abort: () => window.api.ocrAbort(),
+    onProgress: (cb) => window.api.onOcrProgress(cb)
+  },
+  canRun: () => available.value,
+  noRootWarn: t('ocrSearch.selectRootFirst'),
+  disabledWarn: t('ocrSearch.runtimeRequired'),
+  phase: 'ocr',
+  phaseMessage: (p) =>
+    t('ocrSearch.recognizing', { done: p.done, total: p.total, current: p.current || '' }),
+  summary: (s) => {
+    const parts = []
+    if (s.count) parts.push(t('ocrSearch.statsCount', { n: s.count }))
+    if (s.removed) parts.push(t('ocrSearch.statsRemoved', { n: s.removed }))
+    if (s.failed) parts.push(t('ocrSearch.statsFailed', { n: s.failed }))
+    return parts.length ? parts.join(t('common.separator')) : ''
+  },
+  doneMessage: t('ocrSearch.indexDone'),
+  startFailed: (error) => t('ocrSearch.startFailed', { error }),
+  onDone: () => refreshStatus()
+})
 
 function formatBytes(n) {
   if (!n) return '0 B'
@@ -62,10 +82,6 @@ function formatBytes(n) {
     i++
   }
   return `${v.toFixed(v >= 100 || i === 0 ? 0 : 1)} ${units[i]}`
-}
-
-async function loadMaintainRoots() {
-  maintainRoots.value = await window.api.rootsList()
 }
 
 async function refreshStatus() {
@@ -85,12 +101,6 @@ async function refreshStatus() {
   }
 }
 
-function buttonType(mode) {
-  if (mode === 'update') return 'primary'
-  if (mode === 'rebuild') return 'warning'
-  return 'danger'
-}
-
 // ---------------------------------------------------------------- 运行时组件管理
 
 function onAddonProgress(p) {
@@ -100,10 +110,10 @@ function onAddonProgress(p) {
     const total = Number(p.total) || 0
     if (total > 0) {
       addonProgress.value = Math.min(100, Math.round((p.received / total) * 100))
-      addonLastReceived = p.received
+      _addonLastReceived = p.received
     } else if (p.received > 0) {
       // 无 content-length：用递增伪进度
-      addonLastReceived = p.received
+      _addonLastReceived = p.received
       addonProgress.value = Math.min(95, (addonProgress.value || 0) + 1)
     }
   } else if (p.phase === 'extract') {
@@ -183,103 +193,14 @@ async function removeAddon() {
   }
 }
 
-// ---------------------------------------------------------------- 索引维护
-
-function maintainIndex(mode) {
-  const item = OCR_MAINTAIN_ACTIONS.value.find((m) => m.mode === mode)
-  const root = maintainRoots.value.find((r) => r.id === maintainRootId.value)
-  if (!root) {
-    ElMessage.warning(t('ocrSearch.selectRootFirst'))
-    return
-  }
-  if (!available.value) {
-    ElMessage.warning(t('ocrSearch.runtimeRequired'))
-    return
-  }
-
-  maintainBusy.value = true
-  ocrRootId = root.id
-  ocrNotifyId = notificationsStore.add({
-    type: 'progress',
-    title: `${item.label} · ${displayName(root)}`,
-    message: t('common.preparing'),
-    cancellable: true,
-    onCancel: () => window.api.ocrAbort()
-  })
-
-  window.api.ocrIndex(root.id, mode).catch((err) => {
-    if (ocrNotifyId) {
-      notificationsStore.finish(ocrNotifyId, 'aborted', {
-        message: t('ocrSearch.startFailed', { error: String(err?.message || err) })
-      })
-    }
-    maintainBusy.value = false
-  })
-}
-
-function onOcrProgress(p) {
-  if (p.rootId !== ocrRootId) return
-  if (!ocrNotifyId) return
-
-  if (p.error) {
-    notificationsStore.finish(ocrNotifyId, 'aborted', { message: p.error })
-    maintainBusy.value = false
-    return
-  }
-  if (p.aborted) {
-    notificationsStore.finish(ocrNotifyId, 'aborted', { message: t('notifications.aborted') })
-    maintainBusy.value = false
-    return
-  }
-  if (p.done === true) {
-    const s = p.stats || {}
-    const parts = []
-    if (s.count) parts.push(t('ocrSearch.statsCount', { n: s.count }))
-    if (s.removed) parts.push(t('ocrSearch.statsRemoved', { n: s.removed }))
-    if (s.failed) parts.push(t('ocrSearch.statsFailed', { n: s.failed }))
-    notificationsStore.finish(ocrNotifyId, 'done', {
-      message: parts.length ? parts.join(t('common.separator')) : t('ocrSearch.indexDone')
-    })
-    maintainBusy.value = false
-    refreshStatus()
-    return
-  }
-  if (p.phase === 'ocr') {
-    notificationsStore.update(ocrNotifyId, {
-      message: t('ocrSearch.recognizing', { done: p.done, total: p.total, current: p.current || '' })
-    })
-    if (p.total) {
-      notificationsStore.updateProgress(ocrNotifyId, Math.round((p.done / p.total) * 100))
-    }
-  }
-}
-
 onMounted(async () => {
-  enabled.value = (await window.api.getSetting('ocrEnabled', 'false')) === 'true'
-  await loadMaintainRoots()
   await refreshStatus()
-
-  offSettingsChanged = window.api.onSettingsChanged(({ key, value }) => {
-    if (key === 'ocrEnabled') enabled.value = value === 'true'
-  })
-  offOcrProgress = window.api.onOcrProgress(onOcrProgress)
   offAddonProgress = window.api.onOcrAddonProgress(onAddonProgress)
 })
 
 onBeforeUnmount(() => {
-  offSettingsChanged?.()
-  offOcrProgress?.()
   offAddonProgress?.()
 })
-
-async function saveEnabled(v) {
-  try {
-    await window.api.setSetting('ocrEnabled', v ? 'true' : 'false')
-    ElMessage.success(t('common.saved'))
-  } catch {
-    ElMessage.error(t('common.saveFailed'))
-  }
-}
 </script>
 
 <template>
@@ -287,15 +208,11 @@ async function saveEnabled(v) {
     <h2>{{ t('settings.ocrSearch') }}</h2>
     <p class="page-desc">{{ t('ocrSearch.pageDesc') }}</p>
 
-    <el-card class="ocr-card" shadow="never">
-      <div class="master-row">
-        <div class="master-label">
-          <div class="master-name">{{ t('ocrSearch.enableMaster') }}</div>
-          <div class="master-desc">{{ t('ocrSearch.masterDesc') }}</div>
-        </div>
-        <el-switch v-model="enabled" @change="saveEnabled" />
-      </div>
-    </el-card>
+    <SettingCard>
+      <SettingRow :name="t('ocrSearch.enableMaster')" :desc="t('ocrSearch.masterDesc')">
+        <el-switch v-model="enabled" />
+      </SettingRow>
+    </SettingCard>
 
     <!-- 运行时组件管理（onnxruntime + sharp，按需下载） -->
     <el-card class="ocr-card" shadow="never">
@@ -372,55 +289,20 @@ async function saveEnabled(v) {
     </el-card>
 
     <!-- 文字索引维护工具 -->
-    <el-card class="ocr-card" shadow="never">
-      <template #header>
-        <div class="maintain-head">
-          <span>{{ t('ocrSearch.maintainTools') }}</span>
-          <el-tag v-if="maintainBusy" size="small" type="primary" effect="plain">
-            {{ t('ocrSearch.taskRunning') }}
-          </el-tag>
-        </div>
-      </template>
-      <p class="maintain-desc">{{ t('ocrSearch.maintainDesc') }}</p>
-
-      <div class="maintain-row maintain-dir-row">
-        <div class="maintain-dir-label">
-          <div class="maintain-dir-name">{{ t('ocrSearch.maintainDir') }}</div>
-          <div class="maintain-dir-desc">{{ t('ocrSearch.maintainDirDesc') }}</div>
-        </div>
-        <el-select
-          v-model="maintainRootId"
-          class="maintain-select"
-          :placeholder="t('ocrSearch.selectMaintainRoot')"
-          clearable
-          :disabled="!available || maintainBusy"
-        >
-          <el-option
-            v-for="root in maintainRoots"
-            :key="root.id"
-            :value="root.id"
-            :label="displayName(root)"
-          >
-            <el-tooltip :content="root.path" placement="left" :show-after="300">
-              <span>{{ displayName(root) }}</span>
-            </el-tooltip>
-          </el-option>
-        </el-select>
-      </div>
-
-      <div class="maintain-row">
-        <template v-for="item in OCR_MAINTAIN_ACTIONS" :key="item.mode">
-          <el-button
-            :type="buttonType(item.mode)"
-            plain
-            :disabled="!available || maintainBusy || maintainRootId == null"
-            @click="maintainIndex(item.mode)"
-          >
-            {{ item.label }}
-          </el-button>
-        </template>
-      </div>
-    </el-card>
+    <MaintainTools
+      v-model="maintainRootId"
+      :title="t('ocrSearch.maintainTools')"
+      :desc="t('ocrSearch.maintainDesc')"
+      :running-text="t('ocrSearch.taskRunning')"
+      :roots="maintainRoots"
+      :busy="maintainBusy"
+      :modes="OCR_MAINTAIN_ACTIONS"
+      :disabled="!available"
+      :placeholder="t('ocrSearch.selectMaintainRoot')"
+      :dir-name="t('ocrSearch.maintainDir')"
+      :dir-desc="t('ocrSearch.maintainDirDesc')"
+      @run="maintainIndex"
+    />
 
     <el-alert type="info" :closable="false" class="tip">
       <p>{{ t('ocrSearch.usageTip') }}</p>
@@ -429,42 +311,8 @@ async function saveEnabled(v) {
 </template>
 
 <style scoped>
-.page h2 {
-  margin: 0 0 6px;
-  font-size: 20px;
-}
-
-.page-desc {
-  color: #999;
-  font-size: 13px;
-  margin-bottom: 24px;
-}
-
 .ocr-card {
-  max-width: 720px;
   margin-bottom: 24px;
-}
-
-.master-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.master-name {
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.master-desc {
-  margin-top: 2px;
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
-}
-
-.tip {
-  max-width: 720px;
 }
 
 .addon-status {
@@ -489,49 +337,5 @@ async function saveEnabled(v) {
 
 .addon-actions {
   margin-bottom: 10px;
-}
-
-.maintain-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.maintain-desc {
-  margin: 0 0 12px;
-  color: #999;
-  font-size: 13px;
-}
-
-.maintain-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.maintain-dir-row {
-  margin-bottom: 14px;
-}
-
-.maintain-dir-label {
-  min-width: 0;
-  flex: 1;
-}
-
-.maintain-dir-name {
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.maintain-dir-desc {
-  margin-top: 2px;
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
-}
-
-.maintain-select {
-  width: 280px;
-  flex-shrink: 0;
 }
 </style>

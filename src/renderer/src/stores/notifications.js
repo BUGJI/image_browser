@@ -21,6 +21,16 @@ const AUTO_DISMISS_MS = 6000
 
 export const useNotificationsStore = defineStore('notifications', () => {
   const items = ref([])
+  // 自动收起定时器：随通知移除而清理，避免悬空 timer 长期持有闭包
+  const autoTimers = new Map()
+
+  function clearAutoTimer(id) {
+    const t = autoTimers.get(id)
+    if (t) {
+      clearTimeout(t)
+      autoTimers.delete(id)
+    }
+  }
 
   const unreadCount = computed(() => items.value.filter((n) => !n.read).length)
 
@@ -53,7 +63,13 @@ export const useNotificationsStore = defineStore('notifications', () => {
     trim()
     // 纯提示自动收起（保留历史）；有按钮/进度/明确 autoClose=false 的不自动关
     if (autoClose && !actions.length && !cancellable) {
-      setTimeout(() => dismiss(id), AUTO_DISMISS_MS)
+      autoTimers.set(
+        id,
+        setTimeout(() => {
+          autoTimers.delete(id)
+          dismiss(id)
+        }, AUTO_DISMISS_MS)
+      )
     }
     return id
   }
@@ -78,14 +94,18 @@ export const useNotificationsStore = defineStore('notifications', () => {
 
   /** 收起通知（用户操作后归档，保留历史） */
   function dismiss(id) {
+    clearAutoTimer(id)
     update(id, { status: 'dismissed' })
   }
 
   function remove(id) {
+    clearAutoTimer(id)
     items.value = items.value.filter((n) => n.id !== id)
   }
 
   function clearAll() {
+    for (const id of autoTimers.keys()) clearTimeout(autoTimers.get(id))
+    autoTimers.clear()
     items.value = []
   }
 

@@ -10,7 +10,11 @@ export default {
     operationFailed: 'Operation failed',
     preparing: 'Preparing…',
     loading: 'Loading…',
-    separator: ', '
+    separator: ', ',
+    warning: 'Warning',
+    resetDefaults: 'Reset to defaults',
+    resetConfirm: 'Reset this group to the default values?',
+    resetDone: 'Defaults restored'
   },
   notifications: {
     active: 'Active',
@@ -67,24 +71,28 @@ export default {
     setupTip: 'Register image directories in Settings to browse them here',
     searchImages: 'Search images',
     quickCopy: 'Quick copy',
-    quickCopyTip: 'When on, clicking an image copies it directly ({type}) without opening the lightbox',
+    quickCopyTip:
+      'When on, clicking an image copies it directly ({type}) without opening the lightbox',
     myFavorites: 'My favorites',
     favBannerRoot: 'Root: {name}',
     favCount: '{n} images',
     favEmpty: 'No favorites yet\nStar an image on its card or in the lightbox to add it',
-    tagEmpty: 'No images under this tag yet\nAdd the "{name}" tag to an image in the lightbox and it will show up here',
+    tagEmpty:
+      'No images under this tag yet\nAdd the "{name}" tag to an image in the lightbox and it will show up here',
     tagEmptyGeneric: 'No images under this tag yet',
     aiSearchToggle: 'AI search',
     aiNoRoot: 'Select a root first',
     aiNoKey: 'Configure an API key in Settings first',
     aiNoCache: 'This root has no cache yet; run "Roots → Update cache" first',
-    aiNoIndex: 'No vector index for this root yet; run "Settings → AI search → Maintenance tools → Update" first',
+    aiNoIndex:
+      'No vector index for this root yet; run "Settings → AI search → Maintenance tools → Update" first',
     aiSearchFailed: 'AI search failed: {error}',
     ocrSearchToggle: 'In-image text search',
     ocrNoRoot: 'Select a root first',
     ocrUninstalled: 'In-image text component not installed',
     ocrNoCache: 'This root has no cache yet; run "Roots → Update cache" first',
-    ocrNoIndex: 'No text index for this root yet; run "Settings → In-image text search → Maintenance tools → Update" first',
+    ocrNoIndex:
+      'No text index for this root yet; run "Settings → In-image text search → Maintenance tools → Update" first',
     ocrSearchFailed: 'In-image text search failed: {error}'
   },
   waterfall: {
@@ -110,17 +118,19 @@ export default {
     favRemoved: 'Removed from favorites',
     tagImage: 'Tag this image',
     tagSelectPlaceholder: 'Pick a tag or type a new one…',
-    tagSelectTip: 'Choose from existing tags, or type a new name and press Enter to create it. Changes are saved instantly.',
+    tagSelectTip:
+      'Choose from existing tags, or type a new name and press Enter to create it. Changes are saved instantly.',
     loadingOrig: 'Loading original…',
     navHint: '←/→ navigate · Esc close',
     close: 'Close',
     prev: 'Previous',
-    next: 'Next'
+    next: 'Next',
+    dialogLabel: 'Image viewer'
   },
   closeAsk: {
     title: 'Close Image Browser',
     sub: 'When minimized to tray, the app keeps running in the background and can be reopened from the system tray.',
-    remember: 'Remember my choice, don\'t ask again',
+    remember: "Remember my choice, don't ask again",
     toTray: 'Minimize to tray',
     quit: 'Quit app'
   },
@@ -134,6 +144,7 @@ export default {
     sidebar: 'Sidebar',
     theme: 'Theme setting',
     animations: 'Animations',
+    browse: 'Browsing & performance',
     devOptions: 'Developer options',
     performance: 'Performance',
     cardPage: 'Image card',
@@ -144,6 +155,7 @@ export default {
     test: 'Test',
     about: 'About',
     language: 'Language',
+    hiddenTag: 'Hidden',
     windowTitle: 'Settings - Image Browser'
   },
   settingsSidebar: {
@@ -165,7 +177,8 @@ export default {
     sqliteVersion: 'SQLite version',
     dataLocationLabel: 'Data location',
     dataLocation: 'System userData directory (image-browser.db)',
-    moreTip: 'More general settings (default sorting, thumbnail quality, startup behavior, etc.) will be added here later.',
+    moreTip:
+      'More general settings (default sorting, thumbnail quality, startup behavior, etc.) will be added here later.',
     languageDesc: 'Language of the app interface',
     savedLanguage: 'Saved: interface language changed',
     rememberWindowSize: 'Remember window size',
@@ -198,6 +211,20 @@ export default {
     moveUp: 'Move up',
     moveDown: 'Move down',
     reordered: 'Order saved',
+    statsTitle: 'Cache overview',
+    statRefresh: 'Refresh',
+    statRoots: 'Roots',
+    statMedia: 'Indexed media',
+    statCoverage: 'Thumbnail coverage',
+    statCacheSize: 'Thumbnail size',
+    statSrcSize: 'Originals {size}',
+    statNoCache: 'No cache',
+    colMedia: 'Media',
+    colCacheState: 'Cache state',
+    colCacheSize: 'Cache size',
+    colLastTask: 'Last maintained',
+    neverMaintained: 'Never',
+    updateCacheNow: 'Update cache',
     maintainTools: 'Performance tools',
     taskRunning: 'Task running',
     maintainDesc:
@@ -251,7 +278,8 @@ export default {
     gifAll: 'Play all',
     gifAllDesc: 'Show the animation directly (default, same as the old behavior)',
     gifHover: 'Play on hover',
-    gifHoverDesc: 'Show the first frame by default; play while hovering, stop on leave; re-hover restarts',
+    gifHoverDesc:
+      'Show the first frame by default; play while hovering, stop on leave; re-hover restarts',
     gifNone: 'Do not play',
     gifNoneDesc: 'Always show the static first frame',
     gifThumbSource: 'First-frame poster source',
@@ -265,16 +293,20 @@ export default {
     favSectionTitle: 'Favorites',
     favSectionDesc: 'Settings for "My favorites".',
     showFavorites: 'Show favorites',
-    showFavoritesDesc: 'Show the "My favorites" entry at the top of the folder tree (lists images favorited under the current root)'
+    showFavoritesDesc:
+      'Show the "My favorites" entry at the top of the folder tree (lists images favorited under the current root)'
   },
   tags: {
-    pageDesc: 'Manage image tags under the current root: create, rename, delete or merge. Tags are attached to images in the lightbox; the count is how many images carry each tag.',
+    pageDesc:
+      'Manage image tags under the current root: create, rename, delete or merge. Tags are attached to images in the lightbox; the count is how many images carry each tag.',
     enableMaster: 'Enable tags',
-    masterDesc: 'When off, the "Tags" entry in the sidebar and the tagging button in the lightbox are hidden. Existing tag data is kept.',
+    masterDesc:
+      'When off, the "Tags" entry in the sidebar and the tagging button in the lightbox are hidden. Existing tag data is kept.',
     enabled: 'Tags enabled',
     disabled: 'Tags disabled',
     lightboxBtn: 'Show tag button in lightbox',
-    lightboxBtnDesc: 'When on, the lightbox toolbar shows the tag button to add or edit tags on the current image.',
+    lightboxBtnDesc:
+      'When on, the lightbox toolbar shows the tag button to add or edit tags on the current image.',
     offTip: 'The tags feature is off. Turn it on above to manage tags again.',
     selectRoot: 'Select root',
     addTag: 'New tag',
@@ -297,15 +329,19 @@ export default {
     nameRequired: 'Please enter a tag name'
   },
   favorites: {
-    pageDesc: 'Master switch and entry settings for Favorites. Add images to "My favorites" from a card or the lightbox.',
+    pageDesc:
+      'Master switch and entry settings for Favorites. Add images to "My favorites" from a card or the lightbox.',
     enableMaster: 'Enable favorites',
-    masterDesc: 'When off, the "My favorites" entry in the sidebar and the favorite buttons are hidden. Existing favorite data is kept.',
+    masterDesc:
+      'When off, the "My favorites" entry in the sidebar and the favorite buttons are hidden. Existing favorite data is kept.',
     enabled: 'Favorites enabled',
     disabled: 'Favorites disabled',
     showEntry: 'Show entry at the top of the folder tree',
-    showEntryDesc: 'Show the "My favorites" entry at the top of the folder tree (lists images favorited under the current root)',
+    showEntryDesc:
+      'Show the "My favorites" entry at the top of the folder tree (lists images favorited under the current root)',
     lightboxBtn: 'Show favorite button in lightbox',
-    lightboxBtnDesc: 'When on, the lightbox toolbar shows the favorite button to star/unstar the current image.',
+    lightboxBtnDesc:
+      'When on, the lightbox toolbar shows the favorite button to star/unstar the current image.',
     offTip: 'The favorites feature is off. Turn it on above to adjust settings again.'
   },
   appearance: {
@@ -317,7 +353,8 @@ export default {
     themeLastState: 'Last state',
     customTitlebar: 'Custom title bar (frameless, drawn window buttons)',
     systemTitlebar: 'System default title bar',
-    restartConfirm: 'Changing the title bar style requires restarting the app to take effect. Restart now?',
+    restartConfirm:
+      'Changing the title bar style requires restarting the app to take effect. Restart now?',
     restartTitle: 'Restart required',
     restartNow: 'Restart now',
     restartLater: 'Restart later',
@@ -344,7 +381,8 @@ export default {
     favRow: 'Favorite button',
     favRowDesc: 'Favorite button at the top-left of a card',
     textRow: 'In-image text badge',
-    textRowDesc: 'The "In-image text" badge at the bottom-left of a card (shown only when matched by text search)',
+    textRowDesc:
+      'The "In-image text" badge at the bottom-left of a card (shown only when matched by text search)',
     optNone: 'Hidden',
     optHover: 'On hover',
     optAlways: 'Always'
@@ -352,7 +390,8 @@ export default {
   shortcuts: {
     pageDesc: 'Customize the "Copy file / Copy image" shortcuts used in the lightbox.',
     copyFile: 'Copy original file',
-    copyFileDesc: 'Put the current image into the clipboard as a file, so you can paste it into File Explorer to get the original',
+    copyFileDesc:
+      'Put the current image into the clipboard as a file, so you can paste it into File Explorer to get the original',
     copyImage: 'Copy image',
     copyImageDesc: 'Put the image pixels into the clipboard, pasteable into chats or image editors',
     pressKeys: 'Press shortcut',
@@ -365,9 +404,11 @@ export default {
     wheelAction: 'Wheel action',
     wheelActionDesc: 'What the mouse wheel does inside the lightbox',
     wheelZoom: 'Zoom image',
-    wheelZoomDesc: 'Scroll up/down to zoom in/out the original; drag to pan when zoomed, double-click to reset',
+    wheelZoomDesc:
+      'Scroll up/down to zoom in/out the original; drag to pan when zoomed, double-click to reset',
     wheelNavigate: 'Navigate images',
-    wheelNavigateDesc: 'Scroll the wheel to go to the previous/next image (keyboard and buttons still work)'
+    wheelNavigateDesc:
+      'Scroll the wheel to go to the previous/next image (keyboard and buttons still work)'
   },
   animations: {
     pageDesc: 'Toggles to control interface animations.',
@@ -386,13 +427,15 @@ export default {
     stack: 'Tech stack',
     checkUpdate: 'Check for updates',
     checking: 'Checking…',
-    updateDesc: 'Check whether a new version is available. Currently a placeholder; real check logic will be added later.',
+    updateDesc:
+      'Check whether a new version is available. Currently a placeholder; real check logic will be added later.',
     upToDate: 'You are up to date (v{version})',
     foundUpdate: 'New version available: v{version}',
     checkFailed: 'Update check failed: {error}'
   },
   aiSearch: {
-    pageDesc: 'Connect an OpenAI-compatible API to search images with natural language / semantics.',
+    pageDesc:
+      'Connect an OpenAI-compatible API to search images with natural language / semantics.',
     enableMaster: 'Enable AI search',
     masterDesc: 'Shows the AI search toggle next to the search box on the main window',
     wip: 'AI search is under development and currently unavailable. Stay tuned.',
@@ -402,7 +445,8 @@ export default {
     apiKey: 'API key',
     apiKeyDesc: 'API key used for authentication',
     model: 'Embedding model',
-    modelDesc: 'Embeds text / descriptions into vectors for semantic search, e.g. text-embedding-3-small',
+    modelDesc:
+      'Embeds text / descriptions into vectors for semantic search, e.g. text-embedding-3-small',
     visionModel: 'Vision model',
     visionModelDesc: 'Captions each image while building the vector index, e.g. gpt-4o-mini',
     resultCount: 'Result count',
@@ -414,9 +458,11 @@ export default {
     disabled: 'AI search disabled',
     maintainTools: 'Maintenance tools',
     taskRunning: 'Task running',
-    maintainDesc: 'Build a vector index for the selected root (vision model captions + embedding model vectors), used by AI semantic search.',
+    maintainDesc:
+      'Build a vector index for the selected root (vision model captions + embedding model vectors), used by AI semantic search.',
     maintainDir: 'Maintenance root',
-    maintainDirDesc: 'Pick the root to maintain; vectors are stored in its cache.db under .image_browser_cache',
+    maintainDirDesc:
+      'Pick the root to maintain; vectors are stored in its cache.db under .image_browser_cache',
     selectMaintainRoot: 'Select a root to maintain',
     selectRootFirst: 'Select a root to maintain first',
     enableMasterFirst: 'Enable "AI search" first',
@@ -429,16 +475,20 @@ export default {
     statsEmbedded: '{n} embedded',
     statsRemoved: '{n} stale removed',
     statsFailed: '{n} failed',
-    usageTip: 'Workflow: build the vector index for a root under Maintenance tools, then enable the AI search toggle on the main window and type a natural-language description (e.g. "sunset beach") and press Enter for semantic search.'
+    usageTip:
+      'Workflow: build the vector index for a root under Maintenance tools, then enable the AI search toggle on the main window and type a natural-language description (e.g. "sunset beach") and press Enter for semantic search.'
   },
   ocrSearch: {
-    pageDesc: 'Use PaddleOCR to recognize in-image text, then search images by the text within them.',
+    pageDesc:
+      'Use PaddleOCR to recognize in-image text, then search images by the text within them.',
     enableMaster: 'Enable in-image text search',
-    masterDesc: 'When on, the search box also matches text inside images (build the text index first)',
+    masterDesc:
+      'When on, the search box also matches text inside images (build the text index first)',
     installed: 'OCR runtime is installed; in-image text index works normally.',
     notInstalled: 'OCR runtime not installed; indexing is unavailable.',
     runtimeTitle: 'Runtime component',
-    runtimeDesc: 'The runtime needed for in-image text recognition. It is fairly large (~60–100MB) and is not bundled with the app, so download or import it here on demand.',
+    runtimeDesc:
+      'The runtime needed for in-image text recognition. It is fairly large (~60–100MB) and is not bundled with the app, so download or import it here on demand.',
     runtimeInstalledTag: 'Installed',
     runtimeMissingTag: 'Not installed',
     runtimeUnsupportedTag: 'Unsupported',
@@ -458,7 +508,8 @@ export default {
     phaseApply: 'Installing…',
     maintainTools: 'Maintenance tools',
     taskRunning: 'Task running',
-    maintainDesc: 'Recognize in-image text and build an index for the selected root, used by "In-image text search".',
+    maintainDesc:
+      'Recognize in-image text and build an index for the selected root, used by "In-image text search".',
     maintainDir: 'Root to maintain',
     maintainDirDesc: 'Select the root to maintain',
     selectMaintainRoot: 'Select the root to maintain',
@@ -472,7 +523,8 @@ export default {
     statsCount: '{n} recognized',
     statsRemoved: '{n} stale removed',
     statsFailed: '{n} failed',
-    usageTip: 'Workflow: download/import the runtime component, build the text index for a root under Maintenance tools, then type text that appears in an image in the search box and press Enter to search together with filenames.'
+    usageTip:
+      'Workflow: download/import the runtime component, build the text index for a root under Maintenance tools, then type text that appears in an image in the search box and press Enter to search together with filenames.'
   },
   devOptions: {
     pageDesc: 'Debug and experimental features for developers.',
@@ -489,12 +541,6 @@ export default {
     logging: 'Logging',
     loggingDesc:
       'Capture all main/renderer/worker logs (DEBUG / INFO / WARNING / ERROR), written to userData/logs/app-YYYYMMDD.log',
-    zoomTitle: 'Waterfall',
-    zoomMax: 'Slider max value',
-    zoomMaxDesc: 'Maximum value of the zoom slider on main screen ({min} ~ {max})',
-    imageTallCap: 'Limit card aspect ratio',
-    imageTallCapDesc:
-      'On: card aspect is capped between 1:5 and 2:1 (w:h); taller images are capped at 1:5 and wider images at 2:1, scaled to fit and shown whole (no huge blocks or thin strips). Off: keep the original ratio.',
     lightZoomTitle: 'Lightbox zoom',
     lightZoomDesc: 'These take effect the next time the lightbox opens.',
     lightZoomMin: 'Min zoom',
@@ -504,45 +550,14 @@ export default {
     lightZoomStep: 'Zoom step',
     lightZoomStepDesc: 'Multiplier applied per wheel notch (e.g. 1.2 = +20% per notch)',
     lightZoomSaved: 'Saved: lightbox zoom takes effect the next time it opens',
-    cacheTitle: 'Cache maintenance',
-    cacheDesc: 'These parameters apply the next time you run "Roots → Update/Rebuild cache".',
-    cacheUseCli: 'Build cache with external converter',
-    cacheUseCliDesc:
-      'When on, thumbnails are generated in one pass by image_compresser.exe instead of the built-in decoder. This bypasses every in-app decode/scheduling issue; set the exe path below (leave empty to auto-detect). Requires --resize; width/quality/workers are taken from the settings above.',
-    cacheCliExe: 'Converter path',
-    cacheCliExeDesc:
-      'Absolute path to image_compresser.exe. Empty = auto-detect at the project root / packaged extraResources.',
-    cacheSequential: 'Sequential reads while building cache',
-    cacheSequentialDesc:
-      'On (default): tasks are assigned in scan order, so each worker reads files from the same folder consecutively — friendlier to mechanical HDDs. Off: tasks are interleaved across folders, spreading heavy/stuck images out so the whole batch feels smoother (better for SSDs).',
-    thumbWidth: 'Max thumbnail width',
-    thumbWidthDesc: 'Upper bound of the webp thumbnail width (pixels, 64 ~ 4096)',
-    thumbQuality: 'Thumbnail quality',
-    thumbQualityDesc: 'webp encoding quality (1 ~ 100, higher = clearer / larger)',
-    scanBatch: 'Scan batch size',
-    scanBatchDesc: 'Number of files returned per batch when scanning (10 ~ 1000, smaller saves memory)',
-    thumbBatch: 'Thumbnail batch size',
-    thumbBatchDesc: 'Number of thumbnails handed to the worker each time (10 ~ 500)',
-    thumbWorkers: 'Concurrent thumbnail workers',
-    thumbWorkersDesc:
-      'How many workers decode/encode thumbnails in parallel. 0 = auto (bounded by both CPU cores and available RAM, since large decodes are memory-hungry); higher uses more CPU but can cause memory/GC thrash on huge images.',
-    thumbTimeout: 'Chunk timeout (ms)',
-    thumbTimeoutDesc:
-      'Max time one worker chunk may run before the remaining jobs in it are skipped (10000 ~ 600000).',
-    thumbSlow: 'Slow-image warning threshold (ms)',
-    thumbSlowDesc:
-      'Thumbnails that take longer than this print a [WARN] with the file path (1000 ~ 60000), for locating heavy images.',
     enabled: 'Developer options enabled',
     disabled: 'Developer options disabled',
     devtoolsReopened: 'Developer tools reopened',
-    zoomMaxSaved: 'Saved: max zoom {n}',
-    cacheSaved: 'Saved: takes effect on next cache maintenance',
     loggingOn: 'Logging enabled',
     loggingOff: 'Logging disabled'
   },
   test: {
-    pageDesc:
-      'Engineers only. Do Not Touch',
+    pageDesc: 'Engineers only. Do Not Touch',
     versionSection: 'Version override test',
     versionDesc:
       'When filled in, the app reports this version (immediately affects the About page and manual checks; the update check at startup takes effect after restarting). Leave empty to keep the real version.',
@@ -566,7 +581,8 @@ export default {
     mockDone: 'Simulated task done (100%)',
     mockProcessing: 'Processing… {p}%',
     mockConfirmTitle: 'Confirm operation',
-    mockConfirmMsg: 'A notification with "Cancel / OK" buttons; clicking dismisses and fires the callback.',
+    mockConfirmMsg:
+      'A notification with "Cancel / OK" buttons; clicking dismisses and fires the callback.',
     mockCancelled: 'Cancelled',
     mockCancelMsg: 'You clicked "Cancel"',
     mockConfirmed: 'Confirmed',
@@ -586,7 +602,8 @@ export default {
     mockErrorTitle: 'Error',
     mockErrorMsg: 'This is an error notification',
     aiFlow: 'AI flow test',
-    aiFlowDesc: 'End-to-end test of the AI search pipeline: image → caption → vector; each step shows its prompt and result.',
+    aiFlowDesc:
+      'End-to-end test of the AI search pipeline: image → caption → vector; each step shows its prompt and result.',
     aiStep1: '1. Pick an image',
     aiBrowse: 'Browse…',
     aiStep2: '2. Image to text (vision model)',
@@ -606,7 +623,7 @@ export default {
   },
   performance: {
     pageDesc:
-      'Tuning for smooth grid browsing. These trade a little decode/IO or storage for responsiveness; changes to loading behavior apply immediately, thumbnail size applies after rebuilding the cache.',
+      'Display and performance tuning for the waterfall grid: trade a little decode/IO or storage for responsiveness. Loading/display changes apply immediately; thumbnail parameters apply after running cache maintenance.',
     scrollTitle: 'Grid scrolling & preloading',
     bufferLazy: 'Lazy-load buffered images',
     bufferLazyDesc:
@@ -615,14 +632,48 @@ export default {
     preloadDesc:
       'How far above and below the viewport images are prepared ahead of time. Higher = fewer blank gaps on very fast scrolling but more concurrent loads; lower = less IO/decode pressure.',
     preloadUnit: '{n} px',
-    thumbTitle: 'Thumbnail cache size',
+    cardTitle: 'Waterfall cards',
+    zoomMax: 'Slider max value',
+    zoomMaxDesc: 'Maximum value of the zoom slider on main screen ({min} ~ {max})',
+    imageTallCap: 'Limit card aspect ratio',
+    imageTallCapDesc:
+      'On: card aspect is capped between 1:5 and 2:1 (w:h); taller images are capped at 1:5 and wider images at 2:1, scaled to fit and shown whole (no huge blocks or thin strips). Off: keep the original ratio.',
+    zoomMaxSaved: 'Saved: max zoom {n}',
+    thumbTitle: 'Thumbnail cache',
+    thumbWidth: 'Max thumbnail width',
     thumbDesc:
       'Width of cached webp thumbnails. Smaller thumbs decode faster and use less memory/disk; grid cards only need roughly 300–400 px at normal zoom and DPI. Set 256–384 for a more responsive feel.',
     thumbPx: '{n} px wide',
+    thumbQuality: 'Thumbnail quality',
+    thumbQualityDesc: 'webp encoding quality (1 ~ 100, higher = clearer / larger)',
+    scanBatch: 'Scan batch size',
+    scanBatchDesc:
+      'Number of files returned per batch when scanning (10 ~ 1000, smaller saves memory)',
+    thumbBatch: 'Thumbnail batch size',
+    thumbBatchDesc: 'Number of thumbnails handed to the worker each time (10 ~ 500)',
+    thumbWorkers: 'Concurrent thumbnail workers',
+    thumbWorkersDesc:
+      'How many workers decode/encode thumbnails in parallel. 0 = auto (bounded by both CPU cores and available RAM, since large decodes are memory-hungry); higher uses more CPU but can cause memory/GC thrash on huge images.',
+    thumbTimeout: 'Chunk timeout (ms)',
+    thumbTimeoutDesc:
+      'Max time one worker chunk may run before the remaining jobs in it are skipped (10000 ~ 600000).',
+    thumbSlow: 'Slow-image warning threshold (ms)',
+    thumbSlowDesc:
+      'Thumbnails that take longer than this print a [WARN] with the file path (1000 ~ 60000), for locating heavy images.',
     thumbApplyHint:
-      'Applies to newly generated thumbnails. Run "Roots → Update cache" (or "Rebuild cache") for it to take effect; already-cached thumbnails may keep serving for up to a day.',
-    advancedHint:
-      'Thumbnail quality and generation batch sizes can be fine-tuned in "Developer options"; cache maintenance runs from the "Roots" page.',
+      'Applies to newly generated thumbnails. Run "Incremental boost" (or "Full rebuild") in the cache tools below; already-cached thumbnails may keep serving for up to a day.',
+    cacheGenTitle: 'Cache generation',
+    cacheDesc: 'These parameters apply the next time you run the cache maintenance tools.',
+    cacheUseCli: 'Build cache with external converter',
+    cacheUseCliDesc:
+      'When on, thumbnails are generated in one pass by image_compresser.exe instead of the built-in decoder. This bypasses every in-app decode/scheduling issue; set the exe path below (leave empty to auto-detect). Requires --resize; width/quality/workers are taken from the settings above.',
+    cacheCliExe: 'Converter path',
+    cacheCliExeDesc:
+      'Absolute path to image_compresser.exe. Empty = auto-detect at the project root / packaged extraResources.',
+    cacheSequential: 'Sequential reads while building cache',
+    cacheSequentialDesc:
+      'On (default): tasks are assigned in scan order, so each worker reads files from the same folder consecutively — friendlier to mechanical HDDs. Off: tasks are interleaved across folders, spreading heavy/stuck images out so the whole batch feels smoother (better for SSDs).',
+    cacheSaved: 'Saved: takes effect on next cache maintenance',
     saved: 'Saved'
   },
   update: {

@@ -29,12 +29,18 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="titlebar-controls">
-      <button class="tb-btn" :title="t('titlebar.minimize')" @click="api.windowMinimize()">
+      <button
+        class="tb-btn"
+        :title="t('titlebar.minimize')"
+        :aria-label="t('titlebar.minimize')"
+        @click="api.windowMinimize()"
+      >
         <el-icon><Minus /></el-icon>
       </button>
       <button
         class="tb-btn"
         :title="isMaximized ? t('titlebar.restore') : t('titlebar.maximize')"
+        :aria-label="isMaximized ? t('titlebar.restore') : t('titlebar.maximize')"
         @click="api.windowToggleMaximize()"
       >
         <el-icon>
@@ -42,7 +48,12 @@ onBeforeUnmount(() => {
           <FullScreen v-else />
         </el-icon>
       </button>
-      <button class="tb-btn tb-btn-close" :title="t('titlebar.close')" @click="api.windowClose()">
+      <button
+        class="tb-btn tb-btn-close"
+        :title="t('titlebar.close')"
+        :aria-label="t('titlebar.close')"
+        @click="api.windowClose()"
+      >
         <el-icon><Close /></el-icon>
       </button>
     </div>

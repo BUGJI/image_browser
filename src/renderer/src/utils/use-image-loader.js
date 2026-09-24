@@ -14,7 +14,7 @@ import { buildImageUrl } from './image-url'
  */
 
 const SCROLL_IDLE_MS = 180
-const SRC_CACHE_MAX = 6000
+const SRC_CACHE_MAX = 20000
 
 export function useImageLoader(props, { visibleItems, inViewport }) {
   const scrollIdle = ref(true)
@@ -26,16 +26,26 @@ export function useImageLoader(props, { visibleItems, inViewport }) {
   let scrollIdleTimer = 0
   let idleHandle = 0
 
+  /** 将命中项移到 Map 末尾（Map 迭代顺序即 LRU 顺序） */
+  function touchSrc(key) {
+    const v = srcCache.get(key)
+    if (v === undefined) return v
+    srcCache.delete(key)
+    srcCache.set(key, v)
+    return v
+  }
+
   function assignSrc(item) {
     if (srcCache.has(item.absPath)) return
     if (srcCache.size >= SRC_CACHE_MAX) {
+      // 淘汰最久未访问项（Map 头部）
       srcCache.delete(srcCache.keys().next().value)
     }
     // 已知有缩略图时用 ?size=thumb（与无缩略图时的 URL 不同，避免复用缓存建立前的原图）
-    srcCache.set(
-      item.absPath,
-      buildImageUrl(props.rootId, item.absPath, item.hasThumb ? 'thumb' : 'auto')
-    )
+    const url = buildImageUrl(props.rootId, item.absPath, item.hasThumb ? 'thumb' : 'auto')
+    srcCache.set(item.absPath, url)
+    // 同步写到 item 普通字段，供 WaterfallGrid 的 v-memo 依赖比较
+    item._src = url
     srcVersion.value++
   }
 
@@ -86,7 +96,7 @@ export function useImageLoader(props, { visibleItems, inViewport }) {
   /** 模板用：未分配的图片返回 undefined（不写 src 属性，浏览器不发请求、也无破损图标） */
   function srcFor(item) {
     void srcVersion.value // 建立响应式依赖：srcCache 变更后重渲染
-    return srcCache.get(item.absPath)
+    return touchSrc(item.absPath) // 命中时刷新 LRU 顺序
   }
 
   /** img 的 loading 属性：可视区内立即加载，缓冲区内按开关决定懒加载 */

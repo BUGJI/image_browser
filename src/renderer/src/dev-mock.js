@@ -251,6 +251,17 @@ export function ensureDevMock() {
       return true
     },
     cacheStatus: async () => ({ running: mockCacheAbort }),
+    cacheStats: async () =>
+      MOCK_ROOTS.map((r, i) => ({
+        rootId: r.id,
+        hasCache: i !== 1,
+        total: 1200 + i * 340,
+        cached: i !== 1 ? 1100 + i * 300 : 0,
+        srcBytes: 3435973836 + i * 536870912,
+        thumbBytes: i !== 1 ? 125829120 + i * 20971520 : 0,
+        folderCount: 40 + i * 10,
+        lastTaskAt: i === 0 ? '2026-09-01T10:20:30.000Z' : null
+      })),
     onCacheProgress: (cb) => {
       mockCacheCb = cb
       return () => {
@@ -259,15 +270,50 @@ export function ensureDevMock() {
     },
 
     // --- 图片浏览 mock ---
-    imagesList: async (rootId, folderPath, searchQuery) => {
+    imagesList: async (rootId, folderPath, searchQuery, opts = {}) => {
       // 40 张不同尺寸的本地渐变图（scripts/gen_mock_imgs.py 生成，瀑布流效果）
       const list = []
       const seeds = [
-        'aurora', 'forest', 'mountain', 'ocean', 'city', 'sunset', 'flower', 'snow',
-        'desert', 'lake', 'stars', 'rain', 'spring', 'summer', 'autumn', 'winter',
-        'cloud', 'river', 'valley', 'island', 'bridge', 'tower', 'street', 'night',
-        'dawn', 'dusk', 'garden', 'park', 'beach', 'canyon', 'waterfall', 'meadow',
-        'harbor', 'village', 'castle', 'temple', 'statue', 'fountain', 'pier', 'skyline'
+        'aurora',
+        'forest',
+        'mountain',
+        'ocean',
+        'city',
+        'sunset',
+        'flower',
+        'snow',
+        'desert',
+        'lake',
+        'stars',
+        'rain',
+        'spring',
+        'summer',
+        'autumn',
+        'winter',
+        'cloud',
+        'river',
+        'valley',
+        'island',
+        'bridge',
+        'tower',
+        'street',
+        'night',
+        'dawn',
+        'dusk',
+        'garden',
+        'park',
+        'beach',
+        'canyon',
+        'waterfall',
+        'meadow',
+        'harbor',
+        'village',
+        'castle',
+        'temple',
+        'statue',
+        'fountain',
+        'pier',
+        'skyline'
       ]
       seeds.forEach((seed, i) => {
         const w = 300 + ((i * 97) % 520) // 300-820
@@ -282,20 +328,29 @@ export function ensureDevMock() {
       })
       // 模拟按文件名搜索（支持 * ? 通配符，与主进程一致）
       const q = (searchQuery || '').trim()
-      if (!q) return list
-      let re
-      if (/[*?]/.test(q)) {
-        let out = ''
-        for (const ch of q) {
-          if (ch === '*') out += '.*'
-          else if (ch === '?') out += '.'
-          else out += ch.replace(/[\\^$+.()|[\]{}]/g, '\\$&')
+      let result = list
+      if (q) {
+        let re
+        if (/[*?]/.test(q)) {
+          let out = ''
+          for (const ch of q) {
+            if (ch === '*') out += '.*'
+            else if (ch === '?') out += '.'
+            else out += ch.replace(/[\\^$+.()|[\]{}]/g, '\\$&')
+          }
+          re = new RegExp('^' + out + '$', 'i')
+        } else {
+          re = new RegExp(q.replace(/[\\^$+.()|[\]{}]/g, '\\$&'), 'i')
         }
-        re = new RegExp('^' + out + '$', 'i')
-      } else {
-        re = new RegExp(q.replace(/[\\^$+.()|[\]{}]/g, '\\$&'), 'i')
+        result = list.filter((it) => re.test(it.name))
       }
-      return list.filter((it) => re.test(it.name))
+      // 分页：与主进程 images:list 返回结构一致 { items, total }
+      const limit = Number(opts.limit) > 0 ? Math.floor(Number(opts.limit)) : 0
+      const offset = Number(opts.offset) > 0 ? Math.floor(Number(opts.offset)) : 0
+      return {
+        items: limit > 0 ? result.slice(offset, offset + limit) : result,
+        total: result.length
+      }
     },
     copyImageDataUrl: async () => true,
 

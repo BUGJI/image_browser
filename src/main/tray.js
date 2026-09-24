@@ -21,10 +21,6 @@ export function getCloseAction() {
   return getSetting('closeAction', 'ask')
 }
 
-export function isAppQuitting() {
-  return isQuitting
-}
-
 // 隐藏到托盘（主窗口 + 设置窗口一起隐藏）
 export function hideToTray() {
   const win = getMainWindow()

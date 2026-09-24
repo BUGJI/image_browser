@@ -80,15 +80,27 @@ export async function validateDir(root) {
 export function displayName(root) {
   if (!root) return ''
   if (root.alias && root.alias.trim()) return root.alias.trim()
-  const parts = String(root.path).split(/[\\/]+/).filter(Boolean)
+  const parts = String(root.path)
+    .split(/[\\/]+/)
+    .filter(Boolean)
   if (isRemoteRoot(root) && parts.length <= 2) return root.path
   return parts.length ? parts[parts.length - 1] : root.path
 }
 
+// 根目录注册极少数变更、却在高频路径（image:// 每次解析）被读取，故整表缓存于内存，
+// 任何写操作后调用 invalidateRootsCache() 失效。
+let rootsCache = null
+
+export function invalidateRootsCache() {
+  rootsCache = null
+}
+
 export function listRoots() {
-  return prep('SELECT * FROM roots ORDER BY sort_order ASC, created_at ASC, id ASC')
+  if (rootsCache) return rootsCache
+  rootsCache = prep('SELECT * FROM roots ORDER BY sort_order ASC, created_at ASC, id ASC')
     .all()
     .map(toRoot)
+  return rootsCache
 }
 
 /**
@@ -103,6 +115,7 @@ export function reorderRoots(ids) {
       if (Number.isFinite(id)) update.run(index + 1, now(), id)
     })
   })
+  invalidateRootsCache()
   return listRoots()
 }
 
@@ -110,13 +123,13 @@ export function getRoot(id) {
   // node:sqlite 对参数类型严格：null/undefined 无法绑定，直接按「找不到」处理
   const n = Number(id)
   if (!Number.isFinite(n) || n <= 0) return undefined
-  return toRoot(prep('SELECT * FROM roots WHERE id = ?').get(n))
+  return listRoots().find((r) => r.id === n)
 }
 
 /** 按路径查找根（路径唯一） */
 export function getRootByPath(path) {
   if (!path) return undefined
-  return toRoot(prep('SELECT * FROM roots WHERE path = ?').get(String(path)))
+  return listRoots().find((r) => r.path === String(path))
 }
 
 /**
@@ -147,7 +160,12 @@ function normalizeType(type) {
  */
 export async function addRoot(path, alias = '', opts = {}) {
   const type = normalizeType(opts.type)
-  const record = { path, type, config: opts.config || null, writable: opts.writable === false ? 0 : 1 }
+  const record = {
+    path,
+    type,
+    config: opts.config || null,
+    writable: opts.writable === false ? 0 : 1
+  }
   // 凭据尚未落库：校验时用临时密钥，避免用空密码去连
   if (opts.secret != null) record.__secret = opts.secret
   if (!(await validateDir(record))) throw new Error('目录不存在或不可访问')
@@ -157,7 +175,16 @@ export async function addRoot(path, alias = '', opts = {}) {
   const info = prep(
     `INSERT INTO roots (path, alias, type, config, writable, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(path, String(alias || '').trim(), type, opts.config ? JSON.stringify(opts.config) : null, record.writable, ts, ts)
+  ).run(
+    path,
+    String(alias || '').trim(),
+    type,
+    opts.config ? JSON.stringify(opts.config) : null,
+    record.writable,
+    ts,
+    ts
+  )
+  invalidateRootsCache()
   return getRoot(Number(info.lastInsertRowid))
 }
 
@@ -182,17 +209,30 @@ export async function updateRoot(id, path, alias = '', opts = {}) {
   if (dup) throw new Error('该目录已被其他项注册')
   prep(
     `UPDATE roots SET path = ?, alias = ?, type = ?, config = ?, writable = ?, updated_at = ? WHERE id = ?`
-  ).run(path, String(alias || '').trim(), type, config ? JSON.stringify(config) : null, writable, now(), id)
+  ).run(
+    path,
+    String(alias || '').trim(),
+    type,
+    config ? JSON.stringify(config) : null,
+    writable,
+    now(),
+    id
+  )
+  invalidateRootsCache()
   return getRoot(id)
 }
 
 export function removeRoot(id) {
-  prep('DELETE FROM roots WHERE id = ?').run(id)
-  prep('DELETE FROM favorites WHERE root_id = ?').run(id)
-  removeTagsOfRoot(id)
-  removeRootSecret(id)
-  // 删除的是当前选中时清空
-  if (getSetting('currentRootId', '') === String(id)) {
-    setSetting('currentRootId', '')
-  }
+  // 事务包裹：任一步失败整体回滚，避免只删掉一半的关联数据
+  transaction(() => {
+    prep('DELETE FROM roots WHERE id = ?').run(id)
+    prep('DELETE FROM favorites WHERE root_id = ?').run(id)
+    removeTagsOfRoot(id)
+    removeRootSecret(id)
+    // 删除的是当前选中时清空
+    if (getSetting('currentRootId', '') === String(id)) {
+      setSetting('currentRootId', '')
+    }
+  })
+  invalidateRootsCache()
 }

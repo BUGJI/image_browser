@@ -1,4 +1,4 @@
-import { app, screen, shell, BrowserWindow } from 'electron'
+import { screen, shell, BrowserWindow } from 'electron'
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
@@ -26,7 +26,13 @@ function loadWindowState(key) {
   if (!raw) return null
   try {
     const s = JSON.parse(raw)
-    if (s && Number.isFinite(s.width) && s.width >= 200 && Number.isFinite(s.height) && s.height >= 200) {
+    if (
+      s &&
+      Number.isFinite(s.width) &&
+      s.width >= 200 &&
+      Number.isFinite(s.height) &&
+      s.height >= 200
+    ) {
       return s
     }
   } catch {
@@ -120,7 +126,9 @@ export function createMainWindow() {
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true
     }
   })
 
@@ -139,7 +147,8 @@ export function createMainWindow() {
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
+    // 仅允许在系统浏览器打开 http(s) 链接，拒绝 file:/自定义协议等潜在危险 scheme
+    if (/^https?:\/\//i.test(details.url)) shell.openExternal(details.url)
     return { action: 'deny' }
   })
 
@@ -182,7 +191,9 @@ export function createSettingsWindow() {
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true
     }
   })
 

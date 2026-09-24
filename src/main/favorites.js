@@ -51,8 +51,3 @@ export function toggleFavorite(rootId, item) {
   )
   return { added: true }
 }
-
-/** 删除某根目录下的全部收藏（根目录被移除时清理） */
-export function removeFavoritesOfRoot(rootId) {
-  prep('DELETE FROM favorites WHERE root_id = ?').run(rootId)
-}

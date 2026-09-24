@@ -88,7 +88,14 @@ function wrapConsole() {
   for (const method of ['debug', 'log', 'info', 'warn', 'error']) {
     const original = console[method]
     if (typeof original !== 'function') continue
-    const level = (method === 'debug' ? 'DEBUG' : method === 'warn' ? 'WARN' : method === 'error' ? 'ERROR' : 'INFO')
+    const level =
+      method === 'debug'
+        ? 'DEBUG'
+        : method === 'warn'
+          ? 'WARN'
+          : method === 'error'
+            ? 'ERROR'
+            : 'INFO'
     console[method] = function (...args) {
       write(level, 'main', args)
       original.apply(console, args)
@@ -103,10 +110,6 @@ export function setLoggingEnabled(v) {
     ensureStream()
     write('INFO', 'main', ['日志记录已开启'])
   }
-  return enabled
-}
-
-export function isLoggingEnabled() {
   return enabled
 }
 
@@ -133,7 +136,14 @@ export function installWorkerLogger(parentPort) {
   for (const method of ['debug', 'log', 'info', 'warn', 'error']) {
     const original = console[method]
     if (typeof original !== 'function') continue
-    const level = method === 'debug' ? 'DEBUG' : method === 'warn' ? 'WARN' : method === 'error' ? 'ERROR' : 'INFO'
+    const level =
+      method === 'debug'
+        ? 'DEBUG'
+        : method === 'warn'
+          ? 'WARN'
+          : method === 'error'
+            ? 'ERROR'
+            : 'INFO'
     console[method] = function (...args) {
       send(level, args)
       original.apply(console, args)
