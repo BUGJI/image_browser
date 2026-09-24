@@ -2,10 +2,11 @@
 
 本地 / 远程图片浏览器，主打直观、流畅的浏览体验。
 
-![version](https://img.shields.io/badge/version-1.1.0-blue)
+![version](https://img.shields.io/github/v/release/BUGJI/image_browser?label=version)
 ![license](https://img.shields.io/badge/license-MIT-green)
 ![platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 ![electron](https://img.shields.io/badge/Electron-43-47848F?logo=electron&logoColor=white)
+[![CI](https://github.com/BUGJI/image_browser/actions/workflows/ci.yml/badge.svg)](https://github.com/BUGJI/image_browser/actions/workflows/ci.yml)
 
 > QQ 交流群 [1064353699](https://qm.qq.com/q/bI7nX30tFK)
 
@@ -25,11 +26,11 @@
 
 前往 **[GitHub Releases](https://github.com/BUGJI/image_browser/releases)** 下载最新版本：
 
-| 平台    | 安装包                                                            |
-| ------- | ----------------------------------------------------------------- |
-| Windows | `image-browser-<version>-setup.exe`（NSIS 安装包）/ 免安装 `.zip` |
-| macOS   | `.dmg`（需在 macOS 上构建）                                       |
-| Linux   | `.AppImage` / `.deb`                                              |
+| 平台    | 安装包                                                                       |
+| ------- | ---------------------------------------------------------------------------- |
+| Windows | `image-browser-<version>-setup.exe`（NSIS 安装包）/ 免安装 `.zip`            |
+| Linux   | `.AppImage` / `.deb`                                                         |
+| macOS   | `.dmg`（当前未提供预构建包，需在 macOS 上执行 `npm run build:mac` 自行构建） |
 
 ---
 
@@ -100,7 +101,7 @@ Electron 43 · electron-vite 5 · Vue 3 · Vite 7 · Pinia · Element Plus · vu
 
 ### 环境要求
 
-- Node.js 24+（使用内置 `node:sqlite`，零编译、零原生依赖）
+- Node.js 22.5+（使用内置 `node:sqlite`，零编译、零原生依赖）
 - npm 10+
 - （可选）OCR 图内文字搜索依赖 `@repeato/ocr`（已列为可选依赖，`npm install` 会自动安装）。运行时组件（onnxruntime + sharp）在应用内按需下载；开发时 `node_modules` 已含原生依赖，可直接使用。
 
@@ -123,6 +124,11 @@ npm run dev
 | `npm run build:mac`       | 打包 macOS（需在 macOS 上执行）                                   |
 | `npm run build:linux`     | 打包 Linux（AppImage / deb）                                      |
 | `npm run build:ocr-addon` | 生成 OCR 运行时组件包（win32-x64），作为 GitHub Releases 附件发布 |
+| `npm run lint`            | ESLint 检查（CI 会执行）                                          |
+| `npm run format:check`    | Prettier 格式检查（CI 会执行）                                    |
+| `npm run format`          | Prettier 自动格式化                                               |
+
+> 打包前请替换 `build/icon.png` 及各平台正式图标。
 
 更多模块划分、IPC 与数据层设计见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
@@ -133,7 +139,6 @@ npm run dev
 - **格式支持**：JPG / JPEG / PNG / GIF / WebP / BMP / TIFF 可索引浏览，WebM 视频可播放；缩略图解码依赖 JS/WASM 解码器，个别格式（如 BMP / TIFF）可能回退原图显示。
 - **更新检测**通过 GitHub Releases 比对版本，提示后跳转下载页；`electron-updater` 的 `publish.url` 为占位符，未启用静默自动更新。
 - **AI 语义搜索**为实验性功能，默认隐藏，需在「开发者选项」中开启。
-- **打包前**请替换 `build/icon.png` 及各平台正式图标。
 
 ---
 
