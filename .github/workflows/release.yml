@@ -35,7 +35,9 @@ jobs:
         run: npx electron-vite build
 
       - name: Package
-        run: npx electron-builder ${{ matrix.args }}
+        # 由下方 release job 用 softprops/action-gh-release 统一发布；
+        # 关闭 electron-builder 在 tag 上的隐式发布，避免重复/竞争创建 Release。
+        run: npx electron-builder ${{ matrix.args }} --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

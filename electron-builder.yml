@@ -1,6 +1,7 @@
 appId: com.bugji.image-browser
 productName: image-browser
-electronDist: node_modules/electron/dist
+# 不指定 electronDist：Electron 43 起 npm 包不再自带 postinstall 下载运行时，
+# 由 electron-builder 自行按版本获取 Electron 发行包（本地与 CI 均可）。
 # 源代码经 Vite 打包，asar 归档 + 最大压缩减小安装体积
 asar: true
 compression: maximum
