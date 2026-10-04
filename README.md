@@ -2,7 +2,7 @@
 
 本地 / 远程图片浏览器，主打直观、流畅的浏览体验。
 
-![version](https://img.shields.io/github/v/release/BUGJI/image_browser?label=version)
+![version](https://img.shields.io/github/v/release/BUGJI/image_browser?sort=semver&label=version)
 ![license](https://img.shields.io/badge/license-MIT-green)
 ![platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 ![electron](https://img.shields.io/badge/Electron-43-47848F?logo=electron&logoColor=white)
@@ -26,11 +26,13 @@
 
 前往 **[GitHub Releases](https://github.com/BUGJI/image_browser/releases)** 下载最新版本：
 
-| 平台    | 安装包                                                                       |
-| ------- | ---------------------------------------------------------------------------- |
-| Windows | `image-browser-<version>-setup.exe`（NSIS 安装包）/ 免安装 `.zip`            |
-| Linux   | `.AppImage` / `.deb`                                                         |
-| macOS   | `.dmg`（当前未提供预构建包，需在 macOS 上执行 `npm run build:mac` 自行构建） |
+| 平台    | 当前发布产物                        | 说明                                                |
+| ------- | ----------------------------------- | --------------------------------------------------- |
+| Windows | `image-browser-<version>-setup.exe` | NSIS 安装包，下载即装                               |
+| Linux   | 暂未提供                            | 需自行构建，`npm run build:linux`（AppImage / deb） |
+| macOS   | 暂未提供                            | 需自行构建，`npm run build:mac`（dmg）              |
+
+Windows 免安装绿色版可用 `npm run build:win:zip` 自行打包。
 
 ---
 

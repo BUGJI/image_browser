@@ -4,7 +4,14 @@
   "description": "本地 / 远程图片浏览器：瀑布流浏览、OCR 图内文字与 AI 语义搜索、标签与收藏",
   "main": "./out/main/index.js",
   "author": "BUGJI",
-  "homepage": "https://github.com/BUGJI",
+  "homepage": "https://github.com/BUGJI/image_browser",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/BUGJI/image_browser.git"
+  },
+  "bugs": {
+    "url": "https://github.com/BUGJI/image_browser/issues"
+  },
   "license": "MIT",
   "engines": {
     "node": ">=22.5.0",
