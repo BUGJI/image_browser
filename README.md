@@ -147,3 +147,5 @@ npm run dev
 ## License
 
 MIT
+
+第三方组件（随包分发的 `image_compressor.exe` 等）的来源与许可见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

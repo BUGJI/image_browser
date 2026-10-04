@@ -14,11 +14,12 @@ import { useThemeStore } from './stores/theme'
 import { useNotificationsStore } from './stores/notifications'
 import { useLocaleStore } from './stores/locale'
 import { useAnimationsStore } from './stores/animations'
-import { aiSearch } from './utils/ai-search'
 import { useGifStore } from './stores/gif'
 import { useFavoritesStore } from './stores/favorites'
 import { useTagsStore } from './stores/tags'
 import { useSettings, asBool, asEnum, asNumber } from './utils/use-settings'
+import { useImageSearch } from './utils/use-image-search'
+import { useGlobalCacheProgress } from './utils/use-cache-progress'
 
 const { t } = useI18n()
 const localeStore = useLocaleStore()
@@ -29,8 +30,6 @@ const elementLocale = computed(() => (localeStore.locale === 'en-US' ? en : zhCn
 let offSettingsChanged = null
 // 全局缓存维护进度通知（滞留于主窗口通知列表）
 let offCacheProgress = null
-let cacheNotifyId = null
-let cacheRootKey = null
 // 启动更新检测推送（发现新版本时弹出忽略/查看通知）
 let offUpdateAvailable = null
 
@@ -73,11 +72,6 @@ function toggleBrowseMode() {
 // 缓存维护完成后自增，通知 WaterfallGrid 重新加载（缩略图就绪后改用缩略图）
 const cacheRefreshTick = ref(0)
 
-// 图片文件名搜索（回车生效，支持 * ? 通配符）
-const searchInput = ref('')
-const searchQuery = ref('')
-const isSearching = computed(() => searchQuery.value.trim() !== '')
-
 // 快速复制：开启后点击图片直接复制（类型见设置-常规），不进灯箱；开关本地记忆
 const QUICK_COPY_KEY = 'quick-copy'
 const quickCopyEnabled = ref(false)
@@ -90,70 +84,6 @@ function toggleQuickCopy() {
   }
 }
 
-// AI 搜索：设置中启用后，搜索框右侧显示开关；开关开启时回车走 AI 检索
-const aiSearchEnabled = ref(false)
-const aiSearchActive = ref(false)
-// AI 搜索结果（非空数组时瀑布流优先渲染，覆盖普通搜索/文件夹列表）
-const aiResults = ref(null)
-const aiSearchBusy = ref(false)
-
-// 主进程 ai:search 抛出的错误码 → 界面提示文案
-const AI_ERROR_KEYS = {
-  AI_NO_ROOT: 'app.aiNoRoot',
-  AI_NO_KEY: 'app.aiNoKey',
-  AI_NO_CACHE: 'app.aiNoCache',
-  AI_NO_INDEX: 'app.aiNoIndex'
-}
-
-// 图内文字搜索：不再需要主界面开关。设置里启用后，搜索框回车时由主进程
-// （images:list）自动把文件名命中与图内文字命中合并返回，这里无需感知。
-async function applySearch() {
-  const q = searchInput.value.trim()
-  if (aiSearchActive.value) {
-    await runAiSearch(q)
-    return
-  }
-  searchQuery.value = q
-  aiResults.value = null
-}
-
-// AI 检索：主进程向量化 query → 余弦相似度 → 返回与瀑布流一致的图片列表
-async function runAiSearch(q) {
-  if (!q || !rootsStore.currentRoot) {
-    clearSearch()
-    return
-  }
-  aiSearchBusy.value = true
-  try {
-    const results = await aiSearch(rootsStore.currentRoot.id, q)
-    aiResults.value = results || []
-    // 置为搜索态：显示瀑布流、隐藏文件夹横幅（grid 会优先渲染 aiResults）
-    searchQuery.value = q
-  } catch (e) {
-    aiResults.value = null
-    searchQuery.value = ''
-    ElMessage.warning(
-      t(AI_ERROR_KEYS[e?.code] || 'app.aiSearchFailed', { error: e?.message || '' })
-    )
-  } finally {
-    aiSearchBusy.value = false
-  }
-}
-
-function clearSearch() {
-  searchInput.value = ''
-  searchQuery.value = ''
-  aiResults.value = null
-}
-
-// AI 搜索开关关闭时，清掉已展示的 AI 结果，回到文件夹浏览
-watch(aiSearchActive, (v) => {
-  if (!v && aiResults.value) {
-    aiResults.value = null
-    searchQuery.value = ''
-  }
-})
-
 const rootsStore = useRootsStore()
 const themeStore = useThemeStore()
 const notificationsStore = useNotificationsStore()
@@ -161,6 +91,26 @@ const animationsStore = useAnimationsStore()
 const gifStore = useGifStore()
 const favoritesStore = useFavoritesStore()
 const tagsStore = useTagsStore()
+
+// 文件名搜索 + AI 搜索（实现见 utils/use-image-search.js）
+const {
+  searchInput,
+  searchQuery,
+  isSearching,
+  aiSearchEnabled,
+  aiSearchActive,
+  aiResults,
+  aiSearchBusy,
+  applySearch,
+  clearSearch
+} = useImageSearch(rootsStore)
+
+// 全局缓存维护进度 → 通知列表（实现见 utils/use-cache-progress.js）
+const { onGlobalCacheProgress } = useGlobalCacheProgress({
+  notificationsStore,
+  rootsStore,
+  onReady: () => cacheRefreshTick.value++
+})
 
 const favActive = ref(false) // 是否正在浏览“我的收藏”
 const tagActive = ref(false) // 是否正在浏览某个标签
@@ -293,18 +243,6 @@ watch([() => tagsStore.activeTagId, () => tagsStore.tags], ([id]) => {
   }
 })
 
-// 切换到文件夹 / 切换根目录时，退出 AI 结果视图
-watch(
-  () => [rootsStore.selectedFolder, rootsStore.currentRootId],
-  () => {
-    if (aiResults.value) {
-      aiResults.value = null
-      searchQuery.value = ''
-      searchInput.value = ''
-    }
-  }
-)
-
 const rootDisplayName = computed(() => {
   const root = rootsStore.currentRoot
   if (!root) return ''
@@ -342,76 +280,6 @@ const gridEmptyText = computed(() =>
 
 function openSettings() {
   window.api.openSettings()
-}
-
-// ---------- 全局缓存维护进度（主窗口通知列表滞留显示） ----------
-function onGlobalCacheProgress(p) {
-  // 新任务（rootId 变化）→ 创建通知
-  if (cacheRootKey !== p.rootId) {
-    cacheRootKey = p.rootId
-    cacheNotifyId = notificationsStore.add({
-      type: 'progress',
-      title: t('app.cacheMaintenance'),
-      message: t('common.preparing'),
-      cancellable: true,
-      onCancel: () => window.api.cacheAbort()
-    })
-  }
-  if (!cacheNotifyId) return
-
-  // 注意：thumb 进度事件里的 done 是数字（已处理张数），任务完成标志是 done === true
-  const finished = p.done === true
-
-  if (p.error) {
-    notificationsStore.finish(cacheNotifyId, 'aborted', { message: p.error })
-    cacheNotifyId = null
-    cacheRootKey = null
-    return
-  }
-  if (p.aborted) {
-    notificationsStore.finish(cacheNotifyId, 'aborted', { message: t('notifications.aborted') })
-    cacheNotifyId = null
-    cacheRootKey = null
-    return
-  }
-  if (finished) {
-    const s = p.stats || {}
-    const added = s.added ?? 0
-    const updated = s.updated ?? 0
-    const removed = s.removed ?? 0
-    const parts = []
-    if (added) parts.push(t('notifications.statsAdded', { n: added }))
-    if (updated) parts.push(t('notifications.statsUpdated', { n: updated }))
-    if (removed) parts.push(t('notifications.statsRemoved', { n: removed }))
-    parts.push(t('notifications.statsThumbs', { n: s.thumbs ?? 0 }))
-    if (s.failed) parts.push(t('notifications.statsFailed', { n: s.failed }))
-    if (s.cleanedThumbs) parts.push(t('notifications.statsCleanedOrphans', { n: s.cleanedThumbs }))
-    notificationsStore.finish(cacheNotifyId, 'done', {
-      message: t('app.scanSummary', {
-        n: added + updated + removed,
-        parts: parts.join(t('common.separator'))
-      })
-    })
-    cacheNotifyId = null
-    cacheRootKey = null
-    // 缓存就绪：当前根目录刷新瀑布流，改用缩略图
-    if (p.rootId === rootsStore.currentRoot?.id) {
-      cacheRefreshTick.value++
-    }
-    return
-  }
-  if (p.phase === 'scan') {
-    notificationsStore.update(cacheNotifyId, { message: t('app.scanningFiles', { n: p.scanned }) })
-  } else if (p.phase === 'thumb') {
-    notificationsStore.updateProgress(cacheNotifyId, Math.round((p.done / p.total) * 100))
-    notificationsStore.update(cacheNotifyId, {
-      message: t('app.generatingThumbs', {
-        done: p.done,
-        total: p.total,
-        current: p.current || ''
-      })
-    })
-  }
 }
 
 function saveZoom() {

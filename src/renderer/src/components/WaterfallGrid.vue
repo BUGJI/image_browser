@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import Lightbox from './Lightbox.vue'
@@ -10,6 +10,7 @@ import { useGifStore } from '../stores/gif'
 import { useFavoritesStore } from '../stores/favorites'
 import { useWaterfallLayout } from '../utils/use-waterfall-layout'
 import { useImageLoader } from '../utils/use-image-loader'
+import { usePagedImages } from '../utils/use-paged-images'
 
 const { t } = useI18n()
 
@@ -102,15 +103,6 @@ const {
 } = loader
 
 const scrollEl = ref(null)
-const loading = ref(false)
-const error = ref('')
-
-// 分页 / 无限滚动：大根目录首批只取一页，滚动接近底部再追加下一页
-const PAGE_SIZE = 300
-let loadedOffset = 0 // 已加载条数（下一页 offset）
-let loadToken = 0 // 请求代次：换目录/换搜索时作废在途请求
-const hasMore = ref(false)
-const loadingMore = ref(false)
 
 const lightboxIndex = ref(-1)
 
@@ -131,8 +123,6 @@ function isMediaLoaded(item) {
 }
 
 // ---------------------------------------------------------------- 数据
-
-const isSearching = computed(() => !!props.searchQuery && props.searchQuery.trim() !== '')
 
 function extOfName(name) {
   const n = name || ''
@@ -192,111 +182,17 @@ function memoDeps(item) {
   ]
 }
 
-/** 当前列表对应的 imagesList 前三个参数（搜索模式忽略 folderPath）。
- * 必须始终占满 searchQuery 位，否则后续 opts 会错位顶替成 searchQuery。 */
-function listArgs() {
-  return isSearching.value
-    ? [props.rootId, null, props.searchQuery]
-    : [props.rootId, props.folderPath, null]
-}
-
-/** 拉取一页，兼容旧版纯数组返回 */
-async function fetchPage(offset) {
-  const page = await window.api.imagesList(...listArgs(), { offset, limit: PAGE_SIZE })
-  if (Array.isArray(page)) return { items: page, total: page.length }
-  return { items: page?.items || [], total: page?.total ?? page?.items?.length ?? 0 }
-}
-
-async function load() {
-  // 外部直接注入的列表（收藏 / 标签 / AI 结果）优先渲染，不拉取 imagesList
-  const injected = [props.favItems, props.tagItems, props.aiResults].find((v) => Array.isArray(v))
-  if (injected) {
-    loadToken++
-    hasMore.value = false
-    loadingMore.value = false
-    setItems(initItems(injected))
-    totalHeight.value = 0
-    await nextTick()
-    applyInitialLayout()
-    return
-  }
-
-  if (!isSearching.value && !props.folderPath) {
-    loadToken++
-    hasMore.value = false
-    loadingMore.value = false
-    setItems([])
-    totalHeight.value = 0
-    return
-  }
-
-  const token = ++loadToken
-  loading.value = true
-  error.value = ''
-  hasMore.value = false
-  loadingMore.value = false
-  loadedOffset = 0
-  try {
-    const page = await fetchPage(0)
-    if (token !== loadToken) return
-    loadedOffset = page.items.length
-    setItems(initItems(page.items))
-    hasMore.value = loadedOffset < page.total
-    await nextTick()
-    applyInitialLayout()
-  } catch (err) {
-    if (token !== loadToken) return
-    error.value = String(err?.message || err)
-  } finally {
-    if (token === loadToken) {
-      loading.value = false
-      maybeLoadMore()
-    }
-  }
-}
-
-/** 追加下一页（滚动接近底部时调用，失败保持现状待下次滚动重试） */
-async function loadMore() {
-  if (loadingMore.value || !hasMore.value || loading.value) return
-  const token = loadToken
-  loadingMore.value = true
-  try {
-    const page = await fetchPage(loadedOffset)
-    if (token !== loadToken) return
-    if (!page.items.length) {
-      hasMore.value = false
-      return
-    }
-    appendItems(initItems(page.items))
-    loadedOffset += page.items.length
-    hasMore.value = loadedOffset < page.total
-  } catch {
-    /* 忽略：保留已加载内容 */
-  } finally {
-    if (token === loadToken) loadingMore.value = false
-  }
-}
-
-/** 剩余可滚动高度不足一个预载距离时，提前拉下一页 */
-function maybeLoadMore() {
-  if (!hasMore.value || loadingMore.value || loading.value) return
-  const el = scrollEl.value
-  if (!el) return
-  if (totalHeight.value - el.scrollTop - el.clientHeight < props.preload) loadMore()
-}
-
-watch(
-  () => [
-    props.rootId,
-    props.folderPath,
-    props.searchQuery,
-    props.aiResults,
-    props.favItems,
-    props.tagItems
-  ],
-  load,
-  { immediate: true }
-)
+// 分页 / 无限滚动（实现见 utils/use-paged-images.js）：大根目录首批只取一页，
+// 滚动接近底部再追加下一页；收藏/标签/AI 结果等外部注入列表优先。
+const { loading, error, loadingMore, isSearching, load, maybeLoadMore, cancelPending } =
+  usePagedImages(props, {
+    initItems,
+    setItems,
+    appendItems,
+    applyInitialLayout,
+    totalHeight,
+    getScrollEl: () => scrollEl.value
+  })
 
 // 缩放变化 → 全量重建布局（rAF 合并，避免滑块连发时逐 tick 全表重算）
 watch(() => props.zoom, scheduleFullLayout)
@@ -338,7 +234,7 @@ function onScroll() {
 
 onMounted(() => observeResize(scrollEl.value))
 onBeforeUnmount(() => {
-  loadToken++ // 作废在途分页请求，避免卸载后追加
+  cancelPending() // 作废在途分页请求，避免卸载后追加
   disconnectResize()
   cancelLayout()
   cancelLoader()

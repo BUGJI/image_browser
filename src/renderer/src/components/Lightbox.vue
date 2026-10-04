@@ -6,6 +6,7 @@ import { buildImageUrl, isVideoName } from '../utils/image-url'
 import { loadShortcuts, eventMatches } from '../utils/shortcuts'
 import { useFavoritesStore } from '../stores/favorites'
 import { useTagsStore } from '../stores/tags'
+import { useLightboxZoom } from '../utils/use-lightbox-zoom'
 
 const { t } = useI18n()
 const favoritesStore = useFavoritesStore()
@@ -57,46 +58,17 @@ const tagsLightboxBtn = ref(true)
 const webmAsGif = ref(false)
 
 // 图片缩放/平移视图（以中心为缩放锚点）；限制来自「设置 - 开发者选项」
-const zoomCfg = ref({ min: 1, max: 8, step: 1.2 })
-const view = ref({ scale: 1, tx: 0, ty: 0 })
-const imgStyle = computed(() => {
-  const { scale, tx, ty } = view.value
-  return { transform: `translate(${tx}px, ${ty}px) scale(${scale})` }
-})
-function resetView() {
-  view.value = { scale: zoomCfg.value.min, tx: 0, ty: 0 }
-}
-function zoomAtCenter(factor) {
-  const { min, max } = zoomCfg.value
-  const s = Math.min(max, Math.max(min, view.value.scale * factor))
-  const ratio = s / view.value.scale
-  view.value = { scale: s, tx: view.value.tx * ratio, ty: view.value.ty * ratio }
-}
-function zoomIn() {
-  zoomAtCenter(zoomCfg.value.step)
-}
-function zoomOut() {
-  zoomAtCenter(1 / zoomCfg.value.step)
-}
-
-// 平移（仅 scale > 1 时）
-let panStart = null
-function onImgMouseDown(e) {
-  if (view.value.scale <= 1 || e.button !== 0) return
-  panStart = { sx: e.clientX, sy: e.clientY, tx: view.value.tx, ty: view.value.ty }
-  e.preventDefault()
-}
-function onWinMouseMove(e) {
-  if (!panStart) return
-  view.value = {
-    scale: view.value.scale,
-    tx: panStart.tx + (e.clientX - panStart.sx),
-    ty: panStart.ty + (e.clientY - panStart.sy)
-  }
-}
-function onWinMouseUp() {
-  panStart = null
-}
+const {
+  view,
+  imgStyle,
+  resetView,
+  zoomIn,
+  zoomOut,
+  onImgMouseDown,
+  onWinMouseMove,
+  onWinMouseUp,
+  setZoomConfig
+} = useLightboxZoom()
 
 // 全局监听随组件卸载自动清理（@vueuse/core）
 useEventListener(window, 'keydown', onKeydown)
@@ -425,11 +397,11 @@ onMounted(async () => {
   tagsLightboxBtn.value = tagBtn !== 'false'
   webmAsGif.value = webmGif === 'true'
   // 读取开发者选项里的灯箱缩放限制
-  const min = parseNum(zmin, 0.5)
-  const max = Math.max(parseNum(zmax, 8), min)
-  const step = parseNum(zstep, 1.2)
-  zoomCfg.value = { min, max, step }
-  view.value = { scale: Math.min(Math.max(1, min), max), tx: 0, ty: 0 }
+  setZoomConfig({
+    min: parseNum(zmin, 0.5),
+    max: parseNum(zmax, 8),
+    step: parseNum(zstep, 1.2)
+  })
   preloadNeighbors()
 })
 onBeforeUnmount(() => {

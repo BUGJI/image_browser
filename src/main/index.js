@@ -440,7 +440,7 @@ if (!gotTheLock) {
 
 function startApp() {
   app.whenReady().then(() => {
-    electronApp.setAppUserModelId('com.openclaw.image-browser')
+    electronApp.setAppUserModelId('com.bugji.image-browser')
 
     app.on('browser-window-created', (_, window) => {
       optimizer.watchWindowShortcuts(window)
