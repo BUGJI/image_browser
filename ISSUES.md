@@ -6,18 +6,18 @@
 
 ## 优先级速览
 
-| #   | 级别 | 位置                                   | 一句话                                             |
-| --- | ---- | -------------------------------------- | -------------------------------------------------- |
-| 1   | P0   | `src/main/updater.js:76`               | 更新检测会把 OCR 运行时包误判成新版本              |
-| 2   | P1   | 全仓库 / `.github/workflows/ci.yml`    | 零测试，CI 也不跑测试                              |
-| 3   | P1   | 仓库根 `image_compresser.exe`          | 第三方二进制入库且无来源/许可说明，文件名拼写有误  |
-| 4   | P1   | `electron-builder.yml:1,59`            | `openclaw` 品牌残留（改 appId 有升级路径风险）     |
-| 5   | P1   | `build/icon.png`                       | 图标仅 256×256，不足以生成 macOS `.icns`           |
-| 6   | P1   | `.github/workflows/`、无 CHANGELOG     | 发布全手工，release 说明手写，无变更日志           |
-| 7   | P2   | `src/main/cache.js`（2047 行）         | 单文件职责过载，建议按职责拆包                     |
-| 8   | P2   | 四个 Vue 组件                          | `Lightbox` / `WaterfallGrid` / `SideBar` / `App`   |
-| 9   | P2   | `src/main/storage/path-utils.js:64`    | `isInsideRoot` 不解析符号链接                      |
-| 10  | P2   | `src/main/ocr-addon.js:53,122,150`     | OCR 运行时包下载后无完整性校验                     |
+| #   | 级别 | 位置                                | 一句话                                            |
+| --- | ---- | ----------------------------------- | ------------------------------------------------- |
+| 1   | P0   | `src/main/updater.js:76`            | 更新检测会把 OCR 运行时包误判成新版本             |
+| 2   | P1   | 全仓库 / `.github/workflows/ci.yml` | 零测试，CI 也不跑测试                             |
+| 3   | P1   | 仓库根 `image_compresser.exe`       | 第三方二进制入库且无来源/许可说明，文件名拼写有误 |
+| 4   | P1   | `electron-builder.yml:1,59`         | `openclaw` 品牌残留（改 appId 有升级路径风险）    |
+| 5   | P1   | `build/icon.png`                    | 图标仅 256×256，不足以生成 macOS `.icns`          |
+| 6   | P1   | `.github/workflows/`、无 CHANGELOG  | 发布全手工，release 说明手写，无变更日志          |
+| 7   | P2   | `src/main/cache.js`（2047 行）      | 单文件职责过载，建议按职责拆包                    |
+| 8   | P2   | 四个 Vue 组件                       | `Lightbox` / `WaterfallGrid` / `SideBar` / `App`  |
+| 9   | P2   | `src/main/storage/path-utils.js:64` | `isInsideRoot` 不解析符号链接                     |
+| 10  | P2   | `src/main/ocr-addon.js:53,122,150`  | OCR 运行时包下载后无完整性校验                    |
 
 ---
 
@@ -31,7 +31,7 @@
 `parseVersion` 的正则没有锚定开头：
 
 ```js
-const match = tag.match(/(\d+(?:\.\d+){0,2})/)   // 缺 ^ 与 $，且不要求 v 前缀
+const match = tag.match(/(\d+(?:\.\d+){0,2})/) // 缺 ^ 与 $，且不要求 v 前缀
 ```
 
 对 `ocr-runtime-v1.22.0-rev_sharp-0.34.5` 这类 tag，它会抓取其中**第一段数字串**得到 `1.22.0`，紧接着 `compareVersions('1.22.0', '1.1.4') > 0` → 判定「有新版本」。
@@ -108,12 +108,12 @@ tag=ocr-runtime-v2.0.0-rev_sharp-1.0.0    parseVersion=2.0.0    compare→1   �
 
 ### 成本低、收益高的切入点（都是纯函数，不依赖 Electron 运行时）
 
-| 目标                    | 值得覆盖的点                                                                              |
-| ----------------------- | ----------------------------------------------------------------------------------------- |
-| `src/main/storage/path-utils.js` | `isInsideRoot` / `relFromRoot` / `joinPath`：`..` 越界、Windows 跨盘符、远程伪路径        |
-| `src/main/updater.js`            | `parseVersion` / `compareVersions`：非常规 tag、预发布号、位数不等                        |
-| `src/main/cache.js`              | `wildcardToRegex` / `likeEscape` / `nameMatchScore` / `mergeSearchResults`（搜索排序）    |
-| i18n                             | 断言 `zh-CN` 与 `en-US` 键集合相等（目前靠人工比对）                                      |
+| 目标                             | 值得覆盖的点                                                                           |
+| -------------------------------- | -------------------------------------------------------------------------------------- |
+| `src/main/storage/path-utils.js` | `isInsideRoot` / `relFromRoot` / `joinPath`：`..` 越界、Windows 跨盘符、远程伪路径     |
+| `src/main/updater.js`            | `parseVersion` / `compareVersions`：非常规 tag、预发布号、位数不等                     |
+| `src/main/cache.js`              | `wildcardToRegex` / `likeEscape` / `nameMatchScore` / `mergeSearchResults`（搜索排序） |
+| i18n                             | 断言 `zh-CN` 与 `en-US` 键集合相等（目前靠人工比对）                                   |
 
 ### 建议
 
@@ -211,23 +211,23 @@ README 中已注明「打包前请替换 `build/icon.png` 及各平台正式图�
 
 单文件同时承担：
 
-| 职责               | 行段        |
-| ------------------ | ----------- |
-| 缓存配置           | `:92`       |
-| 根缓存句柄         | `:142`      |
-| 缩略图索引         | `:236-308`  |
-| shas worker        | `:316`      |
-| 缓存 worker 池     | `:354`      |
-| 外部 exe 缩略图    | `:434-576`  |
-| 图片尺寸探测       | `:580-678`  |
-| 缩略图队列         | `:679`      |
-| 搜索与排序         | `:706-802`、`:928-981` |
-| WebP 尺寸          | `:803`      |
-| 全量扫描           | `:982`      |
-| 四种维护模式任务   | `:1117-1661` |
-| 统计               | `:1662`     |
-| IPC 注册           | `:1714`     |
-| `image://` 协议    | `:1925`     |
+| 职责             | 行段                   |
+| ---------------- | ---------------------- |
+| 缓存配置         | `:92`                  |
+| 根缓存句柄       | `:142`                 |
+| 缩略图索引       | `:236-308`             |
+| shas worker      | `:316`                 |
+| 缓存 worker 池   | `:354`                 |
+| 外部 exe 缩略图  | `:434-576`             |
+| 图片尺寸探测     | `:580-678`             |
+| 缩略图队列       | `:679`                 |
+| 搜索与排序       | `:706-802`、`:928-981` |
+| WebP 尺寸        | `:803`                 |
+| 全量扫描         | `:982`                 |
+| 四种维护模式任务 | `:1117-1661`           |
+| 统计             | `:1662`                |
+| IPC 注册         | `:1714`                |
+| `image://` 协议  | `:1925`                |
 
 ### 建议
 
@@ -249,12 +249,12 @@ README 中已注明「打包前请替换 `build/icon.png` 及各平台正式图�
 
 **级别**：P2
 
-| 文件                                        | 行数 |
-| ------------------------------------------- | ---- |
-| `src/renderer/src/components/Lightbox.vue`  | 893  |
-| `src/renderer/src/components/WaterfallGrid.vue` | 856 |
-| `src/renderer/src/components/SideBar.vue`   | 684  |
-| `src/renderer/src/App.vue`                  | 596  |
+| 文件                                            | 行数 |
+| ----------------------------------------------- | ---- |
+| `src/renderer/src/components/Lightbox.vue`      | 893  |
+| `src/renderer/src/components/WaterfallGrid.vue` | 856  |
+| `src/renderer/src/components/SideBar.vue`       | 684  |
+| `src/renderer/src/App.vue`                      | 596  |
 
 ### 建议
 
