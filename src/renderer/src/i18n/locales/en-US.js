@@ -504,6 +504,8 @@ export default {
     runtimeInstallFailed: 'Runtime installation failed: {error}',
     runtimeRequired: 'Download or import the runtime component first',
     phaseDownload: 'Downloading {percent}%',
+    phaseVerify: 'Verifying…',
+    phaseVerifySkipped: 'No checksum, skipping verification…',
     phaseExtract: 'Extracting…',
     phaseApply: 'Installing…',
     maintainTools: 'Maintenance tools',
@@ -666,10 +668,10 @@ export default {
     cacheDesc: 'These parameters apply the next time you run the cache maintenance tools.',
     cacheUseCli: 'Build cache with external converter',
     cacheUseCliDesc:
-      'When on, thumbnails are generated in one pass by image_compresser.exe instead of the built-in decoder. This bypasses every in-app decode/scheduling issue; set the exe path below (leave empty to auto-detect). Requires --resize; width/quality/workers are taken from the settings above.',
+      'When on, thumbnails are generated in one pass by image_compressor.exe instead of the built-in decoder. This bypasses every in-app decode/scheduling issue; set the exe path below (leave empty to auto-detect). Requires --resize; width/quality/workers are taken from the settings above.',
     cacheCliExe: 'Converter path',
     cacheCliExeDesc:
-      'Absolute path to image_compresser.exe. Empty = auto-detect at the project root / packaged extraResources.',
+      'Absolute path to image_compressor.exe. Empty = auto-detect at the project root / packaged extraResources.',
     cacheSequential: 'Sequential reads while building cache',
     cacheSequentialDesc:
       'On (default): tasks are assigned in scan order, so each worker reads files from the same folder consecutively — friendlier to mechanical HDDs. Off: tasks are interleaved across folders, spreading heavy/stuck images out so the whole batch feels smoother (better for SSDs).',

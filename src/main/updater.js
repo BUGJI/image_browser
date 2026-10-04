@@ -1,9 +1,13 @@
 import { app } from 'electron'
 import { getSetting } from './settings'
+import { compareVersions, isStableVersionRelease, parseVersion } from './version-utils'
 
 const REPO_OWNER = 'BUGJI'
 const REPO_NAME = 'image_browser'
-const LATEST_RELEASE_URL = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/latest`
+// 用 releases 列表而非 /releases/latest：latest 取「创建时间最新」的 release，
+// 而 OCR 运行时组件（tag 形如 ocr-runtime-v1.22.0-rev_sharp-0.34.5）也会出现在列表里，
+// 一旦重新发布就会顶掉真正的版本，导致误报。改为拉列表后自行筛选版本 tag。
+const RELEASES_URL = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases?per_page=30`
 
 // 当前生效版本：设置-测试 中的覆盖版本非空且合法时用它，否则用 package 版本。
 // 覆盖版本便于联调更新检测链路（无需真的改 package.json）。
@@ -36,7 +40,7 @@ export async function checkForUpdates() {
   const ac = new AbortController()
   const timer = setTimeout(() => ac.abort(), 8000)
   try {
-    const res = await fetch(LATEST_RELEASE_URL, {
+    const res = await fetch(RELEASES_URL, {
       signal: ac.signal,
       headers: {
         Accept: 'application/vnd.github+json',
@@ -49,8 +53,9 @@ export async function checkForUpdates() {
       return { hasUpdate: false, latestVersion: current, checkedAt }
     }
 
-    const data = await res.json()
-    const latest = parseVersion(data.tag_name)
+    const list = await res.json()
+    const data = Array.isArray(list) ? list.find(isStableVersionRelease) : null
+    const latest = data ? parseVersion(data.tag_name) : null
     if (!latest) {
       return { hasUpdate: false, latestVersion: current, checkedAt }
     }
@@ -70,24 +75,4 @@ export async function checkForUpdates() {
   } finally {
     clearTimeout(timer)
   }
-}
-
-/** 去掉 tag 前缀 v/V 等非数字内容，返回 x.y.z */
-function parseVersion(tag) {
-  if (typeof tag !== 'string') return null
-  const match = tag.match(/(\d+(?:\.\d+){0,2})/)
-  return match ? match[1] : null
-}
-
-/** 逐段数字比较，a > b 返回 1，a < b 返回 -1，相等返回 0 */
-function compareVersions(a, b) {
-  const pa = a.split('.').map(Number)
-  const pb = b.split('.').map(Number)
-  const len = Math.max(pa.length, pb.length)
-  for (let i = 0; i < len; i++) {
-    const x = pa[i] || 0
-    const y = pb[i] || 0
-    if (x !== y) return x > y ? 1 : -1
-  }
-  return 0
 }

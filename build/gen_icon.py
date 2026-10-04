@@ -1,4 +1,4 @@
-import struct, zlib
+import os, struct, zlib
 
 def png_chunk(typ, data):
     c = struct.pack('>I', len(data)) + typ + data
@@ -30,7 +30,7 @@ png += png_chunk(b'IHDR', struct.pack('>IIBBBBB', W, H, 8, 6, 0, 0, 0))
 png += png_chunk(b'IDAT', zlib.compress(raw, 9))
 png += png_chunk(b'IEND', b'')
 
-out = '/vol3/1000/data/openclaw/image_browser/resources/icon.png'
+out = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'resources', 'icon.png')
 with open(out, 'wb') as f:
     f.write(png)
 print('icon written:', len(png), 'bytes')

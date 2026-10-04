@@ -1,6 +1,7 @@
-appId: com.openclaw.image-browser
+appId: com.bugji.image-browser
 productName: image-browser
-electronDist: node_modules/electron/dist
+# 不指定 electronDist：Electron 43 起 npm 包不再自带 postinstall 下载运行时，
+# 由 electron-builder 自行按版本获取 Electron 发行包（本地与 CI 均可）。
 # 源代码经 Vite 打包，asar 归档 + 最大压缩减小安装体积
 asar: true
 compression: maximum
@@ -38,13 +39,18 @@ win:
   executableName: image-browser
   # 外部转换器仅 Windows 使用，按平台打包，避免进入 mac/linux 产物
   extraResources:
-    - from: image_compresser.exe
-      to: image_compresser.exe
+    - from: image_compressor.exe
+      to: image_compressor.exe
 nsis:
   artifactName: ${name}-${version}-setup.${ext}
   shortcutName: ${productName}
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
+  # appId 已由 com.openclaw.image-browser 迁移为 com.bugji.image-browser。
+  # NSIS 默认用 appId 派生安装标识 GUID，改 appId 会让已安装用户被识别成另一个应用
+  # （旧版残留、升级不覆盖、出现两份安装）。这里显式固定为旧 appId 派生出的 GUID，
+  # 从而保留既有用户的升级路径。切勿随意改动此值。
+  guid: 2387fdee-c6d9-5b1b-a1c4-49c0c0d6faab
 mac:
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
@@ -56,7 +62,7 @@ linux:
   target:
     - AppImage
     - deb
-  maintainer: openclaw
+  maintainer: BUGJI
   category: Graphics
 appImage:
   artifactName: ${name}-${version}.${ext}

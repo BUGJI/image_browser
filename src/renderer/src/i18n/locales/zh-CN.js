@@ -475,6 +475,8 @@ export default {
     runtimeInstallFailed: '运行时组件安装失败：{error}',
     runtimeRequired: '请先在「运行时组件」中下载或导入组件',
     phaseDownload: '下载中 {percent}%',
+    phaseVerify: '校验中…',
+    phaseVerifySkipped: '无校验和，跳过校验…',
     phaseExtract: '解压中…',
     phaseApply: '安装中…',
     maintainTools: '维护工具',
@@ -631,10 +633,10 @@ export default {
     cacheDesc: '以下参数下次运行「缓存维护工具」时生效。',
     cacheUseCli: '使用外部转换器建立缓存',
     cacheUseCliDesc:
-      '开启后缩略图改为一次调用 image_compresser.exe 生成（而非应用内解码），可绕开应用内一切解码/调度问题。exe 路径在下方填写（留空自动探测）。自动使用 --resize，宽高/质量/并发沿用上面的设置。',
+      '开启后缩略图改为一次调用 image_compressor.exe 生成（而非应用内解码），可绕开应用内一切解码/调度问题。exe 路径在下方填写（留空自动探测）。自动使用 --resize，宽高/质量/并发沿用上面的设置。',
     cacheCliExe: '转换器路径',
     cacheCliExeDesc:
-      'image_compresser.exe 的绝对路径。留空 = 自动在项目根目录 / 打包 extraResources 探测。',
+      'image_compressor.exe 的绝对路径。留空 = 自动在项目根目录 / 打包 extraResources 探测。',
     cacheSequential: '建缓存时连续读取',
     cacheSequentialDesc:
       '开（默认）：任务按扫描顺序分配，每个 worker 连续读取同一目录的文件，对机械硬盘更友好。关：任务跨目录打散轮流分配，重图/卡顿分散到不同时刻，整体推进更平滑（更适合 SSD）。',

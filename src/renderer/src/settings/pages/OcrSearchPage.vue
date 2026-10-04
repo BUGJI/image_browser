@@ -40,6 +40,8 @@ const OCR_MAINTAIN_ACTIONS = computed(() => [
 const phaseText = computed(() => {
   const map = {
     download: t('ocrSearch.phaseDownload', { percent: addonProgress.value }),
+    verify: t('ocrSearch.phaseVerify'),
+    'verify-skipped': t('ocrSearch.phaseVerifySkipped'),
     extract: t('ocrSearch.phaseExtract'),
     apply: t('ocrSearch.phaseApply')
   }
@@ -116,6 +118,9 @@ function onAddonProgress(p) {
       _addonLastReceived = p.received
       addonProgress.value = Math.min(95, (addonProgress.value || 0) + 1)
     }
+  } else if (p.phase === 'verify' || p.phase === 'verify-skipped') {
+    addonPhase.value = p.phase
+    addonProgress.value = 100
   } else if (p.phase === 'extract') {
     addonPhase.value = 'extract'
     addonProgress.value = 100

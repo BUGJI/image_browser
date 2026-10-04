@@ -19,7 +19,8 @@
  * 附件名 ocr-runtime-<platform>.zip。
  */
 
-import { promises as fsp, existsSync } from 'fs'
+import { promises as fsp, existsSync, createReadStream } from 'fs'
+import { createHash } from 'crypto'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { execFileSync } from 'child_process'
@@ -124,10 +125,24 @@ async function main() {
   zip.writeZip(zipPath)
 
   const size = (await fsp.stat(zipPath)).size
+
+  // 生成 .sha256 旁车文件，供客户端下载后做完整性校验（纯哈希 + 文件名，兼容 sha256sum 格式）
+  const sha256 = await new Promise((resolve, reject) => {
+    const hash = createHash('sha256')
+    createReadStream(zipPath)
+      .on('error', reject)
+      .on('data', (chunk) => hash.update(chunk))
+      .on('end', () => resolve(hash.digest('hex')))
+  })
+  const shaPath = `${zipPath}.sha256`
+  await fsp.writeFile(shaPath, `${sha256}  ocr-runtime-${PLATFORM}.zip\n`)
+
   console.log(`\n✓ 已生成 ${zipPath} (${(size / 1048576).toFixed(1)} MB)`)
+  console.log(`✓ 已生成 ${shaPath}`)
+  console.log(`  SHA-256: ${sha256}`)
   console.log(`\n发布步骤：`)
   console.log(`  1. 创建 GitHub Release，tag: ocr-runtime-v${ORT_VERSION}_sharp-${SHARP_VERSION}`)
-  console.log(`  2. 上传附件：ocr-runtime-${PLATFORM}.zip`)
+  console.log(`  2. 上传附件：ocr-runtime-${PLATFORM}.zip 与 ocr-runtime-${PLATFORM}.zip.sha256`)
   console.log(`  （tag 需与 src/main/ocr-addon.js 的 ADDON_TAG 一致）`)
 }
 

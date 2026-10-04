@@ -232,7 +232,7 @@ onBeforeUnmount(() => {
         <el-input
           v-model="cliExePath"
           :disabled="!useCli"
-          placeholder="image_compresser.exe"
+          placeholder="image_compressor.exe"
           clearable
           size="default"
           class="cli-exe-input"

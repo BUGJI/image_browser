@@ -1,5 +1,6 @@
 import { app, net, dialog, BrowserWindow } from 'electron'
-import { promises as fsp, existsSync, createWriteStream } from 'fs'
+import { promises as fsp, existsSync, createWriteStream, createReadStream } from 'fs'
+import { createHash } from 'crypto'
 import { join } from 'path'
 import extract from 'extract-zip'
 import { getSetting } from './settings'
@@ -140,6 +141,56 @@ function downloadFile(url, dest, onProgress) {
   })
 }
 
+/** 计算文件 SHA-256（十六进制小写） */
+function sha256File(path) {
+  return new Promise((resolve, reject) => {
+    const hash = createHash('sha256')
+    const stream = createReadStream(path)
+    stream.on('error', reject)
+    stream.on('data', (chunk) => hash.update(chunk))
+    stream.on('end', () => resolve(hash.digest('hex')))
+  })
+}
+
+const SHA256_RE = /^[a-f0-9]{64}$/i
+
+/**
+ * 获取组件包的期望 SHA-256：
+ *  - 优先用设置 ocrAddonSha256 手动钉死的哈希；
+ *  - 其次尝试下载同目录的 `<zip url>.sha256` 旁车文件（内容里取第一个 64 位十六进制串）；
+ *  - 都没有（旧发布 / 离线 URL / 网络失败）返回 null，调用方按「无校验」降级处理。
+ */
+async function getExpectedSha256(zipUrl) {
+  const pinned = String(getSetting('ocrAddonSha256', '') || '').trim()
+  if (SHA256_RE.test(pinned)) return pinned.toLowerCase()
+  try {
+    const res = await fetch(`${zipUrl}.sha256`, { redirect: 'follow' })
+    if (!res.ok) return null
+    const m = SHA256_RE.exec(await res.text())
+    return m ? m[0].toLowerCase() : null
+  } catch {
+    return null
+  }
+}
+
+/** 读取本地 zip 同目录的 `.sha256` 旁车文件；不存在返回 null */
+async function readLocalExpectedSha256(zipPath) {
+  try {
+    const m = SHA256_RE.exec(await fsp.readFile(`${zipPath}.sha256`, 'utf8'))
+    return m ? m[0].toLowerCase() : null
+  } catch {
+    return null
+  }
+}
+
+/** 校验文件哈希，不匹配时抛错 */
+async function verifyFileHash(filePath, expected) {
+  const actual = await sha256File(filePath)
+  if (actual !== expected) {
+    throw new Error(`组件包校验失败（SHA-256 不匹配）：期望 ${expected}，实际 ${actual}`)
+  }
+}
+
 /** 解压 zip 到临时目录，校验结构后原子替换到 addon 目录 */
 async function installFromZip(zipPath, onProgress) {
   const staging = join(app.getPath('temp'), `ocr-addon-stage-${Date.now()}`)
@@ -180,6 +231,16 @@ export async function installAddonFromUrl(url, onProgress) {
   try {
     onProgress?.({ phase: 'download', received: 0, total: 0 })
     await downloadFile(url, tmp, (p) => onProgress?.({ phase: 'download', ...p }))
+
+    // 完整性校验：有期望哈希就必须匹配，否则删除临时文件并中止解压
+    const expected = await getExpectedSha256(url)
+    if (expected) {
+      onProgress?.({ phase: 'verify' })
+      await verifyFileHash(tmp, expected)
+    } else {
+      onProgress?.({ phase: 'verify-skipped' })
+    }
+
     await installFromZip(tmp, onProgress)
     onProgress?.({ phase: 'done' })
   } finally {
@@ -193,6 +254,13 @@ export async function installAddonFromFile(zipPath, onProgress) {
   if (installing) throw new Error('已有安装任务在进行中')
   installing = true
   try {
+    const expected = await readLocalExpectedSha256(zipPath)
+    if (expected) {
+      onProgress?.({ phase: 'verify' })
+      await verifyFileHash(zipPath, expected)
+    } else {
+      onProgress?.({ phase: 'verify-skipped' })
+    }
     await installFromZip(zipPath, onProgress)
     onProgress?.({ phase: 'done' })
   } finally {
