@@ -38,3 +38,25 @@ export function compareVersions(a, b) {
   }
   return 0
 }
+
+/**
+ * 从 releases 列表中选出「语义版本号最大」的稳定版本 release。
+ *
+ * GitHub /releases 按 created_at 倒序返回，顺序 ≠ 版本大小：后补发一个旧版本线
+ * 的 release（或改动旧 release 都会刷新 created_at）会排到列表首位，直接取首个会漏报新版本。
+ * 因此必须对所有稳定 release 取版本号最大值。无稳定版本时返回 null。
+ */
+export function pickLatestStableVersion(releases) {
+  let best = null
+  let bestVersion = null
+  for (const r of Array.isArray(releases) ? releases : []) {
+    if (!isStableVersionRelease(r)) continue
+    const v = parseVersion(r.tag_name)
+    if (!v) continue
+    if (!bestVersion || compareVersions(v, bestVersion) > 0) {
+      bestVersion = v
+      best = r
+    }
+  }
+  return best ? { version: bestVersion, release: best } : null
+}

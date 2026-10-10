@@ -47,11 +47,28 @@ export function isAddonInstalled() {
   return existsSync(join(nm, 'onnxruntime-node')) && existsSync(join(nm, 'sharp'))
 }
 
+/** 官方默认下载地址（不受设置覆盖），用于匹配内置已知哈希 */
+function getDefaultAddonUrl() {
+  return `https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/download/${ADDON_TAG}/ocr-runtime-${PLATFORM}.zip`
+}
+
 /** 默认下载地址：GitHub Releases 附件；可用设置 ocrAddonUrl 覆盖 */
 export function getAddonDownloadUrl() {
   const custom = String(getSetting('ocrAddonUrl', '') || '').trim()
   if (custom) return custom
-  return `https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/download/${ADDON_TAG}/ocr-runtime-${PLATFORM}.zip`
+  return getDefaultAddonUrl()
+}
+
+// 内置已知哈希表（随应用版本发布）：覆盖官方默认下载地址指向的组件包。
+// key 为平台，value 为小写 SHA-256。发布新组件包时在此登记，作为旁车 .sha256 之外的可信兜底。
+// 为空表示「尚未登记」；此时依赖发布端上传的 <url>.sha256，或用户手动钉 ocrAddonSha256。
+const KNOWN_ADDON_SHA256 = {
+  // 'win32-x64': '<64 位十六进制 SHA-256>'
+}
+
+/** 是否允许在无任何可信哈希时仍安装（默认否，需用户在设置中显式开启） */
+export function isUnsignedInstallAllowed() {
+  return getSetting('ocrAddonAllowUnsigned', 'false') === 'true'
 }
 
 async function dirSize(dir) {
@@ -101,9 +118,16 @@ function emit(phase, extra = {}) {
 function downloadFile(url, dest, onProgress) {
   return new Promise((resolve, reject) => {
     let settled = false
+    let file = null
     const fail = (err) => {
       if (settled) return
       settled = true
+      // 失败路径必须销毁写流，否则残留的文件句柄会锁住临时文件导致后续清理失败
+      try {
+        file?.destroy()
+      } catch {
+        /* ignore */
+      }
       reject(err)
     }
     let request
@@ -120,7 +144,7 @@ function downloadFile(url, dest, onProgress) {
       }
       const total = Number(response.headers['content-length'] || 0) || 0
       let received = 0
-      const file = createWriteStream(dest)
+      file = createWriteStream(dest)
       file.on('error', fail)
       response.on('data', (chunk) => {
         received += chunk.length
@@ -130,6 +154,11 @@ function downloadFile(url, dest, onProgress) {
       response.on('end', () => {
         file.end(() => {
           if (settled) return
+          // 有 content-length 时校验完整性，避免截断下载（哈希缺失时这是唯一防线）
+          if (total > 0 && received !== total) {
+            fail(new Error(`下载不完整：期望 ${total} 字节，实际 ${received}`))
+            return
+          }
           settled = true
           resolve()
         })
@@ -157,12 +186,15 @@ const SHA256_RE = /^[a-f0-9]{64}$/i
 /**
  * 获取组件包的期望 SHA-256：
  *  - 优先用设置 ocrAddonSha256 手动钉死的哈希；
- *  - 其次尝试下载同目录的 `<zip url>.sha256` 旁车文件（内容里取第一个 64 位十六进制串）；
- *  - 都没有（旧发布 / 离线 URL / 网络失败）返回 null，调用方按「无校验」降级处理。
+ *  - 官方默认地址其次用内置已知哈希表（可信、离线可校验）；
+ *  - 再次尝试下载同目录的 `<zip url>.sha256` 旁车文件（取第一个 64 位十六进制串）；
+ *  - 都拿不到返回 null，调用方默认拒绝安装（除非用户显式允许无校验安装）。
  */
 async function getExpectedSha256(zipUrl) {
   const pinned = String(getSetting('ocrAddonSha256', '') || '').trim()
   if (SHA256_RE.test(pinned)) return pinned.toLowerCase()
+  const known = zipUrl === getDefaultAddonUrl() ? KNOWN_ADDON_SHA256[PLATFORM] : null
+  if (known && SHA256_RE.test(known)) return known.toLowerCase()
   try {
     const res = await fetch(`${zipUrl}.sha256`, { redirect: 'follow' })
     if (!res.ok) return null
@@ -191,10 +223,38 @@ async function verifyFileHash(filePath, expected) {
   }
 }
 
-/** 解压 zip 到临时目录，校验结构后原子替换到 addon 目录 */
+/**
+ * 解压 zip 到临时目录，校验结构后就位。
+ * 就位采用「先备好同级完整副本 -> 删旧 -> rename」：把目录缺失空窗期压到 rename 一刻，
+ * 避免「rm 后 cp 期间」目标目录不存在导致并发读取失败。
+ */
+/**
+ * 完整性校验：有期望哈希则强制匹配；否则仅当用户显式允许时放行，默认中止安装。
+ * 「无校验静默降级」会让被污染/中间人的组件包直接解压并 require 进主进程，故改为默认拒绝。
+ */
+async function verifyOrReject(pkgPath, expected, onProgress) {
+  if (expected) {
+    onProgress?.({ phase: 'verify' })
+    await verifyFileHash(pkgPath, expected)
+    return
+  }
+  if (isUnsignedInstallAllowed()) {
+    onProgress?.({ phase: 'verify-skipped' })
+    return
+  }
+  throw new Error(
+    '组件包缺少可信的 SHA-256 校验值，已中止安装（安全默认）。' +
+      '请改用带 .sha256 旁车文件的包、在设置中手动钉哈希，' +
+      '或在设置中显式开启「允许无校验安装（不推荐）」。'
+  )
+}
+
 async function installFromZip(zipPath, onProgress) {
   const staging = join(app.getPath('temp'), `ocr-addon-stage-${Date.now()}`)
+  const target = getAddonDir()
+  const staged = `${target}.new`
   await fsp.rm(staging, { recursive: true, force: true })
+  await fsp.rm(staged, { recursive: true, force: true })
   await fsp.mkdir(staging, { recursive: true })
   try {
     onProgress?.({ phase: 'extract' })
@@ -213,12 +273,13 @@ async function installFromZip(zipPath, onProgress) {
     }
 
     onProgress?.({ phase: 'apply' })
-    const target = getAddonDir()
+    await fsp.mkdir(staged, { recursive: true })
+    await fsp.cp(nmSrc, join(staged, 'node_modules'), { recursive: true })
     await fsp.rm(target, { recursive: true, force: true })
-    await fsp.mkdir(target, { recursive: true })
-    await fsp.cp(nmSrc, join(target, 'node_modules'), { recursive: true })
+    await fsp.rename(staged, target)
   } finally {
     await fsp.rm(staging, { recursive: true, force: true }).catch(() => {})
+    await fsp.rm(staged, { recursive: true, force: true }).catch(() => {})
   }
 }
 
@@ -232,14 +293,9 @@ export async function installAddonFromUrl(url, onProgress) {
     onProgress?.({ phase: 'download', received: 0, total: 0 })
     await downloadFile(url, tmp, (p) => onProgress?.({ phase: 'download', ...p }))
 
-    // 完整性校验：有期望哈希就必须匹配，否则删除临时文件并中止解压
+    // 完整性校验：有期望哈希就必须匹配，否则默认中止（除非用户显式允许无校验安装）
     const expected = await getExpectedSha256(url)
-    if (expected) {
-      onProgress?.({ phase: 'verify' })
-      await verifyFileHash(tmp, expected)
-    } else {
-      onProgress?.({ phase: 'verify-skipped' })
-    }
+    await verifyOrReject(tmp, expected, onProgress)
 
     await installFromZip(tmp, onProgress)
     onProgress?.({ phase: 'done' })
@@ -255,12 +311,7 @@ export async function installAddonFromFile(zipPath, onProgress) {
   installing = true
   try {
     const expected = await readLocalExpectedSha256(zipPath)
-    if (expected) {
-      onProgress?.({ phase: 'verify' })
-      await verifyFileHash(zipPath, expected)
-    } else {
-      onProgress?.({ phase: 'verify-skipped' })
-    }
+    await verifyOrReject(zipPath, expected, onProgress)
     await installFromZip(zipPath, onProgress)
     onProgress?.({ phase: 'done' })
   } finally {

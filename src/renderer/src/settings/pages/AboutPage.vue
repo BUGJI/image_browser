@@ -31,7 +31,9 @@ async function onCheckUpdate() {
   checking.value = true
   try {
     const res = await window.api.checkUpdate()
-    if (res?.hasUpdate) {
+    if (res?.failed) {
+      ElMessage.warning(t('about.checkError'))
+    } else if (res?.hasUpdate) {
       ElMessage.success(t('about.foundUpdate', { version: res.latestVersion }))
     } else {
       ElMessage.info(t('about.upToDate', { version: res?.latestVersion }))

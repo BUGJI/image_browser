@@ -1,6 +1,6 @@
 import { app } from 'electron'
 import { getSetting } from './settings'
-import { compareVersions, isStableVersionRelease, parseVersion } from './version-utils'
+import { compareVersions, pickLatestStableVersion } from './version-utils'
 
 const REPO_OWNER = 'BUGJI'
 const REPO_NAME = 'image_browser'
@@ -29,7 +29,9 @@ export function getEffectiveVersion() {
  *     latestVersion: string,   // 服务器上的最新版本号（无更新时为当前版本）
  *     releaseNotes?: string,   // 可选：更新说明
  *     downloadUrl?: string,    // 可选：下载地址
- *     checkedAt: string        // 检查时间 ISO 字符串
+ *     checkedAt: string,       // 检查时间 ISO 字符串
+ *     failed?: boolean         // 检查失败（网络异常 / 非 404 的 HTTP 错误），
+ *                              // 用于区分「确实已是最新」与「没检查成功」
  *   }
  */
 export async function checkForUpdates() {
@@ -48,30 +50,31 @@ export async function checkForUpdates() {
       }
     })
 
-    // 404：还没有任何 release；其他错误统一视为检测失败，返回「已是最新」
+    // 404：还没有任何 release，并非失败；其余（403 限流、5xx 等）标记为检查失败，
+    // 让 UI 能区分「确实已是最新」与「没检查成功」。
     if (!res.ok) {
-      return { hasUpdate: false, latestVersion: current, checkedAt }
+      return { hasUpdate: false, latestVersion: current, checkedAt, failed: res.status !== 404 }
     }
 
     const list = await res.json()
-    const data = Array.isArray(list) ? list.find(isStableVersionRelease) : null
-    const latest = data ? parseVersion(data.tag_name) : null
-    if (!latest) {
+    // 按版本号取最大（不能取列表首个：后补发的旧版本会排在前面导致漏报）
+    const picked = pickLatestStableVersion(list)
+    if (!picked) {
       return { hasUpdate: false, latestVersion: current, checkedAt }
     }
 
-    const hasUpdate = compareVersions(latest, current) > 0
+    const hasUpdate = compareVersions(picked.version, current) > 0
 
     return {
       hasUpdate,
-      latestVersion: hasUpdate ? latest : current,
-      releaseNotes: hasUpdate ? data.body || undefined : undefined,
-      downloadUrl: hasUpdate ? data.html_url : undefined,
+      latestVersion: hasUpdate ? picked.version : current,
+      releaseNotes: hasUpdate ? picked.release.body || undefined : undefined,
+      downloadUrl: hasUpdate ? picked.release.html_url : undefined,
       checkedAt
     }
   } catch (_err) {
-    // 网络失败 / 请求异常 / 超时：静默降级为「已是最新」
-    return { hasUpdate: false, latestVersion: current, checkedAt }
+    // 网络失败 / 请求异常 / 超时：返回检查失败，而非谎报「已是最新」
+    return { hasUpdate: false, latestVersion: current, checkedAt, failed: true }
   } finally {
     clearTimeout(timer)
   }

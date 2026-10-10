@@ -57,6 +57,7 @@ export const SETTINGS = {
 
   // ---------- OCR ----------
   ocrEnabled: { type: 'bool', default: false },
+  ocrAddonAllowUnsigned: { type: 'bool', default: false },
 
   // ---------- 浏览与性能 ----------
   imageBufferLazy: { type: 'bool', default: true },

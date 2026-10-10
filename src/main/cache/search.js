@@ -1,5 +1,5 @@
 import { getSetting } from '../settings'
-import { prep as prepCache } from '../cache-db-utils.mjs'
+import { foldText, prep as prepCache } from '../cache-db-utils.mjs'
 
 /**
  * 搜索与匹配工具：文件名 / 图内文字（OCR）搜索的纯逻辑与查询构造。
@@ -28,16 +28,25 @@ export function ocrTextMatches(cache, query) {
     const cnt = prepCache(cache.db, 'SELECT COUNT(*) AS c FROM ocr_text').get()
     if (!cnt || !cnt.c) return []
 
+    // 查询与索引两侧都做全 Unicode 折叠（text_fold），故不能再依赖 SQLite NOCASE（仅 ASCII）。
+    const qFold = foldText(q)
+
     // FTS5 trigram 快路径：查询 ≥3 个字符时走倒排索引，避免整表 LIKE 扫描。
     // trigram 无法命中 1~2 字符查询，故更短的查询回退 LIKE（语义完全一致）。
-    const hasFts = prepCache(
+    const hasFtsTable = prepCache(
       cache.db,
       "SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'ocr_fts'"
     ).get()
-    if (hasFts && Array.from(q).length >= 3) {
+    // 旧版索引建在 text 列上，与折叠语义不一致：尚未迁移到 text_fold 前不走 FTS，改用 LIKE 保证正确。
+    const hasFts =
+      hasFtsTable &&
+      prepCache(cache.db, 'PRAGMA table_info(ocr_fts)')
+        .all()
+        .some((c) => c.name === 'text_fold')
+    if (hasFts && Array.from(qFold).length >= 3) {
       try {
         // 用双引号包成短语查询，转义内部引号，避免 FTS 语法字符被当作运算符
-        const match = '"' + q.replace(/"/g, '""') + '"'
+        const match = '"' + qFold.replace(/"/g, '""') + '"'
         return prepCache(
           cache.db,
           `SELECT f.abs_path, f.name, f.folder, f.width, f.height, f.thumb, 1 AS text_hit
@@ -50,12 +59,12 @@ export function ocrTextMatches(cache, query) {
       }
     }
 
-    const pattern = '%' + likeEscape(q) + '%'
+    const pattern = '%' + likeEscape(qFold) + '%'
     return prepCache(
       cache.db,
       `SELECT f.abs_path, f.name, f.folder, f.width, f.height, f.thumb, 1 AS text_hit
          FROM ocr_text o JOIN files f ON f.abs_path = o.abs_path
-         WHERE o.text LIKE ? ESCAPE '\\' COLLATE NOCASE`
+         WHERE o.text_fold LIKE ? ESCAPE '\\'`
     ).all(pattern)
   } catch {
     return []
@@ -104,14 +113,17 @@ export function mergeSearchResults(nameRows, textRows, query, anchored) {
  * 把用户输入转为大小写不敏感的 LIKE 匹配规则。
  * - 含 * 或 ? 时按通配符整体匹配文件名（* 任意串，? 单个字符）
  * - 否则按子串匹配
+ *
+ * like 会做全 Unicode 折叠（foldText），配合 files.name_fold 列使用：
+ * SQLite NOCASE 只折叠 ASCII，故折叠必须在 JS 侧完成，索引与查询两侧一致。
  * 返回 { like, anchored }；空输入返回 null
  */
 export function buildNameMatcher(query) {
   const q = (query || '').trim()
   if (!q) return null
   const anchored = /[*?]/.test(q)
-  // 先转义 LIKE 特殊字符（\ % _），再把 * ? 转成通配符
-  const like = q
+  // 先做全 Unicode 折叠，再转义 LIKE 特殊字符（\ % _），最后把 * ? 转成通配符
+  const like = foldText(q)
     .replace(/[\\%_]/g, (m) => '\\' + m)
     .replace(/\*/g, '%')
     .replace(/\?/g, '_')

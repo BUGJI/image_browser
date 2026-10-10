@@ -12,3 +12,7 @@ iso-out2/
 probe-out/
 .qwenpaw-screens/
 *.zip
+
+# 外部转换器：不入库，构建前由 scripts/fetch-image-compressor.mjs 下载并校验
+image_compressor.exe
+image_compressor.exe.sha256

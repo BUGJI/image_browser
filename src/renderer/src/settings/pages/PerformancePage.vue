@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
+import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useCacheMaintenance } from '../../utils/use-cache-maintenance'
 import { useSetting } from '../../utils/settings'
@@ -51,6 +51,17 @@ const cliExePath = useSetting('cacheCliExe', {
   normalize: (v) => String(v ?? '').trim()
 })
 
+// 外部转换器可用性探测：开启外部转换器但探测失败时给出明确提示，避免用户误以为已启用
+const cliStatus = ref({ found: true, path: '' })
+async function refreshCliStatus() {
+  try {
+    cliStatus.value = await window.api.cacheCliStatus()
+  } catch {
+    cliStatus.value = { found: true, path: '' }
+  }
+}
+watch([useCli, cliExePath], refreshCliStatus)
+
 // ---------- 缓存维护工具 ----------
 const roots = ref([])
 const maintainRootId = ref(null)
@@ -78,6 +89,7 @@ function maintain(mode) {
 onMounted(() => {
   loadRoots()
   attachCacheProgress()
+  refreshCliStatus()
 })
 
 onBeforeUnmount(() => {
@@ -239,6 +251,15 @@ onBeforeUnmount(() => {
         />
       </SettingRow>
 
+      <el-alert
+        v-if="useCli && !cliStatus.found"
+        type="warning"
+        :closable="false"
+        show-icon
+        class="cli-missing-alert"
+        :title="t('performance.cacheCliMissing')"
+      />
+
       <el-divider />
 
       <SettingRow
@@ -287,5 +308,9 @@ onBeforeUnmount(() => {
 
 .cli-exe-input {
   width: 300px;
+}
+
+.cli-missing-alert {
+  margin-top: 12px;
 }
 </style>

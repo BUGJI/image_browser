@@ -34,7 +34,7 @@ import {
   reorderRoots
 } from './roots'
 import { getProvider, isRemoteRoot, invalidateProvider } from './storage'
-import { isInsideRoot } from './storage/path-utils'
+import { isInsideRootReal } from './storage/path-utils'
 import { registerRemoteProviders } from './storage/remote'
 import { testWebdavConnection } from './storage/webdav'
 import { setRootSecret } from './secrets'
@@ -339,7 +339,8 @@ function registerIpc() {
   // nativeImage 解码不了的格式（GIF/WebP 等）自动转 PNG）
   ipcMain.handle('clipboard:write-image-path', async (_e, absPath) => {
     const root = findRootForPath(absPath)
-    if (!root || !isInsideRoot(root.path, absPath)) {
+    // realpath 校验：拒绝根目录内指向外部的软链接（与 image:// 协议入口一致）
+    if (!root || !(await isInsideRootReal(root.path, absPath))) {
       throw new Error('文件不在已注册的根目录内')
     }
     const provider = getProvider(root)
@@ -353,9 +354,10 @@ function registerIpc() {
 
   // 复制原文件到剪贴板（Windows 文件列表 CF_HDROP，可在文件管理器直接粘贴出文件）。
   // Electron 未提供写文件列表的 API，借 Windows PowerShell 的 Clipboard.SetFileDropList 实现。
-  ipcMain.handle('clipboard:copy-file', (_e, absPath) => {
+  ipcMain.handle('clipboard:copy-file', async (_e, absPath) => {
     const root = findRootForPath(absPath)
-    if (!root || !isInsideRoot(root.path, absPath)) {
+    // realpath 校验：拒绝根目录内指向外部的软链接（与 image:// 协议入口一致）
+    if (!root || !(await isInsideRootReal(root.path, absPath))) {
       throw new Error('文件不在已注册的根目录内')
     }
     if (isRemoteRoot(root)) {

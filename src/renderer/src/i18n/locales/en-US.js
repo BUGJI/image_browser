@@ -431,7 +431,8 @@ export default {
       'Check whether a new version is available. Currently a placeholder; real check logic will be added later.',
     upToDate: 'You are up to date (v{version})',
     foundUpdate: 'New version available: v{version}',
-    checkFailed: 'Update check failed: {error}'
+    checkFailed: 'Update check failed: {error}',
+    checkError: 'Update check failed, please try again later'
   },
   aiSearch: {
     pageDesc:
@@ -502,6 +503,9 @@ export default {
     runtimeRemoveConfirm: 'Remove the installed OCR runtime? The text index will not be deleted.',
     runtimeInstalled: 'Runtime component installed.',
     runtimeInstallFailed: 'Runtime installation failed: {error}',
+    allowUnsigned: 'Allow install without checksum (not recommended)',
+    allowUnsignedDesc:
+      'By default the app refuses to install a runtime package that has no SHA-256 checksum. Enable only if you fully trust the source; a tampered package would go undetected.',
     runtimeRequired: 'Download or import the runtime component first',
     phaseDownload: 'Downloading {percent}%',
     phaseVerify: 'Verifying…',
@@ -672,6 +676,8 @@ export default {
     cacheCliExe: 'Converter path',
     cacheCliExeDesc:
       'Absolute path to image_compressor.exe. Empty = auto-detect at the project root / packaged extraResources.',
+    cacheCliMissing:
+      'External converter not found; the cache will be built by the built-in worker (the external converter is not in effect). Enter the absolute path to image_compressor.exe below, or place it at the project root.',
     cacheSequential: 'Sequential reads while building cache',
     cacheSequentialDesc:
       'On (default): tasks are assigned in scan order, so each worker reads files from the same folder consecutively — friendlier to mechanical HDDs. Off: tasks are interleaved across folders, spreading heavy/stuck images out so the whole batch feels smoother (better for SSDs).',

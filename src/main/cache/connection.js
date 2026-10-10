@@ -2,6 +2,7 @@ import { existsSync, mkdirSync } from 'fs'
 import { execFile } from 'child_process'
 import { join } from 'path'
 import { DatabaseSync } from 'node:sqlite'
+import { foldText } from '../cache-db-utils.mjs'
 import { isInRootCache, resolveCacheDir } from '../storage/cache-location'
 import { setCacheCloser } from '../storage/cache-sync'
 import { invalidateThumbIndex } from './thumb-index'
@@ -75,6 +76,7 @@ export function openRootCache(rootOrPath, { create = false } = {}) {
       abs_path   TEXT NOT NULL UNIQUE,
       rel_path   TEXT NOT NULL,
       name       TEXT NOT NULL,
+      name_fold  TEXT,                   -- name 的全 Unicode 小写折叠（NOCASE 仅折叠 ASCII）
       folder     TEXT NOT NULL,          -- 相对根目录（/ 分隔，'' = 根）
       size       INTEGER NOT NULL DEFAULT 0,
       mtime      INTEGER NOT NULL DEFAULT 0,
@@ -106,6 +108,29 @@ export function openRootCache(rootOrPath, { create = false } = {}) {
     }
   } catch {
     /* 迁移失败不致命：后续按存在性回退 stat */
+  }
+
+  // 旧库迁移：name_fold（全 Unicode 大小写折叠），修复 SQLite NOCASE 只折叠 ASCII 的问题。
+  // 仅在列缺失时回填既有行（新插入的行走写入路径，始终带折叠值），避免每次打开都全表扫描。
+  try {
+    const fileCols = db.prepare('PRAGMA table_info(files)').all()
+    if (!fileCols.some((c) => c.name === 'name_fold')) {
+      db.exec('ALTER TABLE files ADD COLUMN name_fold TEXT')
+      const rows = db.prepare('SELECT id, name FROM files').all()
+      if (rows.length) {
+        const upd = db.prepare('UPDATE files SET name_fold = ? WHERE id = ?')
+        db.exec('BEGIN')
+        try {
+          for (const r of rows) upd.run(foldText(r.name), r.id)
+          db.exec('COMMIT')
+        } catch (err) {
+          db.exec('ROLLBACK')
+          throw err
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[cache] name_fold 迁移失败:', err?.message || err)
   }
 
   const conn = { db, cacheDir, thumbDir, rootPath: key, root }

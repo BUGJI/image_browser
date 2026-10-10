@@ -407,7 +407,8 @@ export default {
     updateDesc: '检查应用是否有新版本。目前为占位功能，检测逻辑待接入。',
     upToDate: '当前已是最新版本（v{version}）',
     foundUpdate: '发现新版本：v{version}',
-    checkFailed: '检测更新失败：{error}'
+    checkFailed: '检测更新失败：{error}',
+    checkError: '检测更新失败，请稍后重试'
   },
   aiSearch: {
     pageDesc: '接入 OpenAI 兼容接口，用自然语言/语义搜索图片。',
@@ -473,6 +474,9 @@ export default {
     runtimeRemoveConfirm: '确定删除已安装的 OCR 运行时组件吗？已建立的文字索引不会被删除。',
     runtimeInstalled: '运行时组件安装完成。',
     runtimeInstallFailed: '运行时组件安装失败：{error}',
+    allowUnsigned: '允许无校验安装（不推荐）',
+    allowUnsignedDesc:
+      '默认拒绝安装缺少 SHA-256 校验值的组件包。仅在完全信任来源时开启；开启后组件包可能被篡改而无法察觉。',
     runtimeRequired: '请先在「运行时组件」中下载或导入组件',
     phaseDownload: '下载中 {percent}%',
     phaseVerify: '校验中…',
@@ -637,6 +641,8 @@ export default {
     cacheCliExe: '转换器路径',
     cacheCliExeDesc:
       'image_compressor.exe 的绝对路径。留空 = 自动在项目根目录 / 打包 extraResources 探测。',
+    cacheCliMissing:
+      '未检测到外部转换器，缓存将由内置 Worker 生成（外部转换器未生效）。请在下方填写 image_compressor.exe 的绝对路径，或将 exe 放到项目根目录。',
     cacheSequential: '建缓存时连续读取',
     cacheSequentialDesc:
       '开（默认）：任务按扫描顺序分配，每个 worker 连续读取同一目录的文件，对机械硬盘更友好。关：任务跨目录打散轮流分配，重图/卡顿分散到不同时刻，整体推进更平滑（更适合 SSD）。',

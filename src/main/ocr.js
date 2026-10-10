@@ -6,7 +6,7 @@ import { openRootCache } from './cache'
 import { broadcast } from './windows'
 import { ScanAbortedError } from './fs-scan.mjs'
 import { VIDEO_EXTS } from './scan-constants.mjs'
-import { metaSet, prep as prepCache } from './cache-db-utils.mjs'
+import { foldText, metaSet, prep as prepCache } from './cache-db-utils.mjs'
 import {
   isAddonInstalled,
   getAddonNodeModules,
@@ -93,12 +93,39 @@ function ensureOcrTable(db) {
       name       TEXT NOT NULL,
       folder     TEXT NOT NULL,
       text       TEXT NOT NULL,
+      text_fold  TEXT,                    -- text 的全 Unicode 小写折叠（NOCASE 仅折叠 ASCII）
       src_mtime  INTEGER NOT NULL,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     )
   `)
+  migrateOcrTextFold(db)
   ensureOcrFts(db)
+}
+
+/**
+ * 旧库迁移：text_fold 列 + 回填。使图内文字检索的「大小写不敏感」覆盖全 Unicode，
+ * 与文件名检索（files.name_fold）行为一致。仅在列缺失时回填既有行。
+ */
+function migrateOcrTextFold(db) {
+  try {
+    const cols = db.prepare('PRAGMA table_info(ocr_text)').all()
+    if (cols.some((c) => c.name === 'text_fold')) return
+    db.exec('ALTER TABLE ocr_text ADD COLUMN text_fold TEXT')
+    const rows = db.prepare('SELECT rowid, text FROM ocr_text').all()
+    if (!rows.length) return
+    const upd = db.prepare('UPDATE ocr_text SET text_fold = ? WHERE rowid = ?')
+    db.exec('BEGIN')
+    try {
+      for (const r of rows) upd.run(foldText(r.text), r.rowid)
+      db.exec('COMMIT')
+    } catch (err) {
+      db.exec('ROLLBACK')
+      throw err
+    }
+  } catch (err) {
+    console.warn('[ocr] text_fold 迁移失败:', err?.message || err)
+  }
 }
 
 /**
@@ -113,23 +140,37 @@ function ensureOcrFts(db) {
       db,
       "SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'ocr_fts'"
     ).get()
-    if (has) return
+    if (has) {
+      // 旧版索引建在 text 列上（大小写不敏感仅 ASCII）。升级为 text_fold 上重建。
+      const cols = db
+        .prepare('PRAGMA table_info(ocr_fts)')
+        .all()
+        .map((c) => c.name)
+      if (cols.includes('text_fold')) return
+      db.exec(`
+        DROP TRIGGER IF EXISTS ocr_text_ai;
+        DROP TRIGGER IF EXISTS ocr_text_ad;
+        DROP TRIGGER IF EXISTS ocr_text_au;
+        DROP TABLE IF EXISTS ocr_fts;
+      `)
+    }
+    // 索引 text_fold（已折叠）而非 text：FTS 路径与 LIKE 回退路径的大小写语义一致，且覆盖全 Unicode。
     db.exec(`
       CREATE VIRTUAL TABLE ocr_fts USING fts5(
-        text,
+        text_fold,
         content='ocr_text',
         content_rowid='rowid',
         tokenize='trigram'
       );
       CREATE TRIGGER IF NOT EXISTS ocr_text_ai AFTER INSERT ON ocr_text BEGIN
-        INSERT INTO ocr_fts(rowid, text) VALUES (new.rowid, new.text);
+        INSERT INTO ocr_fts(rowid, text_fold) VALUES (new.rowid, new.text_fold);
       END;
       CREATE TRIGGER IF NOT EXISTS ocr_text_ad AFTER DELETE ON ocr_text BEGIN
-        INSERT INTO ocr_fts(ocr_fts, rowid, text) VALUES ('delete', old.rowid, old.text);
+        INSERT INTO ocr_fts(ocr_fts, rowid, text_fold) VALUES ('delete', old.rowid, old.text_fold);
       END;
       CREATE TRIGGER IF NOT EXISTS ocr_text_au AFTER UPDATE ON ocr_text BEGIN
-        INSERT INTO ocr_fts(ocr_fts, rowid, text) VALUES ('delete', old.rowid, old.text);
-        INSERT INTO ocr_fts(rowid, text) VALUES (new.rowid, new.text);
+        INSERT INTO ocr_fts(ocr_fts, rowid, text_fold) VALUES ('delete', old.rowid, old.text_fold);
+        INSERT INTO ocr_fts(rowid, text_fold) VALUES (new.rowid, new.text_fold);
       END;
     `)
     // 回填既有记录（升级场景）
@@ -208,10 +249,10 @@ export async function runOcrIndexTask(root, mode, { onProgress = () => {}, shoul
   }
 
   const upsertStmt = db.prepare(
-    `INSERT INTO ocr_text (abs_path, name, folder, text, src_mtime, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO ocr_text (abs_path, name, folder, text, text_fold, src_mtime, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(abs_path) DO UPDATE SET
-       name=excluded.name, folder=excluded.folder, text=excluded.text,
+       name=excluded.name, folder=excluded.folder, text=excluded.text, text_fold=excluded.text_fold,
        src_mtime=excluded.src_mtime, updated_at=excluded.updated_at`
   )
 
@@ -319,7 +360,16 @@ function runOcrBatch(worker, jobs, { upsertStmt, stats, onFailure, createdAt }) 
       if (m.type === 'ocr-done') {
         const job = jobsByAbs.get(m.id)
         if (job) {
-          upsertStmt.run(m.id, job.name, job.folder, m.text, job.mtime, createdAt, createdAt)
+          upsertStmt.run(
+            m.id,
+            job.name,
+            job.folder,
+            m.text,
+            foldText(m.text),
+            job.mtime,
+            createdAt,
+            createdAt
+          )
         }
         stats.count++
       } else if (m.type === 'ocr-fail') {

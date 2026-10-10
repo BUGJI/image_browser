@@ -5,12 +5,12 @@ import { useI18n } from 'vue-i18n'
 import Lightbox from './Lightbox.vue'
 import GifThumb from './GifThumb.vue'
 import VideoThumb from './VideoThumb.vue'
-import { isGifName, isVideoName } from '../utils/image-url'
-import { useGifStore } from '../stores/gif'
-import { useFavoritesStore } from '../stores/favorites'
 import { useWaterfallLayout } from '../utils/use-waterfall-layout'
 import { useImageLoader } from '../utils/use-image-loader'
 import { usePagedImages } from '../utils/use-paged-images'
+import { useWaterfallItems } from '../utils/use-waterfall-items'
+import { useWaterfallScroll } from '../utils/use-waterfall-scroll'
+import { useWaterfallActions } from '../utils/use-waterfall-actions'
 
 const { t } = useI18n()
 
@@ -63,9 +63,6 @@ const props = defineProps({
   mode: { type: String, default: 'waterfall' }
 })
 
-const gifStore = useGifStore()
-const favoritesStore = useFavoritesStore()
-
 // 虚拟布局引擎 + 图片加载调度（实现见 utils/use-waterfall-layout.js / use-image-loader.js）
 const layout = useWaterfallLayout(props)
 const {
@@ -81,7 +78,6 @@ const {
   appendItems,
   reflowIncremental,
   reflowFull,
-  updateScrollTop,
   onItemLoaded,
   observeResize,
   disconnectResize,
@@ -94,10 +90,7 @@ const {
   loadMode,
   priorityMode,
   deferLoad,
-  primeViewportSrcs,
   scheduleIdlePump,
-  enterScroll,
-  scheduleScrollIdle,
   reset: resetSrcCache,
   cancelPending: cancelLoader
 } = loader
@@ -106,81 +99,16 @@ const scrollEl = ref(null)
 
 const lightboxIndex = ref(-1)
 
-// 媒体（图/GIF/视频）实际加载完成的版本号：渲染时读取以驱动骨架屏显隐。
-// 按帧合并自增，避免同屏多张图各自触发一次重渲染。
-const mediaVersion = ref(0)
-let mediaRaf = 0
-function bumpMediaVersion() {
-  if (mediaRaf) return
-  mediaRaf = requestAnimationFrame(() => {
-    mediaRaf = 0
-    mediaVersion.value++
-  })
-}
-function isMediaLoaded(item) {
-  void mediaVersion.value
-  return !!item._loaded || !!item._failed
-}
-
-// ---------------------------------------------------------------- 数据
-
-function extOfName(name) {
-  const n = name || ''
-  const i = n.lastIndexOf('.')
-  return i > 0 ? n.slice(i + 1).toLowerCase() : ''
-}
-
-function initItems(list) {
-  return (list || []).map((it) => ({
-    ...it,
-    x: 0,
-    y: 0,
-    w: 0,
-    h: 0,
-    col: 0,
-    _loaded: null,
-    _failed: false,
-    _src: null,
-    _ext: extOfName(it.name),
-    _isVideo: isVideoName(it.name),
-    _isGif: isGifName(it.name)
-  }))
-}
-
-/**
- * v-memo 依赖：卡片 DOM 只由这些原始值决定。
- * 命中同一数组时跳过该卡片的 VNode 重建，避免滚动 / 图片加载逐帧重渲染整屏卡片。
- */
-function memoDeps(item) {
-  return [
-    item.x,
-    item.y,
-    item.w,
-    item.h,
-    item._src,
-    item._loaded,
-    item._failed,
-    item._isVideo,
-    item._isGif,
-    item._ext,
-    item.match,
-    favoritesStore.isFav(item.absPath),
-    isRatioCapped(item),
-    inViewport(item),
-    loadMode(item),
-    priorityMode(item),
-    deferLoad(item),
-    props.nameMode,
-    props.extMode,
-    props.favMode,
-    props.textMatchMode,
-    props.mode,
-    props.capTall,
-    gifStore.webmAsGif,
-    gifStore.playMode,
-    gifStore.thumbSource
-  ]
-}
+// 卡片数据 / 媒体加载状态（实现见 utils/use-waterfall-items.js）
+const {
+  gifStore,
+  favoritesStore,
+  initItems,
+  memoDeps,
+  bumpMediaVersion,
+  isMediaLoaded,
+  cancelMedia
+} = useWaterfallItems(props, { isRatioCapped, inViewport, loadMode, priorityMode, deferLoad })
 
 // 分页 / 无限滚动（实现见 utils/use-paged-images.js）：大根目录首批只取一页，
 // 滚动接近底部再追加下一页；收藏/标签/AI 结果等外部注入列表优先。
@@ -193,6 +121,19 @@ const { loading, error, loadingMore, isSearching, load, maybeLoadMore, cancelPen
     totalHeight,
     getScrollEl: () => scrollEl.value
   })
+
+// 卡片交互 + 滚动处理（实现见 utils/use-waterfall-actions.js / use-waterfall-scroll.js）
+const { toggleFav, copyItem } = useWaterfallActions({
+  t,
+  getRootId: () => props.rootId,
+  getQuickCopyType: () => props.quickCopyType
+})
+const { onScroll, cancelScroll } = useWaterfallScroll({
+  getScrollEl: () => scrollEl.value,
+  layout,
+  loader,
+  maybeLoadMore
+})
 
 // 缩放变化 → 全量重建布局（rAF 合并，避免滑块连发时逐 tick 全表重算）
 watch(() => props.zoom, scheduleFullLayout)
@@ -217,29 +158,14 @@ watch(
 
 // ---------------------------------------------------------------- 滚动/尺寸
 
-let scrollRaf = 0
-function onScroll() {
-  // 立即进入滚动态：暂停缓冲区加载（滚动优先）
-  enterScroll()
-  if (scrollRaf) return
-  scrollRaf = requestAnimationFrame(() => {
-    scrollRaf = 0
-    updateScrollTop(scrollEl.value?.scrollTop || 0)
-    // 只保证严格可视区图片有 src；缓冲区等滚动空闲后由 idle 调度填充
-    primeViewportSrcs()
-    scheduleScrollIdle()
-    maybeLoadMore()
-  })
-}
-
 onMounted(() => observeResize(scrollEl.value))
 onBeforeUnmount(() => {
   cancelPending() // 作废在途分页请求，避免卸载后追加
   disconnectResize()
   cancelLayout()
   cancelLoader()
-  if (scrollRaf) cancelAnimationFrame(scrollRaf)
-  if (mediaRaf) cancelAnimationFrame(mediaRaf)
+  cancelScroll()
+  cancelMedia()
 })
 
 // 布局完成（首屏/换目录/缩放/尺寸变化/追加分页）后：可视区立即取图，缓冲区空闲时再填。
@@ -279,54 +205,10 @@ function closeLightbox() {
 
 function handleItemClick(item, e) {
   if (props.quickCopy) {
-    doQuickCopy(item, e)
+    copyItem(item, e)
     return
   }
   openLightbox(item)
-}
-
-async function toggleFav(item) {
-  try {
-    await favoritesStore.toggle({ id: props.rootId }, item)
-  } catch (err) {
-    ElMessage.error(String(err?.message || t('common.operationFailed')))
-  }
-}
-
-async function doQuickCopy(item, e) {
-  try {
-    const abs = item.absPath
-    if (props.quickCopyType === 'file') {
-      if (window.api?.copyFile) {
-        await window.api.copyFile(abs)
-      } else {
-        await copyViaCanvas(e)
-      }
-      ElMessage.success(t('lightbox.copiedFile'))
-    } else {
-      if (window.api?.copyImagePath) {
-        await window.api.copyImagePath(abs)
-      } else {
-        await copyViaCanvas(e)
-      }
-      ElMessage.success(t('lightbox.copied'))
-    }
-  } catch (err) {
-    ElMessage.error(t('lightbox.copyFailed', { error: String(err?.message || err) }))
-  }
-}
-
-// 浏览器调试回退：把点击到的 <img> 转成 dataURL 复制（dev-mock 环境）
-async function copyViaCanvas(e) {
-  const img = e?.target?.closest?.('img')
-  if (!img || !img.naturalWidth || !window.api?.copyImageDataUrl) {
-    throw new Error('not supported')
-  }
-  const canvas = document.createElement('canvas')
-  canvas.width = img.naturalWidth
-  canvas.height = img.naturalHeight
-  canvas.getContext('2d').drawImage(img, 0, 0)
-  await window.api.copyImageDataUrl(canvas.toDataURL('image/png'))
 }
 </script>
 

@@ -1,0 +1,42 @@
+name: OCR runtime component
+
+# 组件包采用独立 tag（与 src/main/ocr-addon.js 的 ADDON_TAG 一致），
+# 与本项目应用版本 tag（v*）分开，避免混淆。
+on:
+  push:
+    tags:
+      - 'ocr-runtime-v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-addon:
+    name: Build & publish OCR runtime (win32-x64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build OCR runtime addon
+        # 脚本会同时生成 <zip> 与 <zip>.sha256 旁车文件，客户端据此做完整性校验。
+        run: node scripts/build-ocr-addon.mjs --platform win32-x64 --out dist
+
+      - name: Publish release with zip + checksum
+        uses: softprops/action-gh-release@v2
+        with:
+          body: |
+            OCR 运行时组件包（onnxruntime-node + sharp），供「设置 → 图内文字搜索 → 运行时组件」按需下载。
+            请连同 .sha256 旁车文件一并分发，客户端会强制校验。
+          files: |
+            dist/ocr-runtime-*.zip
+            dist/ocr-runtime-*.zip.sha256
+          draft: false
+          prerelease: false

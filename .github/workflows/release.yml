@@ -34,6 +34,11 @@ jobs:
       - name: Build
         run: npx electron-vite build
 
+      - name: Fetch external converter (Windows)
+        # image_compressor.exe 不再入库，Windows 打包前从上游 Release 拉取并校验 SHA-256
+        if: matrix.os == 'windows-latest'
+        run: node scripts/fetch-image-compressor.mjs
+
       - name: Package
         # 由下方 release job 用 softprops/action-gh-release 统一发布；
         # 关闭 electron-builder 在 tag 上的隐式发布，避免重复/竞争创建 Release。
