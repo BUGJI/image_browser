@@ -3,14 +3,15 @@ import { ref, watch, onMounted, onBeforeUnmount, computed, nextTick } from 'vue'
 import { useEventListener, useScrollLock } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 import { buildImageUrl, isVideoName } from '../utils/image-url'
-import { loadShortcuts, eventMatches } from '../utils/shortcuts'
 import { useFavoritesStore } from '../stores/favorites'
-import { useTagsStore } from '../stores/tags'
 import { useLightboxZoom } from '../utils/use-lightbox-zoom'
+import { useLightboxSettings } from '../utils/use-lightbox-settings'
+import { useLightboxPreload } from '../utils/use-lightbox-preload'
+import { useLightboxActions } from '../utils/use-lightbox-actions'
+import { useLightboxKeyboard } from '../utils/use-lightbox-keyboard'
 
 const { t } = useI18n()
 const favoritesStore = useFavoritesStore()
-const tagsStore = useTagsStore()
 
 /**
  * 灯箱：查看原图 + 键盘导航（←/→/Esc）
@@ -41,21 +42,6 @@ const imgRef = ref(null)
 const videoRef = ref(null)
 const loading = ref(true)
 const loadError = ref('')
-const copied = ref('') // '' | 'file' | 'image'
-let copiedTimer = 0
-
-// 快捷键配置（设置 - 快捷键 中可自定义）
-const shortcuts = ref({ copyFile: 'Ctrl+C', copyImage: 'Ctrl+Shift+C' })
-// 灯箱滚轮行为：zoom = 缩放图片；navigate = 切换图片（设置 - 快捷键）
-const wheelAction = ref('zoom')
-
-// 扩展功能开关：收藏夹 / 标签（功能总开关 × 灯箱按钮显示开关）
-const favoritesEnabled = ref(true)
-const favLightboxBtn = ref(true)
-const tagsEnabled = ref(true)
-const tagsLightboxBtn = ref(true)
-// WebM 是否按动图（GIF 同类）处理：循环静音自动播放
-const webmAsGif = ref(false)
 
 // 图片缩放/平移视图（以中心为缩放锚点）；限制来自「设置 - 开发者选项」
 const {
@@ -70,8 +56,58 @@ const {
   setZoomConfig
 } = useLightboxZoom()
 
+// 设置读取（快捷键 / 滚轮行为 / 扩展功能开关 / 动图处理 / 缩放限制）
+const {
+  shortcuts,
+  wheelAction,
+  favoritesEnabled,
+  favLightboxBtn,
+  tagsEnabled,
+  tagsLightboxBtn,
+  webmAsGif,
+  load: loadSettings
+} = useLightboxSettings()
+
+// 相邻原图预加载
+const { preloadNeighbors, cancelPreload } = useLightboxPreload({
+  getItems: () => props.items,
+  getIndex: () => cur.value,
+  getRootId: () => props.rootId
+})
+
+// 复制 / 收藏 / 标签交互
+const {
+  copied,
+  copyFile,
+  copyImage,
+  onCopyImageClick,
+  toggleFavCurrent,
+  tagPopOpen,
+  tagBusy,
+  selTagNames,
+  tagOptions,
+  onTagPopShow,
+  onTagNamesChange,
+  dispose: disposeActions
+} = useLightboxActions({
+  getItem: () => current.value,
+  getRootId: () => props.rootId,
+  videoRef,
+  imgRef
+})
+
+// 键盘导航 / 复制快捷键 / Tab 焦点陷阱（全局 keydown 监听随之自动清理）
+useLightboxKeyboard({
+  maskRef,
+  onPrev: prev,
+  onNext: next,
+  onClose: close,
+  onCopyFile: copyFile,
+  onCopyImage: copyImage,
+  getShortcuts: () => shortcuts.value
+})
+
 // 全局监听随组件卸载自动清理（@vueuse/core）
-useEventListener(window, 'keydown', onKeydown)
 useEventListener(window, 'mousemove', onWinMouseMove)
 useEventListener(window, 'mouseup', onWinMouseUp)
 
@@ -120,37 +156,6 @@ watch(cur, () => {
   preloadNeighbors()
 })
 
-// 预加载相邻图片（原图），切换时秒开；视频不预载（较重）。
-// 用 absPath 索引避免重复请求；不再相邻的项显式取消（src=''），
-// 防止快速翻页堆积大量在途原图请求。保留 Image 引用使浏览器缓存对下一张生效。
-const _preloads = new Map() // absPath -> Image
-function preloadNeighbors() {
-  const list = props.items
-  const want = new Map()
-  for (const i of [cur.value - 1, cur.value + 1]) {
-    const it = list[i]
-    if (!it || isVideoName(it.name)) continue
-    want.set(it.absPath, it)
-  }
-  for (const [abs, el] of _preloads) {
-    if (!want.has(abs)) {
-      try {
-        el.src = '' // 取消仍在途的加载
-      } catch {
-        /* ignore */
-      }
-      _preloads.delete(abs)
-    }
-  }
-  for (const [abs, it] of want) {
-    if (_preloads.has(abs)) continue
-    const el = new Image()
-    el.decoding = 'async'
-    el.src = buildImageUrl(props.rootId, it.absPath, 'orig')
-    _preloads.set(abs, el)
-  }
-}
-
 function prev() {
   if (cur.value > 0) cur.value--
 }
@@ -178,242 +183,17 @@ function onVideoReady() {
   videoRef.value?.play?.().catch(() => {})
 }
 
-// 焦点在输入类元素（如标签 el-select 的搜索框）时，不拦截按键，
-// 否则打字时方向键会切图、Esc 会关灯箱、Ctrl+C 会被复制逻辑抢走。
-function isEditableTarget(t) {
-  const el = t
-  if (!el || !el.tagName) return false
-  const tag = el.tagName
-  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable === true
-}
-
-const FOCUSABLE_SELECTOR =
-  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
-
-// 把 Tab 焦点限制在灯箱内（含首次进入：焦点落在遮罩上时纳入第一个可聚焦元素）。
-// 标签编辑弹层被 Teleport 到 body，单独纳入循环，避免键盘焦点被弹出。
-function trapTab(e) {
-  const roots = [maskRef.value, document.querySelector('.lightbox-tag-popper')].filter(Boolean)
-  if (!roots.length) return
-  const list = roots
-    .flatMap((r) => Array.from(r.querySelectorAll(FOCUSABLE_SELECTOR)))
-    .filter((el) => el.getClientRects().length > 0)
-  if (!list.length) return
-  const first = list[0]
-  const last = list[list.length - 1]
-  const active = document.activeElement
-  const inside = roots.some((r) => r.contains(active))
-  if (!inside) {
-    e.preventDefault()
-    first.focus()
-  } else if (e.shiftKey && active === first) {
-    e.preventDefault()
-    last.focus()
-  } else if (!e.shiftKey && active === last) {
-    e.preventDefault()
-    first.focus()
-  }
-}
-
-function onKeydown(e) {
-  if (e.key === 'Tab') {
-    trapTab(e)
-    return
-  }
-  if (isEditableTarget(e.target)) return
-  if (eventMatches(e, shortcuts.value.copyFile)) {
-    e.preventDefault()
-    copyFile()
-    return
-  }
-  if (eventMatches(e, shortcuts.value.copyImage)) {
-    e.preventDefault()
-    copyImage()
-    return
-  }
-  if (e.key === 'Escape') {
-    close()
-  } else if (e.key === 'ArrowLeft') {
-    prev()
-  } else if (e.key === 'ArrowRight') {
-    next()
-  }
-}
-
-async function flashCopied(type) {
-  copied.value = type
-  ElMessage.success(type === 'file' ? t('lightbox.copiedFile') : t('lightbox.copied'))
-  clearTimeout(copiedTimer)
-  copiedTimer = setTimeout(() => (copied.value = ''), 1500)
-}
-
-// 复制原文件：以「文件」形式放入剪贴板（可在文件管理器直接粘贴）
-async function copyFile() {
-  if (!current.value?.absPath) return
-  try {
-    if (window.api?.copyFile) {
-      await window.api.copyFile(current.value.absPath)
-    } else {
-      // 浏览器调试回退：复制为图片
-      return copyImage()
-    }
-    flashCopied('file')
-  } catch (err) {
-    ElMessage.error(t('lightbox.copyFailed', { error: String(err?.message || err) }))
-  }
-}
-
-// 复制图片：解码为图像放入剪贴板（可粘贴到聊天/编辑器）；视频复制当前帧
-async function copyImage() {
-  const item = current.value
-  if (!item) return
-  try {
-    if (isVideoName(item.name)) {
-      const v = videoRef.value
-      if (!v || !v.videoWidth) return
-      const canvas = document.createElement('canvas')
-      canvas.width = v.videoWidth
-      canvas.height = v.videoHeight
-      canvas.getContext('2d').drawImage(v, 0, 0)
-      await window.api?.copyImageDataUrl(canvas.toDataURL('image/png'))
-      flashCopied('image')
-      return
-    }
-    if (!imgRef.value || !imgRef.value.naturalWidth) return
-    // 优先走主进程直接读文件写剪贴板（自定义协议下 canvas 会污染，不可靠）
-    if (window.api?.copyImagePath) {
-      await window.api.copyImagePath(item.absPath)
-    } else {
-      // 回退：canvas → dataURL → 主进程剪贴板
-      const img = imgRef.value
-      const canvas = document.createElement('canvas')
-      canvas.width = img.naturalWidth
-      canvas.height = img.naturalHeight
-      canvas.getContext('2d').drawImage(img, 0, 0)
-      const dataUrl = canvas.toDataURL('image/png')
-      await window.api?.copyImageDataUrl(dataUrl)
-    }
-    flashCopied('image')
-  } catch (err) {
-    ElMessage.error(t('lightbox.copyFailed', { error: String(err?.message || err) }))
-  }
-}
-
-// 工具栏「复制图片」按钮
-function onCopyImageClick() {
-  copyImage()
-}
-
-// 收藏 / 取消收藏当前图片
-async function toggleFavCurrent() {
-  const item = current.value
-  if (!item?.absPath) return
-  try {
-    const added = await favoritesStore.toggle(
-      { id: props.rootId },
-      { absPath: item.absPath, name: item.name }
-    )
-    ElMessage.success(added ? t('lightbox.favAdded') : t('lightbox.favRemoved'))
-  } catch (err) {
-    ElMessage.error(String(err?.message || t('common.operationFailed')))
-  }
-}
-
-// ---------- 标签：给当前图片打/改标签（多选 + 可新建） ----------
-const tagPopOpen = ref(false)
-const tagBusy = ref(false)
-const selTagNames = ref([])
-const tagOptions = computed(() => tagsStore.tags)
-
-async function ensureTagsLoaded() {
-  if (tagsStore.rootId === props.rootId && tagsStore.loaded) return
-  await tagsStore.load({ id: props.rootId })
-}
-
-// 打开编辑面板时，读取该图片当前已打的标签
-async function onTagPopShow() {
-  const item = current.value
-  if (!item?.absPath || !window.api?.tagsGet) {
-    selTagNames.value = []
-    return
-  }
-  tagBusy.value = true
-  try {
-    await ensureTagsLoaded()
-    const list = (await window.api.tagsGet(props.rootId, item.absPath)) || []
-    selTagNames.value = list.map((x) => x.name)
-  } catch {
-    selTagNames.value = []
-  } finally {
-    tagBusy.value = false
-  }
-}
-
-// 多选结果变化即保存（整体覆盖；含新建标签）
-async function onTagNamesChange(names) {
-  const item = current.value
-  if (!item?.absPath || !window.api?.tagsSet) return
-  if (tagBusy.value) return
-  try {
-    await tagsStore.setImageTags(
-      { id: props.rootId },
-      { absPath: item.absPath, name: item.name || '' },
-      names || []
-    )
-  } catch (err) {
-    ElMessage.error(String(err?.message || t('common.operationFailed')))
-  }
-}
-
 onMounted(async () => {
   // 记住打开前的焦点，关闭时归还；并把初始焦点移入灯箱
   previouslyFocused = document.activeElement
   await nextTick()
   maskRef.value?.focus?.()
-  // 所有设置项并发读取（原先为十几次串行 IPC，每次打开灯箱都付出往返延迟）
-  const api = window.api
-  const parseNum = (raw, fb) => {
-    const n = parseFloat(raw || '')
-    return Number.isFinite(n) && n > 0 ? n : fb
-  }
-  const [savedShortcuts, wa, favEnabled, favBtn, tagEnabled, tagBtn, webmGif, zmin, zmax, zstep] =
-    await Promise.all([
-      loadShortcuts(),
-      api?.getSetting('lightboxWheelAction', 'zoom'),
-      api?.getSetting('favoritesEnabled', 'true'),
-      api?.getSetting('favoritesLightboxBtn', 'true'),
-      api?.getSetting('tagsEnabled', 'true'),
-      api?.getSetting('tagsLightboxBtn', 'true'),
-      api?.getSetting('webmAsGif', 'false'),
-      api?.getSetting('lightboxZoomMin', '0.5'),
-      api?.getSetting('lightboxZoomMax', '8'),
-      api?.getSetting('lightboxZoomStep', '1.2')
-    ])
-  shortcuts.value = savedShortcuts
-  wheelAction.value = ['zoom', 'navigate'].includes(wa) ? wa : 'zoom'
-  favoritesEnabled.value = favEnabled !== 'false'
-  favLightboxBtn.value = favBtn !== 'false'
-  tagsEnabled.value = tagEnabled !== 'false'
-  tagsLightboxBtn.value = tagBtn !== 'false'
-  webmAsGif.value = webmGif === 'true'
-  // 读取开发者选项里的灯箱缩放限制
-  setZoomConfig({
-    min: parseNum(zmin, 0.5),
-    max: parseNum(zmax, 8),
-    step: parseNum(zstep, 1.2)
-  })
+  await loadSettings({ setZoomConfig })
   preloadNeighbors()
 })
 onBeforeUnmount(() => {
-  for (const el of _preloads.values()) {
-    try {
-      el.src = ''
-    } catch {
-      /* ignore */
-    }
-  }
-  _preloads.clear()
-  if (copiedTimer) clearTimeout(copiedTimer)
+  cancelPreload()
+  disposeActions()
   bodyScrollLocked.value = false
   previouslyFocused?.focus?.()
 })

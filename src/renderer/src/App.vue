@@ -10,16 +10,16 @@ import Toolbar from './components/Toolbar.vue'
 import RootView from './components/RootView.vue'
 import CloseAskDialog from './components/CloseAskDialog.vue'
 import { useRootsStore } from './stores/roots'
-import { useThemeStore } from './stores/theme'
 import { useNotificationsStore } from './stores/notifications'
 import { useLocaleStore } from './stores/locale'
-import { useAnimationsStore } from './stores/animations'
-import { useGifStore } from './stores/gif'
 import { useFavoritesStore } from './stores/favorites'
 import { useTagsStore } from './stores/tags'
 import { useSettings, asBool, asEnum, asNumber } from './utils/use-settings'
 import { useImageSearch } from './utils/use-image-search'
 import { useGlobalCacheProgress } from './utils/use-cache-progress'
+import { useAppPreferences } from './utils/use-app-preferences'
+import { useSettingsBridge } from './utils/use-settings-bridge'
+import { useUpdateNotify } from './utils/use-update-notify'
 
 const { t } = useI18n()
 const localeStore = useLocaleStore()
@@ -33,62 +33,23 @@ let offCacheProgress = null
 // 启动更新检测推送（发现新版本时弹出忽略/查看通知）
 let offUpdateAvailable = null
 
-const UPDATE_RELEASES_URL = 'https://github.com/BUGJI/image_browser/releases'
+// 本地偏好：瀑布流缩放 / 浏览模式 / 快速复制（实现见 utils/use-app-preferences.js）
+const {
+  itemZoom,
+  browseMode,
+  quickCopyEnabled,
+  saveZoom,
+  toggleBrowseMode,
+  toggleQuickCopy,
+  load: loadPrefs,
+  ZOOM_MIN
+} = useAppPreferences()
 
-function showUpdateNotify(p) {
-  if (!p?.latestVersion) return
-  notificationsStore.add({
-    type: 'info',
-    title: t('update.title', { version: p.latestVersion }),
-    message: p.releaseNotes
-      ? t('update.releaseNote', { notes: String(p.releaseNotes).slice(0, 500) })
-      : t('update.msg', { version: p.latestVersion }),
-    actions: [
-      {
-        label: t('update.view'),
-        kind: 'primary',
-        onClick: () => window.api?.openExternal(p.downloadUrl || UPDATE_RELEASES_URL)
-      },
-      { label: t('update.later'), kind: 'default' }
-    ]
-  })
-}
-
-// 瀑布流缩放：值越大 item 越小，一行容纳更多图片
-const itemZoom = ref(1.5)
-const ZOOM_STORAGE_KEY = 'waterfall-zoom'
-const ZOOM_MIN = 0.5
-// 浏览模式：瀑布流（保持原比例） / 矩形（等高卡片，超出部分裁切）
-const BROWSE_MODE_KEY = 'browse-mode'
-const browseMode = ref('waterfall') // 'waterfall' | 'rect'
-function toggleBrowseMode() {
-  browseMode.value = browseMode.value === 'waterfall' ? 'rect' : 'waterfall'
-  try {
-    localStorage.setItem(BROWSE_MODE_KEY, browseMode.value)
-  } catch {
-    /* ignore */
-  }
-}
 // 缓存维护完成后自增，通知 WaterfallGrid 重新加载（缩略图就绪后改用缩略图）
 const cacheRefreshTick = ref(0)
 
-// 快速复制：开启后点击图片直接复制（类型见设置-常规），不进灯箱；开关本地记忆
-const QUICK_COPY_KEY = 'quick-copy'
-const quickCopyEnabled = ref(false)
-function toggleQuickCopy() {
-  quickCopyEnabled.value = !quickCopyEnabled.value
-  try {
-    localStorage.setItem(QUICK_COPY_KEY, quickCopyEnabled.value ? '1' : '0')
-  } catch {
-    /* ignore */
-  }
-}
-
 const rootsStore = useRootsStore()
-const themeStore = useThemeStore()
 const notificationsStore = useNotificationsStore()
-const animationsStore = useAnimationsStore()
-const gifStore = useGifStore()
 const favoritesStore = useFavoritesStore()
 const tagsStore = useTagsStore()
 
@@ -178,6 +139,16 @@ const {
   },
   rememberZoom: { default: false, normalize: asBool(false) }
 })
+
+// 设置加载/广播桥接 + 更新通知推送（实现见 utils/use-settings-bridge.js / use-update-notify.js）
+const { init: initStoreSettings, onSettingsChanged: onStoreSettingsChanged } = useSettingsBridge({
+  applySettingChange,
+  onAiSearchChange: () => {
+    aiSearchEnabled.value = false
+    aiSearchActive.value = false
+  }
+})
+const { subscribe: subscribeUpdateNotify } = useUpdateNotify({ t })
 
 // 「我的收藏」视图（仅当前根目录）
 const favItems = computed(() =>
@@ -282,14 +253,6 @@ function openSettings() {
   window.api.openSettings()
 }
 
-function saveZoom() {
-  try {
-    localStorage.setItem(ZOOM_STORAGE_KEY, String(itemZoom.value))
-  } catch {
-    /* ignore */
-  }
-}
-
 onMounted(async () => {
   // AI 搜索正在开发中：主界面不再读取开关，固定关闭
   aiSearchEnabled.value = false
@@ -297,52 +260,14 @@ onMounted(async () => {
   // 窗口设置（顶栏 / 快速复制类型 / 卡片显示 / 扩展功能 / 性能 / 缩放上限 / 记忆缩放）
   await loadSettings()
 
-  // 快速复制开关：本地记忆
-  try {
-    quickCopyEnabled.value = localStorage.getItem(QUICK_COPY_KEY) === '1'
-  } catch {
-    /* ignore */
-  }
-
-  // 浏览模式：本地记忆（瀑布流 / 矩形）
-  try {
-    browseMode.value = localStorage.getItem(BROWSE_MODE_KEY) === 'rect' ? 'rect' : 'waterfall'
-  } catch {
-    /* ignore */
-  }
-
-  // 记忆缩放：开启时恢复上次缩放值；关闭时每次启动默认 1.5
-  if (rememberZoom.value) {
-    try {
-      const saved = parseFloat(localStorage.getItem(ZOOM_STORAGE_KEY))
-      if (Number.isFinite(saved)) {
-        itemZoom.value = Math.min(zoomMax.value, Math.max(ZOOM_MIN, saved))
-      }
-    } catch {
-      /* ignore */
-    }
-  } else {
-    itemZoom.value = 1.5
-  }
+  // 本地偏好：快速复制 / 浏览模式 / 缩放（记忆缩放开启时恢复上次值）
+  loadPrefs({ rememberZoom: rememberZoom.value, zoomMax: zoomMax.value })
 
   // 全局主题：初始化 + 同步其他窗口的修改（先加载动画开关，主题过渡依赖它）
-  await animationsStore.load()
-  themeStore.load()
-  localeStore.load()
-  await gifStore.load()
-  offSettingsChanged = window.api.onSettingsChanged(({ key, value }) => {
-    // AI 搜索开发中：忽略外部改动，保持关闭
-    if (key === 'aiSearchEnabled') {
-      aiSearchEnabled.value = false
-      aiSearchActive.value = false
-    }
-    // 其余窗口设置由 useSettings 统一归一化并触发副作用
-    applySettingChange(key, value)
-    themeStore.onSettingsChanged({ key, value })
-    localeStore.onSettingsChanged({ key, value })
-    animationsStore.onSettingsChanged({ key, value })
-    gifStore.onSettingsChanged({ key, value })
-  })
+  await initStoreSettings()
+  offSettingsChanged = window.api.onSettingsChanged(({ key, value }) =>
+    onStoreSettingsChanged({ key, value })
+  )
 
   await rootsStore.refresh()
 
@@ -350,7 +275,7 @@ onMounted(async () => {
   offCacheProgress = window.api.onCacheProgress(onGlobalCacheProgress)
 
   // 启动检测更新：主进程发现新版本时用「忽略/查看」通知提示
-  offUpdateAvailable = window.api.onUpdateAvailable((p) => showUpdateNotify(p))
+  offUpdateAvailable = subscribeUpdateNotify()
 })
 
 onBeforeUnmount(() => {
