@@ -1,3 +1,4 @@
+import { promises as fsp } from 'fs'
 import { basename, dirname, isAbsolute, join, relative } from 'path'
 
 /**
@@ -68,6 +69,40 @@ export function isInsideRoot(rootPath, target) {
   // Windows 跨盘符时 relative() 返回绝对路径而非 `..` 前缀
   if (isRemotePath(rootPath)) return true
   return !isAbsolute(rel)
+}
+
+// realpath 结果缓存：避免每个入口都做一次磁盘解析；满时整体清空（简单且够用）。
+const realpathCache = new Map()
+const REALPATH_CACHE_MAX = 4096
+
+async function resolveRealPath(p) {
+  if (realpathCache.has(p)) return realpathCache.get(p)
+  let real
+  try {
+    real = await fsp.realpath(p)
+  } catch {
+    real = null
+  }
+  if (realpathCache.size >= REALPATH_CACHE_MAX) realpathCache.clear()
+  realpathCache.set(p, real)
+  return real
+}
+
+/**
+ * 越界防护（符号链接安全）：在 isInsideRoot 字符串判定之外，再用 realpath 解析 target 与 root，
+ * 判断解析后的真实路径是否仍在真实根目录内。根目录内指向外部的 symlink 会被拒绝。
+ *
+ * 协议层（image://）与剪贴板入口共用此实现，避免「一个入口修了、另一个没修」。
+ * 仅本地根需要 realpath；远程根是伪 URL，字符串判定通过即放行（交由 Provider 自行鉴权）。
+ */
+export async function isInsideRootReal(rootPath, absPath) {
+  if (!isInsideRoot(rootPath, absPath)) return false
+  if (isRemotePath(rootPath)) return true
+  const realTarget = await resolveRealPath(absPath)
+  if (!realTarget) return false
+  const realRoot = await resolveRealPath(rootPath)
+  if (!realRoot) return false
+  return isInsideRoot(realRoot, realTarget)
 }
 
 /**

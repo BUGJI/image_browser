@@ -15,7 +15,7 @@ import {
   VIDEO_EXTS,
   isSkipDir
 } from '../scan-constants.mjs'
-import { metaGet, metaSet, prep as prepCache } from '../cache-db-utils.mjs'
+import { foldText, metaGet, metaSet, prep as prepCache } from '../cache-db-utils.mjs'
 import { mapLimit } from '../concurrency.mjs'
 import { buildNameMatcher, mergeSearchResults, ocrTextMatches, wildcardToRegex } from './search'
 import { getCacheConfig } from './config'
@@ -187,8 +187,8 @@ async function scanCacheIntoIndex({ db, thumbDir, root, provider, onProgress, sh
   const dbByAbs = new Map(existing.map((r) => [r.abs_path, r]))
 
   const insertStmt = db.prepare(
-    `INSERT INTO files (abs_path, rel_path, name, folder, size, mtime, width, height, thumb, thumb_size, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO files (abs_path, rel_path, name, name_fold, folder, size, mtime, width, height, thumb, thumb_size, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   )
   const updateThumbStmt = db.prepare(
     `UPDATE files SET thumb=?, width=?, height=?, thumb_size=?, updated_at=? WHERE abs_path=?`
@@ -237,6 +237,7 @@ async function scanCacheIntoIndex({ db, thumbDir, root, provider, onProgress, sh
             m.srcAbs,
             m.srcRel,
             baseName(m.srcAbs),
+            foldText(baseName(m.srcAbs)),
             folder,
             m.st.size,
             Math.floor(m.st.mtimeMs),
@@ -394,11 +395,11 @@ export async function runCacheTask(root, mode, { onProgress = () => {}, shouldAb
 
     if (mode !== 'clean') {
       const insertStmt = db.prepare(
-        `INSERT INTO files (abs_path, rel_path, name, folder, size, mtime, width, height, thumb, thumb_size, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO files (abs_path, rel_path, name, name_fold, folder, size, mtime, width, height, thumb, thumb_size, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       const updateStmt = db.prepare(
-        `UPDATE files SET name=?, folder=?, size=?, mtime=?, updated_at=? WHERE abs_path=?`
+        `UPDATE files SET name=?, name_fold=?, folder=?, size=?, mtime=?, updated_at=? WHERE abs_path=?`
       )
       const clearThumbStmt = db.prepare(
         `UPDATE files SET thumb=NULL, thumb_size=NULL WHERE abs_path=?`
@@ -416,6 +417,7 @@ export async function runCacheTask(root, mode, { onProgress = () => {}, shouldAb
               f.absPath,
               f.relPath,
               f.name,
+              foldText(f.name),
               f.folder,
               f.size,
               f.mtime,
@@ -439,7 +441,7 @@ export async function runCacheTask(root, mode, { onProgress = () => {}, shouldAb
             }
             stats.added++
           } else if (row.mtime !== f.mtime || row.size !== f.size) {
-            updateStmt.run(f.name, f.folder, f.size, f.mtime, nowMs, f.absPath)
+            updateStmt.run(f.name, foldText(f.name), f.folder, f.size, f.mtime, nowMs, f.absPath)
             clearThumbStmt.run(f.absPath) // 原图变了，旧缩略图作废
             if (
               !VIDEO_EXTS.has(extname(f.name).toLowerCase()) &&
@@ -952,6 +954,13 @@ export function registerCacheIpc({ ipcMain }) {
   })
 
   ipcMain.handle('cache:stats', () => getCacheStats())
+
+  // 外部转换器可用性：供「设置-性能」在探测失败时给出明确提示（此前是静默回退 Worker 池）
+  ipcMain.handle('cache:cli-status', () => {
+    const cfg = getCacheConfig()
+    const resolved = resolveCliExe(cfg.cacheCliExe)
+    return { found: !!resolved, path: resolved || '', configured: cfg.cacheCliExe || '' }
+  })
 }
 
 /**
@@ -1006,7 +1015,7 @@ export async function handleImagesList(rootId, folderAbsPath, searchQuery, opts 
       const nameRows = prepCache(
         cache.db,
         `SELECT abs_path, rel_path, name, width, height, thumb, folder FROM files
-           WHERE name LIKE ? ESCAPE '\\' COLLATE NOCASE
+           WHERE name_fold LIKE ? ESCAPE '\\'
            ORDER BY folder, name COLLATE NOCASE`
       ).all(pattern)
       const textRows = ocrTextMatches(cache, query)

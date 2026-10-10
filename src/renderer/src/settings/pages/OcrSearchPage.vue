@@ -12,6 +12,8 @@ const { t } = useI18n()
 
 // OCR 图内文字搜索（PaddleOCR）
 const enabled = useSetting('ocrEnabled')
+// 是否允许安装缺少 SHA-256 校验值的组件包（默认否）
+const allowUnsigned = useSetting('ocrAddonAllowUnsigned')
 // (@repeato/ocr 内置模型 + 运行时组件) 是否可用
 const available = ref(false)
 const running = ref(false)
@@ -258,6 +260,16 @@ onBeforeUnmount(() => {
       />
       <p v-if="addonBusy" class="addon-phase">{{ phaseText }}</p>
 
+      <div class="addon-unsigned">
+        <SettingRow
+          :name="t('ocrSearch.allowUnsigned')"
+          :desc="t('ocrSearch.allowUnsignedDesc')"
+          align="top"
+        >
+          <el-switch v-model="allowUnsigned" />
+        </SettingRow>
+      </div>
+
       <div class="maintain-row addon-actions">
         <el-button
           v-if="!addon.installed"
@@ -338,6 +350,13 @@ onBeforeUnmount(() => {
   margin: 0 0 10px;
   font-size: 12px;
   color: var(--el-text-color-secondary);
+}
+
+.addon-unsigned {
+  max-width: 560px;
+  margin: 4px 0 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--el-border-color-lighter);
 }
 
 .addon-actions {

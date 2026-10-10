@@ -1,3 +1,5 @@
+import { promises as fsp } from 'fs'
+import { tmpdir } from 'os'
 import { join } from 'path'
 import { describe, expect, it } from 'vitest'
 import {
@@ -6,6 +8,7 @@ import {
   dirName,
   extName,
   isInsideRoot,
+  isInsideRootReal,
   isRemotePath,
   joinPath,
   relFromRoot,
@@ -73,6 +76,55 @@ describe('isInsideRoot', () => {
     expect(isInsideRoot('webdav://h/root', 'webdav://h/root/a/b')).toBe(true)
     expect(isInsideRoot('webdav://h/root', 'webdav://h/rootx/a')).toBe(false)
     expect(isInsideRoot('webdav://h/root', 'webdav://h/root')).toBe(false)
+  })
+})
+
+describe('isInsideRootReal（符号链接安全）', () => {
+  it('远程根放行（交由 Provider 鉴权）', async () => {
+    await expect(isInsideRootReal('webdav://h/root', 'webdav://h/root/a.jpg')).resolves.toBe(true)
+    await expect(isInsideRootReal('webdav://h/root', 'webdav://h/outside')).resolves.toBe(false)
+  })
+
+  it('根内普通文件放行、根外拒绝', async () => {
+    const base = await fsp.mkdtemp(join(tmpdir(), 'itrr-'))
+    try {
+      const root = join(base, 'root')
+      await fsp.mkdir(join(root, 'inside'), { recursive: true })
+      const file = join(root, 'inside', 'photo.jpg')
+      await fsp.writeFile(file, 'x')
+      await expect(isInsideRootReal(root, file)).resolves.toBe(true)
+      await expect(isInsideRootReal(root, join(base, 'outside.jpg'))).resolves.toBe(false)
+    } finally {
+      await fsp.rm(base, { recursive: true, force: true })
+    }
+  })
+
+  it('根内指向根外的软链接被拒绝（字符串判定会放行）', async () => {
+    const base = await fsp.mkdtemp(join(tmpdir(), 'itrr-'))
+    try {
+      const root = join(base, 'root')
+      const outside = join(base, 'outside')
+      await fsp.mkdir(join(root, 'inside'), { recursive: true })
+      await fsp.mkdir(outside, { recursive: true })
+      const secret = join(outside, 'secret.jpg')
+      await fsp.writeFile(secret, 'SECRET')
+      const link = join(root, 'inside', 'link.jpg')
+      try {
+        await fsp.symlink(secret, link, 'file')
+      } catch {
+        return // Windows 无创建符号链接权限时跳过
+      }
+      // 字符串判定会放行（这正是 #11 修复前的漏洞）
+      expect(isInsideRoot(root, link)).toBe(true)
+      // realpath 判定必须拒绝
+      await expect(isInsideRootReal(root, link)).resolves.toBe(false)
+    } finally {
+      await fsp.rm(base, { recursive: true, force: true })
+    }
+  })
+
+  it('不存在的路径返回 false', async () => {
+    await expect(isInsideRootReal('/no/such/root', '/no/such/root/a.jpg')).resolves.toBe(false)
   })
 })
 

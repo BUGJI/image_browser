@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { foldText } from '../cache-db-utils.mjs'
 import {
   buildNameMatcher,
   likeEscape,
@@ -6,6 +7,16 @@ import {
   nameMatchScore,
   wildcardToRegex
 } from './search'
+
+describe('foldText', () => {
+  it('做全 Unicode 小写折叠（不止 ASCII）', () => {
+    expect(foldText('Ärger.JPG')).toBe('ärger.jpg')
+    expect(foldText('Café.PNG')).toBe('café.png')
+    expect(foldText('STRASSE')).toBe('strasse')
+    expect(foldText('图片')).toBe('图片')
+    expect(foldText(null)).toBe('')
+  })
+})
 
 describe('likeEscape', () => {
   it('转义 LIKE 特殊字符 \\ % _', () => {
@@ -61,6 +72,11 @@ describe('buildNameMatcher', () => {
   it('普通查询按子串匹配并转义 LIKE 特殊字符', () => {
     expect(buildNameMatcher('a_b')).toEqual({ like: String.raw`a\_b`, anchored: false })
     expect(buildNameMatcher('50%')).toEqual({ like: String.raw`50\%`, anchored: false })
+  })
+
+  it('like 统一折叠为小写（配合 name_fold 列，覆盖非 ASCII）', () => {
+    expect(buildNameMatcher('Ärger')).toEqual({ like: 'ärger', anchored: false })
+    expect(buildNameMatcher('PHOTO*')).toEqual({ like: 'photo%', anchored: true })
   })
 
   it('空输入返回 null', () => {

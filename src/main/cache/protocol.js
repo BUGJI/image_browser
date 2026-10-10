@@ -3,7 +3,7 @@ import { Readable } from 'stream'
 import { getRoot } from '../roots'
 import { getProvider, isRemoteRoot } from '../storage'
 import { ensureRemoteThumb } from '../storage/cache-sync'
-import { extName, isInsideRoot } from '../storage/path-utils'
+import { extName, isInsideRootReal } from '../storage/path-utils'
 import { MIME_BY_EXT } from '../scan-constants.mjs'
 import { openRootCache } from './connection'
 import { resolveThumb } from './thumb-index'
@@ -11,38 +11,6 @@ import { resolveThumb } from './thumb-index'
 /**
  * image:// 自定义协议处理（缩略图/原图读取 + 越界防护）。从 cache.js 拆出。
  */
-
-// realpath 结果缓存：避免每张图都做一次磁盘解析；满时整体清空（简单且够用）。
-const realpathCache = new Map()
-const REALPATH_CACHE_MAX = 4096
-
-async function resolveRealPath(p) {
-  if (realpathCache.has(p)) return realpathCache.get(p)
-  let real
-  try {
-    real = await fsp.realpath(p)
-  } catch {
-    real = null
-  }
-  if (realpathCache.size >= REALPATH_CACHE_MAX) realpathCache.clear()
-  realpathCache.set(p, real)
-  return real
-}
-
-/**
- * 越界防护（符号链接安全）：在字符串判定之外，用 realpath 解析 target 与 root，
- * 再判断解析后的真实路径是否仍在真实根目录内。根目录内指向外部的 symlink 会被拒绝。
- * 仅本地根需要；远程根是伪 URL，交由 Provider 自行鉴权。
- */
-async function isInsideRootReal(root, absPath) {
-  if (!isInsideRoot(root.path, absPath)) return false
-  if (isRemoteRoot(root)) return true
-  const realTarget = await resolveRealPath(absPath)
-  if (!realTarget) return false
-  const realRoot = await resolveRealPath(root.path)
-  if (!realRoot) return false
-  return isInsideRoot(realRoot, realTarget)
-}
 
 /**
  * 注册 image:// 自定义协议（需在 app ready 前 registerSchemesAsPrivileged）。
@@ -63,7 +31,7 @@ export function registerImageProtocol({ protocol }) {
       const root = Number.isFinite(rootId) && rootId > 0 ? getRoot(rootId) : undefined
       // 越界防护：仅允许访问已注册根目录内的文件，防止渲染层读取任意磁盘路径
       // （含符号链接解析，避免根目录内 symlink 指向外部被读取）
-      if (!root || !(await isInsideRootReal(root, absPath))) {
+      if (!root || !(await isInsideRootReal(root.path, absPath))) {
         return new Response('forbidden', { status: 403 })
       }
       const provider = getProvider(root)

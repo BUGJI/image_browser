@@ -131,6 +131,8 @@ const api = {
   cacheRun: (rootId, mode) => ipcRenderer.invoke('cache:run', rootId, mode),
   cacheAbort: () => ipcRenderer.invoke('cache:abort'),
   cacheStatus: () => ipcRenderer.invoke('cache:status'),
+  // 外部转换器可用性：{ found, path, configured }
+  cacheCliStatus: () => ipcRenderer.invoke('cache:cli-status'),
   // 各根目录缓存概况（媒体数 / 已缓存数 / 原图与缩略图字节数 / 最近维护时间）
   cacheStats: () => ipcRenderer.invoke('cache:stats'),
   // 缓存任务进度事件：{ rootId, rootPath, phase, scanned/done/total, done/aborted/error }

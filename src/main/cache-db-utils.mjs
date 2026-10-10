@@ -16,6 +16,16 @@ export function prep(db, sql) {
   return stmt
 }
 
+/**
+ * 全 Unicode 大小写折叠（JS toLowerCase）。
+ * SQLite 的 NOCASE 排序规则与 lower() 只折叠 A–Z，non-ASCII（Ä / С / Ζ …）按原样比较。
+ * 因此写入索引时用本函数落库折叠值，检索时对查询做同样折叠，
+ * 保证「大小写不敏感」覆盖全部 Unicode，且与无缓存兜底扫描（JS）结论一致。
+ */
+export function foldText(s) {
+  return String(s == null ? '' : s).toLowerCase()
+}
+
 export function metaGet(db, key, fallback = null) {
   const row = prep(db, 'SELECT value FROM meta WHERE key = ?').get(key)
   return row ? row.value : fallback

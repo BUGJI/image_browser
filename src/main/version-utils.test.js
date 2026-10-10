@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { compareVersions, isStableVersionRelease, parseVersion } from './version-utils'
+import {
+  compareVersions,
+  isStableVersionRelease,
+  parseVersion,
+  pickLatestStableVersion
+} from './version-utils'
 
 describe('parseVersion', () => {
   it('解析标准 v 前缀版本', () => {
@@ -49,5 +54,38 @@ describe('isStableVersionRelease', () => {
     expect(isStableVersionRelease({ tag_name: 'v1.1.4', draft: true })).toBe(false)
     expect(isStableVersionRelease({ tag_name: 'v1.1.4', prerelease: true })).toBe(false)
     expect(isStableVersionRelease(null)).toBe(false)
+  })
+})
+
+describe('pickLatestStableVersion', () => {
+  it('后补发的旧版本排首位时仍取出语义最大版本', () => {
+    const list = [
+      { tag_name: 'v1.0.15' },
+      { tag_name: 'v1.2.0' },
+      { tag_name: 'ocr-runtime-v1.22.0-rev_sharp-0.34.5' },
+      { tag_name: 'v1.1.5' }
+    ]
+    expect(pickLatestStableVersion(list).version).toBe('1.2.0')
+    expect(pickLatestStableVersion(list).release.tag_name).toBe('v1.2.0')
+  })
+
+  it('忽略 draft / prerelease / 非应用版本 tag', () => {
+    const list = [
+      { tag_name: 'v2.0.0', prerelease: true },
+      { tag_name: 'ocr-runtime-v9.9.9' },
+      { tag_name: 'v1.3.0' }
+    ]
+    expect(pickLatestStableVersion(list).version).toBe('1.3.0')
+  })
+
+  it('无稳定版本 / 非数组时返回 null', () => {
+    expect(pickLatestStableVersion([{ tag_name: 'ocr-runtime-v1.0.0' }])).toBeNull()
+    expect(pickLatestStableVersion([])).toBeNull()
+    expect(pickLatestStableVersion(null)).toBeNull()
+  })
+
+  it('段数不等时按缺失段补 0 比较', () => {
+    const list = [{ tag_name: 'v1.0' }, { tag_name: 'v1.0.1' }]
+    expect(pickLatestStableVersion(list).version).toBe('1.0.1')
   })
 })
